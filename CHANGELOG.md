@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+**Agent**
+- Claude quota: the last successful reading is kept on disk, so after a restart (an update) or while Anthropic
+  rate-limits the checks, the panel shows the last values and their age instead of an empty quota.
+
 ## 0.9.7 — 2026-11-15
 
 The agent no longer needs .NET installed: each release is one self-contained program. The Claude quota shows again
