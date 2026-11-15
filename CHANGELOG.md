@@ -9,6 +9,9 @@
   weather line, Custom HTML); before, the phone asked Open-Meteo every 15 minutes whatever was on screen.
 
 **Agent**
+- On macOS and Linux `config.json`, its backup and the pushed data are written readable only by your user (0600), and
+  an existing config is tightened at start; before, they followed the umask (often 0644), so other local users could
+  read the Wi-Fi, webhook and Home Assistant keys.
 - Settings › General › Ping: the host pinged every 5 seconds for the ping metric and the "ping high" rule (1.1.1.1 by
   default); empty turns pinging off.
 
