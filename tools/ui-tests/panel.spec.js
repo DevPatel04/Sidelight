@@ -368,6 +368,16 @@ test('the pairing page hands a checked link to the app and clears it from the ad
   await page.goto(`/pair/#v=1&pc=x&fp=${fp}&port=8766&h=8.8.8.8&c=${'A'.repeat(22)}`); // not a local address
   await expect(page.locator('#bad')).toBeVisible();
   await page.goto('about:blank');
+  await page.goto(`/pair/#v=1&pc=x&fp=${fp}&port=99999&h=192.168.1.10&c=${'A'.repeat(22)}`); // no such port
+  await expect(page.locator('#bad')).toBeVisible();
+  await page.goto('about:blank');
+  await page.goto(`/pair/#v=1&pc=x&fp=${fp}&port=8766&h=192.168.1.10,8.8.8.8&c=${'A'.repeat(22)}`); // a public address is dropped
+  await expect(page.locator('#hosts')).toHaveText('192.168.1.10 (port 8766)');
+  expect(await page.locator('#open').getAttribute('href')).toContain('&h=192.168.1.10&');
+  await page.goto('about:blank');
+  await page.goto(`/pair/#v=1&pc=x&fp=${fp}&port=8766&h=8.8.8.8&c=${'A'.repeat(22)}`);
+  await expect(page.locator('#bad')).toBeVisible();
+  await page.goto('about:blank');
   await page.goto('/pair/#v=1&fp=nope');
   await expect(page.locator('#bad')).toBeVisible();
   await expect(page.locator('#ok')).toBeHidden();

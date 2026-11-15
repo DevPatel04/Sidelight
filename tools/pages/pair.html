@@ -64,11 +64,16 @@ code { font-size: 13px; }
   // keep the one-time code out of the browser history and the address bar
   history.replaceState(null, '', location.pathname);
   const p = new URLSearchParams(raw);
+  // one checked host list for the check, the display and the link handed to the app
+  const hosts = (p.get('h') || '').split(',').map((h) => h.trim()).filter(local).slice(0, 8);
+  const port = /^\d{1,5}$/.test(p.get('port') || '') ? +p.get('port') : 0;
   const ok = p.get('v') === '1' && /^[0-9a-f]{64}$/i.test(p.get('fp') || '') && /^[A-Za-z0-9_-]{16,64}$/.test(p.get('c') || '')
-    && /^\d{1,5}$/.test(p.get('port') || '') && (p.get('h') || '').split(',').some(local);
+    && port >= 1 && port <= 65535 && hosts.length > 0;
   if (!ok) { document.getElementById('bad').hidden = false; return; }
+  p.set('h', hosts.join(','));
+  p.set('port', String(port));
   document.getElementById('pc').textContent = (p.get('pc') || 'your computer').slice(0, 64);
-  document.getElementById('hosts').textContent = p.get('h').split(',').filter(local).join(', ') + ' (port ' + p.get('port') + ')';
+  document.getElementById('hosts').textContent = hosts.join(', ') + ' (port ' + port + ')';
   document.getElementById('check').textContent = (p.get('fp').slice(0, 4) + ' ' + p.get('fp').slice(4, 8)).toUpperCase();
   // Chrome on Android opens intent:// links in the app and falls back to the download page when it is not installed;
   // other browsers get the plain phonebox:// link.
