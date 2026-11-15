@@ -266,7 +266,7 @@ test('pairing over Wi-Fi shows both QR codes and cancels the code when closed', 
   await expect(page.locator('#modalBody .pair-qr').nth(1)).toContainText('confirm the code DE40 0001');
   await page.screenshot({ path: 'test-results/pair-dialog.png' });
   await page.locator('#modalClose').click();
-  await expect.poll(() => page.evaluate(() => window.__calls)).toContain('POST /api/pair/cancel');
+  await expect.poll(() => page.evaluate(() => window.__calls)).toContain('POST /api/pair/cancel?attempt=1');
   await expect(page.locator('#modal')).toBeHidden();
   expect(errors).toEqual([]);
 });

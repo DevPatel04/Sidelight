@@ -232,7 +232,7 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
 {
     if (!cfg.Get().Lan.Enabled || lanCert is null)
         return Results.Json(new { enabled = false, configured = cfg.Get().Lan.Enabled });
-    var (code, expiresAt) = codes.Start(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+    var (code, expiresAt, attempt) = codes.Start(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     var hosts = Lan.Addresses();
     var fingerprint = Lan.Fingerprint(lanCert);
     var link = PairingCodes.Link(Environment.MachineName, fingerprint, lanCfg.Port, hosts, code);
@@ -245,6 +245,7 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
         port = lanCfg.Port,
         expiresAt,
         claims = codes.Claims,
+        attempt,
         check = PairingCodes.Check(fingerprint),
         link,
         qr = PairingCodes.Svg(link),
@@ -252,7 +253,7 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
         appQr = PairingCodes.Svg(apk),
     });
 });
-app.MapPost("/api/pair/cancel", (PairingCodes codes) => { codes.Cancel(); return Results.Ok(); });
+app.MapPost("/api/pair/cancel", (long attempt, PairingCodes codes) => { codes.Cancel(attempt); return Results.Ok(); });
 app.MapGet("/api/pair/status", (PairingCodes codes) => Results.Json(new { claims = codes.Claims }));
 app.MapPost("/api/pair/claim", async (HttpRequest req, ConfigStore cfg, PairingCodes codes) =>
 {

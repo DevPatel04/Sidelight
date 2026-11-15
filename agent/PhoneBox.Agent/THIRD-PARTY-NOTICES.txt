@@ -13,7 +13,7 @@ MIT License, Copyright (c) .NET Foundation and Contributors / Microsoft Corporat
 
 QRCoder 1.8.1
 https://github.com/Shane32/QRCoder
-MIT License, Copyright (c) 2013-2018 Raffael Herrmann and contributors
+MIT License, Copyright (c) 2013-2025 Raffael Herrmann; Copyright (c) 2024-2025 Shane Krueger
 (the same MIT terms as below)
 
 --------------------------------------------------------------------------------

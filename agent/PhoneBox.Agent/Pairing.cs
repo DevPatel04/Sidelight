@@ -21,12 +21,13 @@ public sealed class PairingCodes
     private long _expiresAt;
     private int _failures;
     private long _claims;
+    private long _attempt; // numbers each Start, so a late cancel from an old dialog cannot end a newer pairing
 
     /// <summary>How many phones have paired with a code since the agent started (the settings page watches it).</summary>
     public long Claims => Interlocked.Read(ref _claims);
 
     /// <summary>Starts a new pairing; the previous code stops working.</summary>
-    public (string Code, long ExpiresAt) Start(long nowMs)
+    public (string Code, long ExpiresAt, long Attempt) Start(long nowMs)
     {
         var bytes = RandomNumberGenerator.GetBytes(16);
         var code = Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
@@ -35,12 +36,12 @@ public sealed class PairingCodes
             _code = Encoding.UTF8.GetBytes(code);
             _expiresAt = nowMs + LifetimeMs;
             _failures = 0;
-            return (code, _expiresAt);
+            return (code, _expiresAt, ++_attempt);
         }
     }
 
-    /// <summary>Ends the current pairing (the dialog was closed).</summary>
-    public void Cancel() { lock (_lock) _code = null; }
+    /// <summary>Ends a pairing when its dialog closes; a newer pairing (another attempt) is left alone.</summary>
+    public void Cancel(long attempt) { lock (_lock) if (attempt == _attempt) _code = null; }
 
     /// <summary>True once for the current, unexpired code; a used, expired or wrong code returns false.</summary>
     public bool Claim(string? code, long nowMs)

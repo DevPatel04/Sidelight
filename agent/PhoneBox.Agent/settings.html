@@ -1424,9 +1424,13 @@ function closeModal() {
 }
 
 // ---------------------------------------------------------------- pairing over Wi-Fi (no USB)
+let pairAttempt = 0; // the dialog's current attempt: late answers from an older one are ignored
 async function pairOverWifi() {
+  const mine = ++pairAttempt;
   let r;
   try { r = await (await fetch('/api/pair/start', { method: 'POST' })).json(); } catch (_) { toast('Could not start pairing', true); return; }
+  const cancel = () => fetch('/api/pair/cancel?attempt=' + encodeURIComponent(r.attempt), { method: 'POST' }).catch(() => {});
+  if (mine !== pairAttempt) { if (r.enabled) cancel(); return; } // started again meanwhile
   if (!r.enabled) {
     toast(r.configured ? 'Restart the agent first (Wi-Fi was just turned on)' : 'Turn on “Let the phone connect without the USB cable”, save and restart first', true);
     return;
@@ -1454,15 +1458,17 @@ async function pairOverWifi() {
   const tick = async () => {
     try {
       const s = await (await fetch('/api/pair/status')).json();
-      if (s.claims > r.claims) { onModalClose = () => clearInterval(timer); closeModal(); toast('Phone paired over Wi-Fi'); return; }
+      if (mine !== pairAttempt) return; // this dialog was closed (and maybe a new one opened) while waiting
+      if (s.claims > r.claims) { onModalClose = () => { pairAttempt++; clearInterval(timer); }; closeModal(); toast('Phone paired over Wi-Fi'); return; }
     } catch (_) { }
+    if (mine !== pairAttempt) return;
     const ms = r.expiresAt - Date.now();
     if (ms <= 0) { left.textContent = 'Expired: close and start again.'; pairBox.classList.add('expired'); clearInterval(timer); return; }
     left.textContent = `Expires in ${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}.`;
   };
   const timer = setInterval(tick, 1000);
   tick();
-  onModalClose = () => { clearInterval(timer); fetch('/api/pair/cancel', { method: 'POST' }).catch(() => {}); };
+  onModalClose = () => { pairAttempt++; clearInterval(timer); cancel(); };
   $('modal').hidden = false;
 }
 

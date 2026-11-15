@@ -10,7 +10,7 @@ public sealed class PairingTests
     public void ACodeWorksOnceAndCountsTheClaim()
     {
         var codes = new PairingCodes();
-        var (code, expires) = codes.Start(Now);
+        var (code, expires, _) = codes.Start(Now);
         Assert.Equal(Now + PairingCodes.LifetimeMs, expires);
         Assert.Matches("^[A-Za-z0-9_-]{22}$", code); // 128 bits, base64url
         Assert.True(codes.Claim(code, Now + 1000));
@@ -23,24 +23,34 @@ public sealed class PairingTests
     public void AnExpiredCancelledOrReplacedCodeFails()
     {
         var codes = new PairingCodes();
-        var (expired, _) = codes.Start(Now);
+        var (expired, _, _) = codes.Start(Now);
         Assert.False(codes.Claim(expired, Now + PairingCodes.LifetimeMs + 1));
 
-        var (cancelled, _) = codes.Start(Now);
-        codes.Cancel();
+        var (cancelled, _, attempt) = codes.Start(Now);
+        codes.Cancel(attempt);
         Assert.False(codes.Claim(cancelled, Now));
 
-        var (old, _) = codes.Start(Now);
-        var (current, _) = codes.Start(Now);
+        var (old, _, _) = codes.Start(Now);
+        var (current, _, _) = codes.Start(Now);
         Assert.False(codes.Claim(old, Now));
         Assert.True(codes.Claim(current, Now));
+    }
+
+    [Fact]
+    public void ALateCancelFromAnOlderDialogLeavesTheNewPairing()
+    {
+        var codes = new PairingCodes();
+        var (_, _, first) = codes.Start(Now);
+        var (second, _, _) = codes.Start(Now);
+        codes.Cancel(first);
+        Assert.True(codes.Claim(second, Now));
     }
 
     [Fact]
     public void TooManyWrongCodesDropTheCurrentOne()
     {
         var codes = new PairingCodes();
-        var (code, _) = codes.Start(Now);
+        var (code, _, _) = codes.Start(Now);
         Assert.False(codes.Claim(null, Now));
         Assert.False(codes.Claim("", Now));
         for (var i = 0; i < PairingCodes.MaxFailures; i++) Assert.False(codes.Claim("wrong" + i, Now));
