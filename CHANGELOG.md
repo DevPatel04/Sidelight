@@ -3,6 +3,10 @@
 ## Unreleased
 
 **Agent**
+- The release agent is a single self-contained program on every system: unzip and run, no .NET runtime to install
+  (Windows needed the .NET 10 Desktop Runtime before). The zips are larger (Windows about 65 MB, Linux and macOS
+  about 45 MB) and updates download that size. After updating, the agent removes the framework-dependent files the
+  updater leaves behind; source installs (`install.ps1`, `install.sh`) stay framework-dependent.
 - Settings: **Open on phone** works over Wi-Fi and Tailscale too. It shows the page selected in the editor on the phone
   (over USB it also wakes the phone, as before), and says "No phone connected" instead of claiming it worked (#62,
   thanks to d4rk-lucif3r).

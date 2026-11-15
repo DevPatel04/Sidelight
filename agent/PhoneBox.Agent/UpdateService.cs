@@ -50,6 +50,7 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("PhoneBox/" + AppPaths.Version);
         _http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         CleanupOldFiles();
+        if (RunningInstalled) RemoveFrameworkDependentLeftovers(InstallDir, SingleFile);
         await Task.Delay(TimeSpan.FromSeconds(20), ct);
         var nextCheck = DateTime.MinValue;
         while (!ct.IsCancellationRequested)
@@ -303,6 +304,33 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
         catch { }
     }
 
+    /// <summary>True when this agent runs as a self-contained single file (the release builds).</summary>
+#pragma warning disable IL3000 // empty in a single-file app: that is exactly what this checks
+    internal static bool SingleFile => string.IsNullOrEmpty(typeof(UpdateService).Assembly.Location);
+#pragma warning restore IL3000
+
+    /// <summary>
+    /// Files of the framework-dependent agent (releases up to 0.9.6). The updater only adds and replaces files, so an
+    /// install updated to a single-file release keeps them; the single-file agent never loads them.
+    /// </summary>
+    internal static readonly string[] FrameworkDependentFiles =
+    [
+        "PhoneBoxAgent.dll", "PhoneBoxAgent.deps.json", "PhoneBoxAgent.runtimeconfig.json",
+        "NAudio.dll", "NAudio.Core.dll", "NAudio.Midi.dll", "NAudio.Wasapi.dll", "NAudio.WinMM.dll",
+        "WinRT.Runtime.dll", "Microsoft.Windows.SDK.NET.dll", "System.Numerics.Tensors.dll",
+    ];
+
+    /// <summary>
+    /// Deletes <see cref="FrameworkDependentFiles"/> from a single-file install. Does nothing for a framework-dependent
+    /// agent (a source install by install.ps1 / install.sh needs them), so either kind can replace the other.
+    /// </summary>
+    internal static void RemoveFrameworkDependentLeftovers(string dir, bool singleFile)
+    {
+        if (!singleFile || !Directory.Exists(dir)) return;
+        foreach (var name in FrameworkDependentFiles)
+            try { File.Delete(Path.Combine(dir, name)); } catch { } // missing files are fine; File.Delete ignores them
+    }
+
     private static bool Newer(string candidate, string current) =>
         Version.TryParse(candidate, out var a) && Version.TryParse(current.Split('-')[0], out var b) && a > b;
 
@@ -332,7 +360,8 @@ public static class AppRestart
     {
         var start = new ProcessStartInfo(executable) { UseShellExecute = false, WorkingDirectory = AppContext.BaseDirectory };
         if (string.Equals(Path.GetFileNameWithoutExtension(executable), "dotnet", StringComparison.OrdinalIgnoreCase))
-            start.ArgumentList.Add(typeof(AppRestart).Assembly.Location);
+            // only a framework-dependent agent runs under dotnet; Assembly.Location is empty in a single-file app
+            start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, typeof(AppRestart).Assembly.GetName().Name + ".dll"));
         foreach (var arg in args.Where(a => a != "--restart")) start.ArgumentList.Add(arg);
         start.ArgumentList.Add("--restart");
         return start;

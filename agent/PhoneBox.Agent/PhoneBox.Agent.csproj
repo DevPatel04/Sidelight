@@ -26,7 +26,6 @@
 
   <ItemGroup Condition="$(TargetFramework.Contains('-windows'))">
     <PackageReference Include="NAudio" Version="3.3.0" />
-    <None Update="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup Condition="!$(TargetFramework.Contains('-windows'))">
@@ -41,6 +40,11 @@
 
   <ItemGroup Condition="!$(TargetFramework.Contains('-windows'))">
     <Compile Remove="Tray.cs;JobObject.cs;AudioControl.cs;MediaMonitor.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- every release zip: it bundles the .NET runtime (and NAudio on Windows) -->
+    <None Update="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

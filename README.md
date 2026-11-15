@@ -70,8 +70,9 @@ These screenshots use made-up demo data. See the [changelog](CHANGELOG.md) for a
 ## Quick start
 
 **[Download the latest PhoneBox release](https://github.com/ersinkoc/phonebox/releases/latest)** — signed Android APK and
-agents for Windows x64, Linux x64/ARM64 and macOS Apple Silicon/Intel. Agent archives need the matching .NET 10
-runtime (Desktop Runtime on Windows). The release includes SHA-256 checksums and build provenance.
+agents for Windows x64, Linux x64/ARM64 and macOS Apple Silicon/Intel. From 0.9.7 the agent is a single
+self-contained program: unzip and run it, no .NET to install (0.9.6 and earlier need the .NET 10 runtime, the Desktop
+Runtime on Windows). The release includes SHA-256 checksums and build provenance.
 Existing users can update from Settings; existing layouts and pairing settings are retained.
 
 You need an Android 9+ phone with [USB debugging](https://developer.android.com/studio/debug/dev-options) turned on,
@@ -95,7 +96,7 @@ phone app*, with the phone plugged in):
 
 ```powershell
 scoop bucket add phonebox https://github.com/ersinkoc/phonebox
-scoop install phonebox/phonebox          # needs the .NET 10 Desktop Runtime and adb (scoop install extras/windowsdesktop-runtime main/adb)
+scoop install phonebox/phonebox          # needs adb (scoop install main/adb); 0.9.6 and earlier also the .NET 10 Desktop Runtime
 ```
 
 A winget package (`ersinkoc.PhoneBox`) is prepared in [`packaging/winget`](packaging/winget) for submission to
@@ -529,9 +530,10 @@ the phone PhoneBox was built for.
 Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
 [SignPath Foundation](https://signpath.org/).
 
-- **What is signed**: the Windows agent (`PhoneBoxAgent.exe` and `PhoneBoxAgent.dll`) in the `win-x64` release zip.
+- **What is signed**: the Windows agent (`PhoneBoxAgent.exe`, a single self-contained program) in the `win-x64` release zip.
   It is built from this repository by the [release workflow](.github/workflows/release.yml) on GitHub Actions, and
-  every signing request is approved by hand. Third-party libraries in the zip keep their own publishers' signatures.
+  every signing request is approved by hand. The .NET runtime and the open-source libraries bundled into it are listed in
+  `THIRD-PARTY-NOTICES.txt`.
   Status: the application to SignPath Foundation is pending; until it is approved, releases are unsigned.
 - **Android app**: the APK is signed with the project's own release key, not through SignPath.
 - **Team roles**: committers and reviewers: [ersinkoc](https://github.com/ersinkoc); approvers:
