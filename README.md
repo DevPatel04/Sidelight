@@ -14,6 +14,20 @@ Widgets for your PC, AI coding sessions, music, weather and anything you push to
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
+<!-- sponsor: WrongStack -->
+<p align="center">
+  <a href="https://wrongstack.com">
+    <img src="docs/sponsors/wrongstack.svg" width="900" alt="Sponsored by WrongStack — open-source AI coding with durable memory and multi-agent workflows. Explore wrongstack.com.">
+  </a>
+</p>
+<p align="center">
+  <strong>Supported by <a href="https://wrongstack.com">WrongStack</a></strong> ·
+  An open-source AI coding agent that remembers your codebase.<br>
+  <a href="https://wrongstack.com"><strong>Explore WrongStack →</strong></a> ·
+  <a href="https://github.com/wrongstack/wrongstack"><strong>View on GitHub &amp; give it a star ★</strong></a>
+</p>
+<!-- /sponsor: WrongStack -->
+
 <p align="center"><img src="docs/hero-0.6.png" width="900" alt="PhoneBox on three phones: automation, home and planner pages"></p>
 
 PhoneBox has two parts: a small **Android app** that runs full screen on the phone, and an **agent** on the computer
