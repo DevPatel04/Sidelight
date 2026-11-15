@@ -483,7 +483,7 @@ export const MEDIA_HTML = `
     </div>
   </div>
   <div class="offline-msg"><b>Computer not connected</b>
-    <span>Is the PhoneBox agent running? Plug in the USB cable, or turn on Wi-Fi in the PhoneBox settings and pair once over USB.</span></div>`;
+    <span>Is the PhoneBox agent running? Plug in the USB cable, or pair over Wi-Fi: in the PhoneBox settings on the computer choose Wi-Fi &amp; Tailscale › Pair a phone over Wi-Fi and scan the QR code with this phone's camera.</span></div>`;
 
 // ---------------------------------------------------------------- quotas
 export const Q_STYLE = { antigravity: { color: '#38bdf8', logo: '✦' }, claude: { color: '#d97757', logo: '✳' }, codex: { color: '#e5e7eb', logo: '◎' } };
