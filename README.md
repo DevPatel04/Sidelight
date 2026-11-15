@@ -36,7 +36,7 @@ the pages in a visual editor on the PC: **114 widgets**, **30 templates**, as ma
 **Contents**: [Quick start](#quick-start) · [Pages & templates](#pages--templates) · [Widgets](#widgets) ·
 [Layout editor](#layout-editor--settings) · [Claude Code prompts](#claude-code-permission-prompts) · [Webhooks](#webhooks) · [Rules](#rules) · [Wi-Fi & Tailscale](#wi-fi--tailscale) ·
 [Updates](#updates) · [How it works](#how-it-works) · [Security](#security--privacy) · [FAQ](#faq--troubleshooting) ·
-[Development](#development)
+[Development](#development) · [Privacy policy](PRIVACY.md) · [Code signing policy](#code-signing-policy)
 
 ## Recent highlights
 
@@ -420,12 +420,15 @@ flowchart LR
   `api.anthropic.com/api/oauth/usage` (the endpoint behind Claude Code's `/usage`). The token is read-only: PhoneBox
   never refreshes it, so it can't interfere with Claude Code. This endpoint is undocumented and may change.
 - **Codex quota and sessions** are read from local files in `~/.codex/sessions`; Claude Code sessions from
-  `~/.claude/sessions`. Nothing leaves your machine except the requests listed above.
+  `~/.claude/sessions`.
 - **Native Antigravity quota:** the agent reads the running Antigravity server's port and CSRF token from its
   process arguments and queries its loopback quota/status API, or invokes the signed-in CLI's structured usage
   command. Only measured quota fields reach the panel; CLI conversation identifiers and token counters are omitted.
   PhoneBox does not manage Google OAuth credentials; the CLI uses its own authentication. CLI auto-updates are
   disabled for these probes.
+- **No telemetry**: no accounts, no analytics, no crash reports. The [privacy policy](PRIVACY.md) lists every
+  connection the agent and the app make (update check, weather, the widgets that use public APIs) and how to turn
+  each one off.
 
 ## FAQ & troubleshooting
 
@@ -518,6 +521,20 @@ The script dispatches the gated GitHub release workflow; see [the release checkl
 
 [`extras/umidigi-bison`](extras/umidigi-bison) has the reversible, no-root tune-up (debloat list, settings) used on
 the phone PhoneBox was built for.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
+[SignPath Foundation](https://signpath.org/).
+
+- **What is signed**: the Windows agent (`PhoneBoxAgent.exe` and `PhoneBoxAgent.dll`) in the `win-x64` release zip.
+  It is built from this repository by the [release workflow](.github/workflows/release.yml) on GitHub Actions, and
+  every signing request is approved by hand. Third-party libraries in the zip keep their own publishers' signatures.
+  Status: the application to SignPath Foundation is pending; releases up to 0.9.5 are unsigned.
+- **Android app**: the APK is signed with the project's own release key, not through SignPath.
+- **Team roles**: committers and reviewers: [ersinkoc](https://github.com/ersinkoc); approvers:
+  [ersinkoc](https://github.com/ersinkoc). Pull requests from other contributors are reviewed before they are merged.
+- **Privacy**: see the [privacy policy](PRIVACY.md).
 
 ## License
 

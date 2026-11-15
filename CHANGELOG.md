@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+**Docs**
+- A privacy policy ([PRIVACY.md](PRIVACY.md)) lists every connection the agent and the app make and how to turn each
+  one off; the README no longer says that nothing else leaves the machine.
+- Code signing policy in the README, on the demo site and under every release: the Windows agent is to be signed
+  through SignPath Foundation (application pending, #56).
+
 ## 0.9.5 — 2026-11-14
 
 AMD and Intel graphics cards with no vendor tool, a GPU details widget, internet radio in Now Playing with station

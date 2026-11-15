@@ -47,6 +47,11 @@ header .gh:hover { border-color: var(--accent); }
 .card p { color: var(--muted); font-size: 14px; }
 .cta { margin-top: 36px; text-align: center; }
 .cta code { background: var(--panel); border: 1px solid var(--line); padding: 3px 8px; border-radius: 6px; font-size: 13px; }
+.policy { margin-top: 36px; background: rgba(16, 20, 27, .8); border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; color: var(--muted); font-size: 14px; }
+.policy h2 { font-size: 15px; color: var(--text); margin-bottom: 6px; }
+.policy ul { margin-top: 6px; padding-left: 18px; }
+.policy li { margin-top: 4px; }
+.policy code { font-size: 13px; }
 footer { margin-top: 40px; text-align: center; color: var(--muted); font-size: 13px; }
 @media (max-width: 600px) { header .gh span { display: none; } .lead { font-size: 15px; } }
 </style>
@@ -79,14 +84,25 @@ footer { margin-top: 40px; text-align: center; color: var(--muted); font-size: 1
     <div class="card"><h3>AI coding at a glance</h3><p>Claude, Codex and Antigravity quotas with a burn-rate forecast, Claude Code and Codex sessions, GitHub reviews, and Allow / Deny for Claude Code's permission prompts right on the phone.</p></div>
     <div class="card"><h3>Control Deck</h3><p>App and device volume, microphone, media, OBS, tasks, dev servers and display brightness as touch controls. The phone sends IDs only; commands stay on the computer. The native audio and display controls are Windows-only.</p></div>
     <div class="card"><h3>Webhooks and rules</h3><p>Scripts, CI and Home Assistant push values and notifications with one <code>curl</code>; rules switch pages calmly when a call, music or a waiting AI session needs the screen.</p></div>
-    <div class="card"><h3>USB or Wi-Fi, no cloud</h3><p>Over the USB cable, or over Wi-Fi / Tailscale with a pinned certificate and a key. Nothing leaves your machine.</p></div>
+    <div class="card"><h3>USB or Wi-Fi, no cloud</h3><p>Over the USB cable, or over Wi-Fi / Tailscale with a pinned certificate and a key. No accounts, no telemetry: see the <a href="https://github.com/ersinkoc/phonebox/blob/main/PRIVACY.md">privacy policy</a>.</p></div>
   </div>
 
   <div class="cta">
     <p>Install: <code>./scripts/install.sh --apk</code> (Linux, macOS) or <code>.\scripts\install.ps1 -Apk</code> (Windows) —
-      see the <a href="https://github.com/ersinkoc/phonebox#quick-start">quick start</a>.</p>
+      see the <a href="https://github.com/ersinkoc/phonebox#quick-start">quick start</a>, or download a
+      <a href="https://github.com/ersinkoc/phonebox/releases/latest">release</a>.</p>
   </div>
-  <footer>PhoneBox {{version}} · MIT licensed · <a href="https://github.com/ersinkoc/phonebox">github.com/ersinkoc/phonebox</a> · <a href="https://github.com/ersinkoc/phonebox/blob/main/CHANGELOG.md">changelog</a></footer>
+
+  <section class="policy" id="code-signing-policy">
+    <h2>Code signing policy</h2>
+    <p>Free code signing provided by <a href="https://about.signpath.io/">SignPath.io</a>, certificate by <a href="https://signpath.org/">SignPath Foundation</a>.</p>
+    <ul>
+      <li>The Windows agent (<code>PhoneBoxAgent.exe</code>, <code>PhoneBoxAgent.dll</code>) is built from the <a href="https://github.com/ersinkoc/phonebox">source repository</a> on GitHub Actions and every signing request is approved by hand. The application to SignPath Foundation is pending; releases up to 0.9.5 are unsigned.</li>
+      <li>Committers and reviewers: <a href="https://github.com/ersinkoc">ersinkoc</a>. Approvers: <a href="https://github.com/ersinkoc">ersinkoc</a>.</li>
+      <li>Privacy: PhoneBox has no accounts and no telemetry. The <a href="https://github.com/ersinkoc/phonebox/blob/main/PRIVACY.md">privacy policy</a> lists every connection it makes.</li>
+    </ul>
+  </section>
+  <footer>PhoneBox {{version}} · MIT licensed · <a href="https://github.com/ersinkoc/phonebox">github.com/ersinkoc/phonebox</a> · <a href="https://github.com/ersinkoc/phonebox/blob/main/CHANGELOG.md">changelog</a> · <a href="https://github.com/ersinkoc/phonebox/blob/main/PRIVACY.md">privacy</a> · <a href="#code-signing-policy">code signing policy</a></footer>
 </div>
 
 <script>

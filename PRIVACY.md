@@ -1,0 +1,63 @@
+# Privacy policy
+
+PhoneBox has no accounts, no servers of its own, no telemetry, no analytics and no crash reporting. The project never
+receives any data from you. This page lists every place the agent (on your computer) and the Android app (on your
+phone) connect to, so you can see exactly what leaves your machine and turn it off.
+
+Last updated: 2026-11-15 (PhoneBox 0.9.5).
+
+## What stays on your devices
+
+- **Settings and layouts**: `config.json` in `%APPDATA%\PhoneBox` (Windows), `~/.config/PhoneBox` (Linux) or
+  `~/Library/Application Support/PhoneBox` (macOS), plus `data.json` (pushed values and notifications) next to it.
+- **Log**: `agent.log` in `%LOCALAPPDATA%\PhoneBox` (Windows), `~/.local/share/PhoneBox` (Linux) or
+  `~/Library/Application Support/PhoneBox` (macOS).
+- **Phone app**: caches (weather, rates, widget state) in its own app storage. The app asks for two permissions only:
+  `INTERNET` and `VIBRATE`.
+- **Computer data shown on the panel** (CPU, GPU, memory, disks, processes, media, volume, AI coding sessions and
+  quotas, Docker / Podman, OBS) is read locally and goes only to your phone: over the USB cable (`adb reverse` to
+  `127.0.0.1`) or, after pairing, over Wi-Fi / Tailscale with a pinned certificate and a key.
+- **Local services**: LibreHardwareMonitor's web server (`127.0.0.1:8085`), a running Antigravity language server
+  (loopback), the Docker / Podman socket and OBS WebSocket are local connections.
+
+[`scripts/uninstall.ps1 -Purge`](scripts/uninstall.ps1) and [`scripts/uninstall.sh --purge`](scripts/uninstall.sh)
+remove the agent together with its settings, pushed data and log (without the switch, settings are kept). Uninstalling
+the Android app removes everything on the phone.
+
+## Connections made by default
+
+Each of these servers sees your IP address, like any web request. None of them gets an identifier for you or your
+devices from PhoneBox.
+
+| What | Where | What is sent | How to turn it off |
+|---|---|---|---|
+| Update check | `api.github.com` (release info), `github.com` (downloads) | The repository name; with `gh` signed in and only when GitHub turns away an anonymous request, your GitHub CLI token, to `api.github.com` only | **Settings › General › Updates › Install new releases automatically** turns off installing. The check every 6 hours stays; it sends nothing about you |
+| Weather, sun and air quality (phone) | `api.open-meteo.com`, `air-quality-api.open-meteo.com` | The coordinates of the city you chose (Tallinn by default) | Remove the weather, sky and air quality widgets |
+| City search (settings page) | `geocoding-api.open-meteo.com` | The city name you type, only when you search | Don't search; enter nothing |
+
+## Connections made only when you use a feature
+
+| Feature | Where | What is sent |
+|---|---|---|
+| Claude quota | `api.anthropic.com/api/oauth/usage` | The OAuth token Claude Code stores in `~/.claude/.credentials.json`, read-only; PhoneBox never refreshes it |
+| GitHub widget | `api.github.com`, through your own GitHub CLI (`gh`) | Whatever `gh` sends with its own sign-in |
+| Hacker News widget (phone) | `hacker-news.firebaseio.com` | Nothing but the request |
+| Exchange rates widget (phone) | `api.frankfurter.dev` | The currencies you chose |
+| Crypto widget (phone) | `api.coingecko.com` | The coins and currency you chose |
+| Internet radio | `*.api.radio-browser.info`, `opml.radiotime.com`, the station's own stream server | Station searches and the station you play |
+| Spotify control | `accounts.spotify.com`, `api.spotify.com` | Your own Spotify app's client ID and the sign-in you approve; the token is saved in `config.json.spotify.json` next to your settings |
+| Calendars | The iCal addresses you add | The request to that address |
+| Home Assistant | Your Home Assistant server | The access token you enter |
+| Image widget | The image address you enter | The request to that address |
+| Album art on Linux | The artwork address your music player reports | The request to that address |
+| Webhooks | Inbound only: scripts and services you set up post to the agent | Nothing is sent out |
+
+When the phone has no internet connection of its own, the agent can fetch the public widget feeds above (Open-Meteo,
+Hacker News, Frankfurter, CoinGecko) on its behalf. Only those hosts are allowed, and the same data is sent.
+
+Third-party services have their own privacy policies; PhoneBox does not control what they log.
+
+## Contact
+
+Questions or concerns: open an issue at <https://github.com/ersinkoc/phonebox/issues>, or for anything sensitive see
+[SECURITY.md](SECURITY.md).
