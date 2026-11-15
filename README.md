@@ -556,6 +556,16 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
   [ersinkoc](https://github.com/ersinkoc). Pull requests from other contributors are reviewed before they are merged.
 - **Privacy**: see the [privacy policy](PRIVACY.md).
 
+## Star History
+
+<a href="https://www.star-history.com/#ersinkoc/phonebox&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ersinkoc/phonebox&type=Date&theme=dark">
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ersinkoc/phonebox&type=Date">
+    <img alt="Star history of ersinkoc/phonebox" src="https://api.star-history.com/svg?repos=ersinkoc/phonebox&type=Date">
+  </picture>
+</a>
+
 ## License
 
 [MIT](LICENSE)
