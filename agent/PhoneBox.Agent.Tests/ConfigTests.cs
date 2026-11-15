@@ -26,6 +26,17 @@ public class ConfigTests
     }
 
     [Fact]
+    public void BurnInProtectionIsOffByDefaultAndTheDimTimeIsClamped()
+    {
+        var defaults = Load("{}").Display;
+        Assert.False(defaults.PixelShift);
+        Assert.Equal(0, defaults.IdleDimMin);
+        Assert.Equal(1440, Load("""{ "display": { "pixelShift": true, "idleDimMin": 99999 } }""").Display.IdleDimMin);
+        Assert.Equal(0, Load("""{ "display": { "idleDimMin": -5 } }""").Display.IdleDimMin);
+        Assert.True(Load("""{ "display": { "pixelShift": true } }""").Display.PixelShift);
+    }
+
+    [Fact]
     public void TemplatesExpandIntoWidgets()
     {
         var c = Load("""{ "pages": [ { "template": "music" }, { "template": "music" } ] }""");

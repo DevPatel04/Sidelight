@@ -476,6 +476,14 @@ dd { margin: 0; word-break: break-all; }
       </div>
 
       <div class="card">
+        <h3>OLED burn-in protection</h3>
+        <p class="hint" style="margin:0 0 12px">For OLED screens that show the same page for hours. The AMOLED black theme and the night screen help too.</p>
+        <label class="check"><input type="checkbox" data-bind="display.pixelShift"> Move the panel by a few pixels every 2 minutes, and the night clock around the screen</label>
+        <div class="field" style="max-width:420px;margin-top:8px"><label>Dim the panel after (minutes without a touch, 0 = never)</label><input type="number" min="0" max="1440" data-bind="display.idleDimMin" data-type="int">
+          <span class="hint">A touch brightens it again without pressing anything; so do a page switch, a notification and a permission prompt.</span></div>
+      </div>
+
+      <div class="card">
         <h3>Page switching</h3>
         <p class="hint" style="margin:0 0 12px">How rules, webhooks and the idle return change the page. Instead of jumping, the phone shows
           <i>“Claude needs me — switching to AI in 3…”</i> with <b>Stay</b> and <b>Go now</b>, then fades over. It never pulls a page away while

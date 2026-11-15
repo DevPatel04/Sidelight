@@ -730,6 +730,7 @@ export const levelOf = (v) => v.level || (typeof v.value === 'string' ? (/^(ok|p
 export function handleNotify(d) {
   const level = d.level === 'error' ? 'err' : d.level === 'ok' || d.level === 'success' ? 'ok' : d.level === 'warn' ? 'warn' : '';
   if (d.wake && nightOn) { wakeUntil = Date.now() + 30_000; setNight(false); }
+  undim();
   toast(d.text || '', level, d.title || '', d.seconds || 5);
   if (d.vibrate !== false) buzz(level === 'err' ? '0,90,90,90,90,160' : '0,70,110,70');
   D.notes.unshift({ title: d.title || '', text: d.text || '', level: d.level || 'info', at: Date.now() });
@@ -756,6 +757,7 @@ export function renderApproval() {
   if (approvalShown !== a.id) {
     approvalShown = a.id;
     lastTouch = Date.now();
+    undim();
     if (nightOn) { wakeUntil = Date.now() + 60_000; setNight(false); }
     buzz('0,120,80,120,80,240');
     $('apAllow').disabled = $('apDeny').disabled = $('apSkip').disabled = false;
@@ -1119,6 +1121,7 @@ let navShown = null;
 function renderNav(req = null, why = '') {
   const card = $('navCard'), chip = $('navChip');
   if (!req) { card.classList.remove('on'); chip.classList.remove('on'); navShown = null; return; }
+  undim(); // the countdown card must not be hidden under the dark layer
   const name = req.name || (req.kind === 'home' ? 'Nobody around' : req.kind === 'back' ? 'Done' : 'Page switch');
   const target = req.kind === 'home' ? pageLabel(homeIndex()) : pageLabel(req.page);
   const more = navQueue.length > 1 ? ` +${navQueue.length - 1}` : '';
@@ -1313,6 +1316,7 @@ window.onAndroidBack = () => {
 window.addEventListener('resize', () => { buildLayout(); goPage(curPage, true); });
 
 ['pointerdown', 'touchstart'].forEach((ev) => document.addEventListener(ev, (e) => {
+  if (dimmed) wakeFromDim();
   if (e.target?.closest?.('#navCard, #navChip')) return;
   lastTouch = lastUserTouch = Date.now();
   if (navQueue.length) { navQueue = navQueue.filter((r) => r.kind !== 'home'); pump(); }
@@ -1364,11 +1368,73 @@ window.onAndroidSensor = (kind, value) => {
     if (lux < 3) { darkSince ||= Date.now(); } else darkSince = 0;
     if (darkRoom && lux > 15) darkRoom = false;
     applyBrightness();
-  } else if (kind === 'proximity' && value === true && cfg.display?.proximityWake !== false && nightOn) {
+  } else if (kind === 'proximity' && value === true && cfg.display?.proximityWake !== false && (nightOn || dimmed)) {
+    undim();
+    if (!nightOn) return;
     wakeUntil = Date.now() + 30_000;
     setNight(false);
   }
 };
+
+// ---------------------------------------------------------------- OLED burn-in protection
+// Pixel shift (display.pixelShift): every 2 minutes the panel steps along a small loop, at most 2 px from its place, so
+// edges and text don't sit on the same pixels all day; the night clock, the most static thing on screen, drifts further.
+// Idle dim (display.idleDimMin): after that many minutes without a touch, page switch, notification or prompt, a dark
+// layer covers the panel. Like waking the night screen, the touch that brightens it does nothing else.
+const SHIFT = [[0, 0], [1, 0], [2, 1], [1, 2], [0, 2], [-1, 1], [-2, 0], [-1, -1], [0, -2], [1, -1]];
+const NIGHT_SHIFT = [[0, 0], [4, -3], [-4, 3], [3, 4], [-4, -2], [2, -4], [-2, 2], [4, 1], [-3, -4], [1, 3]]; // vmin
+const SHIFT_MS = 120_000;
+let shiftStep = -1;
+let lastWake = Date.now();
+let dimmed = false;
+
+/** Something happened that the user should see: brighten a dimmed panel and restart its idle time. */
+export function undim() {
+  lastWake = Date.now();
+  if (!dimmed) return;
+  dimmed = false;
+  document.body.classList.remove('dimmed');
+}
+
+// The dark layer keeps catching this touch until the finger lifts, so the widget under it is not pressed.
+function wakeFromDim() {
+  const body = document.body.classList;
+  body.add('waking');
+  undim();
+  const done = () => {
+    clearTimeout(fallback);
+    ['pointerup', 'pointercancel'].forEach((t) => document.removeEventListener(t, done, true));
+    setTimeout(() => body.remove('waking'), 300);
+  };
+  const fallback = setTimeout(done, 3000);
+  ['pointerup', 'pointercancel'].forEach((t) => document.addEventListener(t, done, true));
+}
+
+export function applyBurnIn() {
+  const d = cfg.display || {};
+  const shift = d.pixelShift === true && !PREVIEW;
+  document.body.classList.toggle('shifted', shift);
+  const step = shift ? Math.floor(Date.now() / SHIFT_MS) % SHIFT.length : -1;
+  if (step !== shiftStep) {
+    shiftStep = step;
+    const [x, y] = step < 0 ? [0, 0] : SHIFT[step];
+    const [nx, ny] = step < 0 ? [0, 0] : NIGHT_SHIFT[step];
+    const root = document.documentElement.style;
+    root.setProperty('--shift-x', `${x}px`);
+    root.setProperty('--shift-y', `${y}px`);
+    root.setProperty('--night-x', `${nx}vmin`);
+    root.setProperty('--night-y', `${ny}vmin`);
+  }
+  const after = Math.max(0, Math.floor(+d.idleDimMin || 0)) * 60_000;
+  const dim = after > 0 && !PREVIEW && !nightOn && $('approval').hidden
+    && Date.now() - Math.max(lastTouch, lastNav, lastWake) > after;
+  if (dim !== dimmed) {
+    dimmed = dim;
+    document.body.classList.toggle('dimmed', dim);
+  }
+}
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) undim(); }); // woken on plug-in, back from another app
 
 export function tick() {
   if (lastHour12 !== null && hour12() !== lastHour12) { buildLayout(); renderRulesBtn(); }
@@ -1382,6 +1448,7 @@ export function tick() {
     if (curPage === homeIndex()) { closeSheet(); closeOverview(); lastNav = Date.now(); } // only a sheet to close
     else { navQueue.push({ kind: 'home', at: Date.now(), priority: -1 }); pump(); }
   }
+  applyBurnIn();
   if (!nightOn) emit('tick');
   setTimeout(tick, 1000 - (Date.now() % 1000) + 5);
 }
