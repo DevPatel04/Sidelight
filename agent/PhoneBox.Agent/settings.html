@@ -2382,7 +2382,19 @@ async function save() {
 
 $('save').onclick = save;
 $('revert').onclick = () => { cfg = JSON.parse(saved); renderPages(); renderDeck(); renderRules(); renderCalendars(); renderPhones(); renderCharge(); bindForm(); changed(); };
-$('openPhone').onclick = async () => { await fetch('/api/phone/open', { method: 'POST' }); toast('Opening the panel on the phone'); };
+// Over USB this also wakes the phone and brings the panel to the front (adb); over Wi-Fi the phone switches to the
+// page selected in the editor through the live stream.
+$('openPhone').onclick = async () => {
+  let info = null;
+  try { info = await (await fetch('/api/info')).json(); } catch (_) { }
+  if (!info?.connected) { toast('No phone connected', true); return; }
+  if (info.via === 'USB') await fetch('/api/phone/open', { method: 'POST' });
+  const p = cfg?.pages?.[selPage];
+  if (p?.id && p.enabled !== false) {
+    await fetch('/api/goto/' + encodeURIComponent(p.id) + '?countdown=0', { method: 'POST' });
+    toast(`Showing ${p.title || 'this page'} on the phone`);
+  } else toast('Opening the panel on the phone');
+};
 $('cityBtn').onclick = searchCity;
 function renderUpdate(u) {
   const s = u.status;
