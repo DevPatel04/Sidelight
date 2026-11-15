@@ -41,4 +41,37 @@ public sealed class PrivateFilesTests
         }
         finally { Directory.Delete(dir, recursive: true); }
     }
+
+    [Fact]
+    public void CreatePrivateReplacesALeftoverFileInsteadOfWritingIntoIt()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var dir = Directory.CreateTempSubdirectory("phonebox-private-").FullName;
+        try
+        {
+            var path = Path.Combine(dir, "config.json.tmp");
+            File.WriteAllText(path, "old leftover content that is longer");
+            File.SetUnixFileMode(path, OwnerOnly | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+            AppPaths.WriteAllTextPrivate(path, "new");
+            Assert.Equal("new", File.ReadAllText(path));
+            Assert.Equal(OwnerOnly, File.GetUnixFileMode(path));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    [Fact]
+    public void RestrictConfigTightensABackupEvenWithoutTheConfig()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var dir = Directory.CreateTempSubdirectory("phonebox-private-").FullName;
+        try
+        {
+            var path = Path.Combine(dir, "custom.json");
+            File.WriteAllText(path + ".bak", "{}");
+            File.SetUnixFileMode(path + ".bak", OwnerOnly | UnixFileMode.OtherRead);
+            AppPaths.RestrictConfig(path);
+            Assert.Equal(OwnerOnly, File.GetUnixFileMode(path + ".bak"));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
 }

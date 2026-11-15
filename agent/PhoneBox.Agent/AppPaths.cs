@@ -46,16 +46,10 @@ public static class AppPaths
         Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
         ?? "0.0.0";
 
-    /// <summary>Writes the default settings file on first run; tightens an existing one (owner only on macOS/Linux).</summary>
+    /// <summary>Writes the default settings file on first run.</summary>
     public static void EnsureConfig()
     {
-        if (File.Exists(ConfigPath))
-        {
-            // older versions wrote config.json with the umask (often 0644); it holds the Wi-Fi and webhook keys
-            RestrictToOwner(ConfigPath);
-            RestrictToOwner(ConfigPath + ".bak");
-            return;
-        }
+        if (File.Exists(ConfigPath)) return;
         Directory.CreateDirectory(ConfigDir);
         var name = OperatingSystem.IsMacOS() ? "config.default.macos.json" : OperatingSystem.IsLinux() ? "config.default.linux.json" : "config.default.json";
         using var src = Assembly.GetExecutingAssembly().GetManifestResourceStream(name)!;
@@ -65,14 +59,38 @@ public static class AppPaths
 
     private const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
-    /// <summary>Creates (or truncates) a file only its owner can read on macOS/Linux (0600); Windows keeps the profile ACLs.</summary>
+    /// <summary>
+    /// Tightens the settings file in use and its backup to owner only on macOS/Linux: older versions wrote them with the
+    /// umask (often 0644), and they hold the Wi-Fi, webhook and Home Assistant keys. Also for a <c>--config</c> path.
+    /// </summary>
+    public static void RestrictConfig(string configPath)
+    {
+        RestrictToOwner(configPath);
+        RestrictToOwner(configPath + ".bak");
+    }
+
+    /// <summary>
+    /// Creates a file only its owner can read on macOS/Linux (0600), replacing any file at <paramref name="path"/>;
+    /// Windows keeps the profile ACLs. On Unix an existing file is removed first and the new one is created exclusively,
+    /// so the content never lands in a file with another owner or mode (a leftover or planted .tmp).
+    /// </summary>
     public static FileStream CreatePrivate(string path)
     {
-        var options = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write, Share = FileShare.None };
-        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = OwnerOnly;
-        var stream = new FileStream(path, options);
-        RestrictToOwner(path); // UnixCreateMode only applies when the file is new
-        return stream;
+        if (OperatingSystem.IsWindows())
+            return new FileStream(path, new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write, Share = FileShare.None });
+        File.Delete(path);
+        return new FileStream(path, new FileStreamOptions
+        {
+            Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None, UnixCreateMode = OwnerOnly,
+        });
+    }
+
+    /// <summary>Copies a file into a new owner-only file (see <see cref="CreatePrivate"/>), unlike File.Copy, which keeps the source's mode.</summary>
+    public static void CopyPrivate(string source, string destination)
+    {
+        using var src = File.OpenRead(source);
+        using var dst = CreatePrivate(destination);
+        src.CopyTo(dst);
     }
 
     /// <summary><see cref="File.WriteAllText(string, string?)"/> into a file only its owner can read (see <see cref="CreatePrivate"/>).</summary>

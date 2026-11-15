@@ -405,7 +405,7 @@ public sealed partial class ConfigStore(string path)
             var tmp = path + ".tmp";
             // owner-only on macOS/Linux: the file holds the Wi-Fi, webhook and Home Assistant keys
             AppPaths.WriteAllTextPrivate(tmp, JsonSerializer.Serialize(cfg, WriteOpts));
-            if (File.Exists(path)) { File.Copy(path, path + ".bak", overwrite: true); AppPaths.RestrictToOwner(path + ".bak"); }
+            if (File.Exists(path)) AppPaths.CopyPrivate(path, path + ".bak");
             File.Move(tmp, path, overwrite: true);
             _config = cfg;
             _stamp = _seen = File.GetLastWriteTimeUtc(path);
