@@ -60,7 +60,7 @@ Run what CI runs, and say in the pull request what you ran and what you tried by
 
 ```sh
 dotnet test agent/PhoneBox.Agent.Tests
-cd tools/ui-tests && npm ci && npx playwright test
+cd tools/ui-tests && npm ci && npx playwright install chromium && npx playwright test
 python tools/check-release.py
 cd android && ./gradlew lintDebug assembleDebug     # when the Android app changes
 ```
