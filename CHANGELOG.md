@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+Fixes from an evidence-led audit. Each one was reproduced on the unchanged code before the fix (#88, #89, #90, #91).
+
+**Agent**
+- **Updates:**
+  - A stuck `adb install` (a hung phone or cable) no longer blocks updates until the agent restarts. adb now has a
+    3-minute limit and is stopped when an update is cancelled.
+  - On Linux and macOS, the agent now updates itself when the home folder is a symbolic link (for example, moved to
+    another disk).
+- **USB:**
+  - A phone that refuses to become the home app no longer stops USB setup for the other phones, or the keep-awake
+    setting.
+  - An `adb reverse` rule left by an agent on another port is pointed back at this one. Before, the panel stayed offline
+    over USB until the cable was plugged in again.
+  - On Windows, adb is found when its folder is on PATH in quotes.
+- **Wi-Fi pairing:** a pairing request without the key whose body is not JSON gets the usual refusal (403). Before,
+  anyone on the network got a 500 and added an error line to `agent.log` with every such request.
+- **Radio directory:** a mirror that answers with something other than the station list is skipped like a failing one.
+  Before, one bad mirror broke "Load countries" and "Import stations".
+
+**Android app**
+- Page switching:
+  - **Stay** on a rule's "Back to …" card now keeps the page.
+  - A rule that ended while you were on another page no longer undoes that page when you open it yourself later.
+  - A notification whose `countdown` is not a number (`"soon"`, `1e9`, an object) no longer freezes page switching or
+    the events after it. The countdown is limited to 0–30 seconds, like every other countdown.
+
+**Setup**
+- `setup.sh` no longer sets up a login service that systemd refuses to start (an install path with a quote, an
+  apostrophe or a backslash). It says to use the desktop's startup applications instead.
+- With several phones connected, skipping the phone choice in `setup.sh` no longer ends setup with PhoneBox stopped.
+
 ## 0.9.9 — 2026-11-15
 
 Install PhoneBox with one command on Windows, Linux and macOS. The installer checks the download and sets up what is
