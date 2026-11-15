@@ -67,3 +67,14 @@ test('a notification brightens a dimmed panel', async ({ page }) => {
   await page.evaluate(() => fetch('/api/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'Build', text: 'done' }) }));
   await expect(page.locator('body')).not.toHaveClass(/dimmed/);
 });
+
+test('a page switch waiting behind the open overview does not keep the panel from dimming', async ({ page }) => {
+  await show(page, { idleDimMin: 1, switchCountdownSec: 0 });
+  const dots = await page.locator('#dots').boundingBox();
+  await page.mouse.click(dots.x + dots.width / 2, dots.y + dots.height / 2);
+  await expect(page.locator('#overview')).toBeVisible();
+  await page.evaluate(() => fetch('/api/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'Build', text: 'done', page: 'two' }) }));
+  await expect(page.locator('#navChip')).toHaveClass(/on/); // waits until the overview is closed
+  await page.clock.fastForward(61_000);
+  await expect(page.locator('body')).toHaveClass(/dimmed/);
+});

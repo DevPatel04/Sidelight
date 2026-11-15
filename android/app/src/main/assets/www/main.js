@@ -1118,10 +1118,14 @@ export function pump() {
 }
 
 let navShown = null;
+let navWoken = null; // the waiting request or the countdown that last brightened a dimmed panel
 function renderNav(req = null, why = '') {
   const card = $('navCard'), chip = $('navChip');
-  if (!req) { card.classList.remove('on'); chip.classList.remove('on'); navShown = null; return; }
-  undim(); // the countdown card must not be hidden under the dark layer
+  if (!req) { card.classList.remove('on'); chip.classList.remove('on'); navShown = null; navWoken = null; return; }
+  // a new waiting request or countdown must not be hidden under the dark layer; this runs every 250 ms while one
+  // waits, so only its first appearance counts, or the panel would never dim behind a request that keeps waiting
+  const wakeKey = why ? req : navCount;
+  if (wakeKey !== navWoken) { navWoken = wakeKey; undim(); }
   const name = req.name || (req.kind === 'home' ? 'Nobody around' : req.kind === 'back' ? 'Done' : 'Page switch');
   const target = req.kind === 'home' ? pageLabel(homeIndex()) : pageLabel(req.page);
   const more = navQueue.length > 1 ? ` +${navQueue.length - 1}` : '';
