@@ -175,6 +175,17 @@ function Stop-PhoneBox {
     if ($running.Count) { Write-Info "Stopped the running agent ($($running.Count) process(es))" }
 }
 
+# Copies the new release over the installed one; Windows can hold a just-stopped program's files for a moment.
+function Copy-Release([string]$From, [string]$To) {
+    for ($attempt = 1; ; $attempt++) {
+        try { Copy-Item (Join-Path $From '*') $To -Recurse -Force -ErrorAction Stop; return }
+        catch {
+            if ($attempt -ge 20) { throw }
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+
 function Get-PortOwner([int]$Port) {
     try {
         $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop | Select-Object -First 1
@@ -367,19 +378,22 @@ function Install-PhoneBox {
 
         Write-Step "Installing to $app"
         Stop-PhoneBox
+        # The files are replaced in place: the folder itself cannot be renamed while another program has it as its
+        # working directory, such as the adb server the agent started.
         $old = "$app.old"
         Remove-Item $old -Recurse -Force -ErrorAction SilentlyContinue
-        if (Test-Path $app) {
-            try { Rename-Item $app (Split-Path $old -Leaf) }
-            catch { throw "The old installation is still in use ($($_.Exception.Message)). Close PhoneBox (tray icon > Exit) and run setup again." }
-        }
+        if (Test-Path $app) { Copy-Item $app $old -Recurse -Force }   # to put back if the copy fails
         try {
             New-Item -ItemType Directory -Force $app | Out-Null
-            Copy-Item (Join-Path $extract '*') $app -Recurse -Force
+            Copy-Release $extract $app
+            # files the new version no longer has, for example the DLLs of a framework-dependent (source) install
+            $keep = @{}
+            Get-ChildItem $extract -Recurse -File | ForEach-Object { $keep[$_.FullName.Substring($extract.Length)] = $true }
+            Get-ChildItem $app -Recurse -File | Where-Object { -not $keep[$_.FullName.Substring($app.Length)] } |
+                Remove-Item -Force -ErrorAction SilentlyContinue
         } catch {
-            Remove-Item $app -Recurse -Force -ErrorAction SilentlyContinue
-            if (Test-Path $old) { Rename-Item $old (Split-Path $app -Leaf) }
-            throw "Installing failed, the previous version was restored: $($_.Exception.Message)"
+            if (Test-Path $old) { try { Copy-Item (Join-Path $old '*') $app -Recurse -Force } catch { } }
+            throw "Installing failed and the previous version was put back: $($_.Exception.Message). Close PhoneBox (tray icon > Exit) and run setup again."
         }
         Remove-Item $old -Recurse -Force -ErrorAction SilentlyContinue
         Write-Ok "PhoneBox $ver installed; settings are in $env:APPDATA\PhoneBox"
