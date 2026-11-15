@@ -8,6 +8,14 @@
   - **Idle dim**: after a set time without a touch, a dark layer covers the panel. The touch that brightens it does
     not press anything under it. A page switch, a notification, a permission prompt, waking on plug-in and the
     proximity sensor brighten it too.
+- Pomodoro (#82):
+  - **Long breaks**: a long break after every N focus sessions.
+  - **Your own sequence**: for example `25 focus, 5 break, 25 focus, 5 break, 25 focus, 15 long`. It advances by
+    itself, can repeat a number of rounds, and then stops with a message.
+  - **Display**: the widget shows "Focus 2/3" or "Long break", in blue. ↺ restarts the step; pressed again it
+    restarts the sequence.
+  - **Presets**: put several Pomodoro widgets on your pages, each with its own sequence (study, reading, deep work).
+  - **Compatibility**: existing widgets keep working as before, including a timer that is running during the update.
 
 **Setup**
 - One-step installers: `irm https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.ps1 | iex` on Windows,

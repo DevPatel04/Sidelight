@@ -25,7 +25,7 @@ the pages in a visual editor on the PC: **115 widgets**, **30 templates**, as ma
   buzzes when one finishes or needs you, and Claude Code's permission prompts show up with **Allow** / **Deny**.
   GitHub review requests and your pull requests with CI status.
 - **Desk companion**: now playing with controls and volume, clocks, weather, sun & moon, air quality, calendar,
-  pomodoro, timers, checklists, notes, a breathing exercise.
+  pomodoro (with long breaks or your own sequence), timers, checklists, notes, a breathing exercise.
 - **Stream Deck–style keys** that launch apps, URLs or built-in actions on the PC.
 - **Webhooks and rules**: scripts, CI and Home Assistant push values and notifications; rules switch pages calmly
   when something happens (a call, music, an AI session waiting for you).
