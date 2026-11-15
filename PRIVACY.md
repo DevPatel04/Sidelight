@@ -32,8 +32,10 @@ devices from PhoneBox.
 | What | Where | What is sent | How to turn it off |
 |---|---|---|---|
 | Update check | `api.github.com` (release info), `github.com` (downloads) | The repository name; with `gh` signed in and only when GitHub turns away an anonymous request, your GitHub CLI token, to `api.github.com` only | **Settings › General › Updates › Install new releases automatically** turns off installing. The check every 6 hours stays; it sends nothing about you |
-| Weather, sun and air quality (phone) | `api.open-meteo.com`, `air-quality-api.open-meteo.com` | The coordinates of the city you chose (Tallinn by default) | Remove the weather, sky and air quality widgets |
-| City search (settings page) | `geocoding-api.open-meteo.com` | The city name you type, only when you search | Don't search; enter nothing |
+| Network latency (ping widget, "ping high" rule) | `1.1.1.1` (Cloudflare DNS), an ICMP echo every 5 seconds | An empty ping packet | Not switchable yet; block ICMP to `1.1.1.1` in your firewall if you need to |
+| Weather (phone) | `api.open-meteo.com`, every 15 minutes while the panel runs | The coordinates of the city you chose (Tallinn by default) | Not switchable yet; choose a city you are comfortable sharing in **Settings › General › Weather** |
+| Air quality widget (phone) | `air-quality-api.open-meteo.com`, while the widget is on a page | The same coordinates | Remove the widget |
+| City search (settings page) | `geocoding-api.open-meteo.com` | The city name you type, only when you search | Don't search |
 
 ## Connections made only when you use a feature
 
@@ -44,12 +46,14 @@ devices from PhoneBox.
 | Hacker News widget (phone) | `hacker-news.firebaseio.com` | Nothing but the request |
 | Exchange rates widget (phone) | `api.frankfurter.dev` | The currencies you chose |
 | Crypto widget (phone) | `api.coingecko.com` | The coins and currency you chose |
-| Internet radio | `*.api.radio-browser.info`, `opml.radiotime.com`, the station's own stream server | Station searches and the station you play |
+| Internet radio | `*.api.radio-browser.info`, `opml.radiotime.com`, the station's own stream server and logo host | Station searches, the station you play and its logo request |
 | Spotify control | `accounts.spotify.com`, `api.spotify.com` | Your own Spotify app's client ID and the sign-in you approve; the token is saved in `config.json.spotify.json` next to your settings |
 | Calendars | The iCal addresses you add | The request to that address |
 | Home Assistant | Your Home Assistant server | The access token you enter |
 | Image widget | The image address you enter | The request to that address |
 | Album art on Linux | The artwork address your music player reports | The request to that address |
+| OSC controls (Control Deck) | The OSC host and port you configure, over UDP | The control value |
+| Antigravity quota through its CLI | Whatever the Antigravity CLI contacts with its own sign-in (PhoneBox only starts it) | Decided by the CLI |
 | Webhooks | Inbound only: scripts and services you set up post to the agent | Nothing is sent out |
 
 When the phone has no internet connection of its own, the agent can fetch the public widget feeds above (Open-Meteo,
