@@ -127,6 +127,52 @@ test('the stream path also replays events the agent queued while it restarted', 
   await expect.poll(async () => page.evaluate(async () => (await import('/panel/main.js')).D.notes.slice(0, 2).map((n) => n.title))).toEqual(['Live', 'Backlog']);
 });
 
+test('a replay that overflowed its event buffer replays once more to recover the lost events', async ({ page }) => {
+  await page.goto('/panel/');
+  await expect(page.locator('.w').first()).toBeVisible();
+  await page.evaluate(() => {
+    window.__evSeq = 5;
+    window.onAgentStream('open');
+    window.__feed = setInterval(() => window.onAgentStream('state', JSON.stringify({ ts: Date.now(), evSeq: window.__evSeq })), 500);
+  });
+  await page.waitForTimeout(1200);
+  await page.evaluate(() => {
+    window.PhoneBoxDemo.restart();
+    window.PhoneBoxDemo.emit('notify', { title: 'Backlog', text: 'backlog event', level: 'ok' });
+  });
+  // freeze the first ?ev=0 answer at a snapshot taken before the flood: it cannot contain the dropped event
+  // (the demo answers fetch() inside the page, so the interception wraps window.fetch rather than the network)
+  await page.evaluate(() => {
+    const answer = window.fetch('/api/state?ev=0').then((r) => r.json());
+    const orig = window.fetch;
+    window.fetch = async (input, init) => {
+      const url = String(typeof input === 'string' ? input : input.url);
+      if (window.__frozen && url.includes('/api/state') && url.includes('ev=0')) {
+        const frozen = window.__frozen;
+        window.__frozen = null;
+        return new Response(JSON.stringify(await frozen), { headers: { 'Content-Type': 'application/json' } });
+      }
+      return orig(input, init);
+    };
+    window.__frozen = answer;
+  });
+  await page.evaluate(() => {
+    window.__evSeq = 1;
+    window.onAgentStream('state', JSON.stringify({ ts: Date.now(), evSeq: 1 })); // arms the replay in this same task
+    // a live flood arrives while the answer is in flight: 101 events overflow the 100-event buffer and seq 2 is
+    // pushed out. It exists in the agent's backlog (emit) but the frozen answer above cannot contain it
+    const dropped = window.PhoneBoxDemo.emit('notify', { title: 'Dropped', text: 'recovered by the second pass', level: 'ok' });
+    window.onAgentStream('event', JSON.stringify(dropped));
+    for (let i = 3; i <= 102; i++) window.onAgentStream('event', JSON.stringify({ seq: i, kind: 'back', data: {} }));
+    window.__evSeq = 2; // the demo counter is 2 now, so the streamed states keep matching it
+  });
+  // the frozen answer ends at evSeq 1 < the dropped seq 2: the replay stays armed and a second pass recovers it
+  await expect.poll(
+    async () => page.evaluate(async () => (await import('/panel/main.js')).D.notes.slice(0, 2).map((n) => n.title)),
+    { timeout: 10000 }
+  ).toEqual(['Dropped', 'Backlog']);
+});
+
 test('a webhook switches pages after a countdown', async ({ page }) => {
   await page.goto('/panel/');
   await expect(page.locator('.w').first()).toBeVisible();

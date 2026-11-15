@@ -74,6 +74,7 @@ let stateTs = 0;                  // server ts of the newest state applied (a la
 const evSeen = new Set();         // event seqs already handled in this agent run (the stream and a poll can repeat one)
 const evMark = (s) => { evSeen.add(s); if (evSeen.size > 400) evSeen.delete(evSeen.values().next().value); };
 let evQueue = [];                 // live events held while a replay is armed — the backlog must apply before them
+let evDrop = 0;                   // highest seq pushed out of a full evQueue (0 = none lost) — replay covers them or retries
 const evDrain = () => {           // the backlog applied: release the held events in seq order
   for (const e of evQueue.sort((a, b) => a.seq - b.seq)) if (!evSeen.has(e.seq)) { evMark(e.seq); handleEvent(e); }
   evQueue = [];
@@ -1494,7 +1495,7 @@ export function applyState(s, replayGen = null) {
   if (fresh) {
     stateTs = s.ts ?? stateTs;
     // the agent restarted: it counts events from 0 again — forget what was handled and replay its backlog once
-    if (evSeq != null && s.evSeq != null && s.evSeq < evSeq) { evSeen.clear(); evQueue = []; evReplay = true; evGen++; evSeq = 0; }
+    if (evSeq != null && s.evSeq != null && s.evSeq < evSeq) { evSeen.clear(); evQueue = []; evDrop = 0; evReplay = true; evGen++; evSeq = 0; }
     evSeq = Math.max(evSeq ?? 0, s.evSeq ?? 0);
   }
   // the "back" event can be missed while offline; the list of active rules settles it
@@ -1535,7 +1536,7 @@ window.onAgentStream = (event, data) => {
   else if (event === 'work') applyWork(d);
   else if (event === 'event' && typeof d.seq === 'number' && !evSeen.has(d.seq)) {
     // a replay is on the way: hold live events so the queued backlog applies before them
-    if (evReplay) { evQueue.push(d); if (evQueue.length > 100) evQueue.shift(); }
+    if (evReplay) { evQueue.push(d); if (evQueue.length > 100) evDrop = Math.max(evDrop, evQueue.shift().seq); }
     else { evMark(d.seq); handleEvent(d); }
   }
 };
@@ -1548,8 +1549,9 @@ export async function poll() {
     const replay = evReplay, gen = evGen;
     try {
       const s = await api('/state' + (replay ? '?ev=0' : evSeq != null ? '?ev=' + evSeq : ''));
-      // disarm only when this replay's own answer applied: a stale answer or a restart armed meanwhile keeps it on
-      if (applyState(s, replay ? gen : null) && replay && gen === evGen) { evReplay = false; evDrain(); }
+      // disarm only when this replay's own answer applied: a stale answer or a restart armed meanwhile keeps it
+      // on, and so does an answer that ends before the seqs pushed out of the full buffer — the next pass gets them
+      if (applyState(s, replay ? gen : null) && replay && gen === evGen) { evReplay = s.evSeq != null && s.evSeq < evDrop; evDrop = 0; if (!evReplay) evDrain(); }
     }
     catch (_) { if (!streaming()) setOnline(false); }
   }
