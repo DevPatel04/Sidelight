@@ -161,7 +161,7 @@ jobs:
           cat >> notes.md <<'EOF'
 
           ---
-          [Code signing policy](https://github.com/ersinkoc/phonebox#code-signing-policy): free code signing provided by SignPath.io, certificate by SignPath Foundation. [Privacy policy](https://github.com/ersinkoc/phonebox/blob/main/PRIVACY.md).
+          [Code signing policy](https://github.com/ersinkoc/phonebox#code-signing-policy) · [Privacy policy](https://github.com/ersinkoc/phonebox/blob/main/PRIVACY.md)
           EOF
       - name: Create the release
         env:

@@ -26,8 +26,9 @@ the Android app removes everything on the phone.
 
 ## Connections made by default
 
-Each of these servers sees your IP address, like any web request. None of them gets an identifier for you or your
-devices from PhoneBox.
+Each of these servers sees your IP address, like any web request. PhoneBox sends none of them an identifier for you
+or your devices, with one exception: the update check can retry with your GitHub CLI token (see below), which
+identifies your GitHub account to GitHub.
 
 | What | Where | What is sent | How to turn it off |
 |---|---|---|---|
