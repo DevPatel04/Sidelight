@@ -166,9 +166,7 @@ table.items td.val { font-family: Consolas, monospace; font-size: 12px; max-widt
   background: linear-gradient(160deg, color-mix(in srgb, var(--k) 28%, #11151b), #11151b); color: #eef2f6;
   border: 2px solid color-mix(in srgb, var(--k) 45%, transparent); user-select: none;
 }
-.key .ki { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; color: var(--ki); background: color-mix(in srgb, var(--ki) 15%, #11151b); border: 1px solid color-mix(in srgb, var(--ki) 25%, transparent); }
-.key .ki svg { display: block; width: 22px; height: 22px; }
-.key .ki.k-icon-mark { font: 800 17px/1 system-ui, sans-serif; letter-spacing: -.07em; }
+.key .ki { font-size: 26px; line-height: 1; }
 .key .kl { font-size: 12.5px; font-weight: 500; max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .key.sel { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
 .key.add { background: transparent; color: var(--muted); border: 2px dashed var(--line); }
@@ -183,12 +181,6 @@ table.items td.val { font-family: Consolas, monospace; font-size: 12px; max-widt
 .emojis button:hover { background: var(--panel-2); }
 input[type=color] { width: 42px; height: 34px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); padding: 2px; }
 .icon-input { width: 70px; text-align: center; font-size: 20px; }
-.shortcut-icon-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-.shortcut-icon-paste { width: 100%; min-height: 62px; resize: vertical; font-size: 12px; }
-.shortcut-icon-preview { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
-.shortcut-icon-preview .ki { flex: 0 0 38px; }
-.key .ki .shortcut-image { display: block; width: 24px; height: 24px; object-fit: contain; border-radius: 4px; padding: 2px; background: rgba(255, 255, 255, .94); }
-.shortcut-icon-link { font-size: 12px; }
 
 /* smart stack builder in inspector */
 .stack-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; }
@@ -636,7 +628,6 @@ dd { margin: 0; word-break: break-all; }
 <div class="modal" id="modal" hidden><div class="modal-box"><div id="modalBody"></div><div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" id="modalClose">Cancel</button></div></div></div>
 
 <script src="../panel/appearance.js"></script>
-<script src="../panel/shortcut-icons.js"></script>
 <script>
 'use strict';
 const $ = (id) => document.getElementById(id);
@@ -654,6 +645,7 @@ const h = (tag, attrs = {}, ...kids) => {
 };
 
 const COLORS = ['#ef4444', '#f97316', '#f59e0b', '#e5b84b', '#84cc16', '#22c55e', '#14b8a6', '#0ea5e9', '#2f80ed', '#6366f1', '#a855f7', '#ec4899', '#d97757', '#64748b', '#9ca3af'];
+const EMOJIS = ['⌨️', '💻', '📁', '📝', '🌐', '🎧', '🎵', '💬', '📧', '📅', '🧮', '⚙️', '✂️', '📊', '🔇', '🔊', '🌙', '🔒', '🚀', '🐙', '🐳', '🧪', '🛠️', '📦', '🎮', '📷', '🎙️', '⭐', '✳️', '🦊'];
 let osName = 'windows';
 const PRESETS_LINUX = [
   ['', 'Pick a preset…'],
@@ -1368,13 +1360,13 @@ function optionField(w, o, onValChange) {
         h('div', { class: 'swatches' }, ...COLORS.map((c) => h('button', { style: { background: c }, onclick: () => { set(o.key, c); renderInspector(); } })))));
     case 'shortcut':
       return field(h('select', { onchange: (e) => set(o.key, e.target.value) }, h('option', { value: '' }, '(first shortcut)'),
-        ...cfg.shortcuts.map((s) => h('option', { value: s.id, selected: s.id === v }, s.label))),
+        ...cfg.shortcuts.map((s) => h('option', { value: s.id, selected: s.id === v }, `${s.icon} ${s.label}`))),
         h('span', { class: 'hint' }, 'New shortcuts get their id when you save.'));
     case 'shortcuts': {
       const cur = () => { const x = optVal(w, o); return Array.isArray(x) ? x : []; };
       return field(h('div', { class: 'opts' }, ...cfg.shortcuts.map((s) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: cur().includes(s.id), onchange: (e) => {
         set(o.key, cfg.shortcuts.map((x) => x.id).filter((id) => (id === s.id ? e.target.checked : cur().includes(id))));
-      } }), s.label))));
+      } }), `${s.icon} ${s.label}`))));
     }
     default:
       return field(h('input', { type: 'text', value: v ?? '', oninput: (e) => set(o.key, e.target.value) }),
@@ -1628,7 +1620,7 @@ function ruleCard(r, i) {
     sel(r.level || 'info', { info: 'info', ok: 'ok', warn: 'warning', error: 'error' }, (v) => set('level', v)));
   if (r.then === 'push') act.push(text('key', 'key, e.g. onair'), text('pushValue', 'value (default: true)', 'grow'));
   if (r.then === 'shortcut') act.push(h('select', { onchange: (e) => set('shortcut', e.target.value || null) }, h('option', { value: '' }, '— pick a shortcut —'),
-    ...(cfg.shortcuts || []).map((s) => h('option', { value: s.id, selected: s.id === r.shortcut }, s.label))));
+    ...(cfg.shortcuts || []).map((s) => h('option', { value: s.id, selected: s.id === r.shortcut }, `${s.icon || ''} ${s.label}`.trim()))));
 
   const num = (key, min, max, width = 64) => h('input', { type: 'number', min, max, style: `width:${width}px`, value: r[key] ?? '', placeholder: '0',
     oninput: (e) => set(key, e.target.value === '' ? (key === 'countdownSec' ? null : 0) : +e.target.value) });
@@ -1703,7 +1695,7 @@ function renderCharge() {
   const sc = cfg.charge.method === 'shortcuts';
   $('chargeHa').hidden = sc; $('chargeOn').hidden = $('chargeOff').hidden = !sc;
   for (const [id, key] of [['chargeOnSel', 'onShortcut'], ['chargeOffSel', 'offShortcut']])
-    $(id).replaceChildren(h('option', { value: '' }, '— pick a shortcut —'), ...(cfg.shortcuts || []).map((s) => h('option', { value: s.id, selected: s.id === cfg.charge[key] }, s.label)));
+    $(id).replaceChildren(h('option', { value: '' }, '— pick a shortcut —'), ...(cfg.shortcuts || []).map((s) => h('option', { value: s.id, selected: s.id === cfg.charge[key] }, `${s.icon || ''} ${s.label}`.trim())));
 }
 async function chargeTest(action) {
   if (JSON.stringify(cfg) !== saved) { toast('Save first, then test', true); return; }
@@ -1793,7 +1785,7 @@ function renderDeck() {
   cfg.shortcuts.forEach((s, i) => {
     const k = h('div', { class: 'key' + (i === selKey ? ' sel' : ''), draggable: 'true', 'data-i': i, style: { '--k': s.color || '#6b7280' },
       onclick: () => { selKey = i; renderDeck(); } },
-      shortcutGlyph(s), h('span', { class: 'kl' }, s.label || '(untitled)'));
+      h('span', { class: 'ki' }, s.icon || '•'), h('span', { class: 'kl' }, s.label || '(untitled)'));
     k.style.setProperty('--k', s.color || '#6b7280');
     dragSort(k, cfg.shortcuts, (from, to) => { selKey = to; renderDeck(); changed(); });
     deck.append(k);
@@ -1802,18 +1794,8 @@ function renderDeck() {
   renderEditor();
 }
 
-function shortcutGlyph(s) {
-  const glyph = window.phoneboxShortcutIcon(s);
-  const icon = h('span', { class: 'ki shortcut-glyph' + (glyph.mark ? ' k-icon-mark' : '') });
-  icon.style.setProperty('--ki', glyph.color);
-  if (glyph.image) icon.append(h('img', { class: 'shortcut-image', src: glyph.image, alt: '' }));
-  else if (glyph.mark) icon.textContent = glyph.mark;
-  else icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${glyph.svg}</svg>`;
-  return icon;
-}
-
 function addShortcut() {
-  cfg.shortcuts.push({ id: '', label: 'New shortcut', color: '#0ea5e9', cmd: '' });
+  cfg.shortcuts.push({ id: '', label: 'New shortcut', icon: '⭐', color: '#0ea5e9', cmd: '' });
   selKey = cfg.shortcuts.length - 1;
   renderDeck();
   changed();
@@ -1831,25 +1813,12 @@ function renderEditor() {
     h('input', { type: 'text', value: s[key] ?? '', placeholder: ph, oninput: (e) => upd(key, e.target.value) }),
     hint ? h('span', { class: 'hint' }, hint) : null);
 
+  const iconIn = h('input', { type: 'text', class: 'icon-input', value: s.icon || '', maxlength: 8, oninput: (e) => upd('icon', e.target.value) });
   const colorIn = h('input', { type: 'color', value: s.color || '#6b7280', oninput: (e) => { upd('color', e.target.value); markSwatch(); } });
   const sw = h('div', { class: 'swatches' }, ...COLORS.map((c) => h('button', { title: c, style: { background: c }, 'data-c': c,
     onclick: () => { colorIn.value = c; upd('color', c); markSwatch(); } })));
   const markSwatch = () => sw.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.c === s.color));
   markSwatch();
-  const iconFile = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/svg+xml,.svg', style: { display: 'none' },
-    onchange: async (e) => { const file = e.target.files?.[0]; if (file) await importShortcutIcon(s, file); e.target.value = ''; } });
-  const iconPaste = h('textarea', { class: 'shortcut-icon-paste', rows: 2, spellcheck: 'false',
-    placeholder: 'Copy an icon image, click here and press Ctrl+V. You can also paste SVG markup.',
-    onpaste: (e) => handleShortcutIconPaste(e, s) });
-  const customIcon = typeof s.icon === 'string' && s.icon.startsWith('data:image/png;base64,');
-  const iconEditor = h('div', { class: 'field' }, h('label', {}, 'Button icon'),
-    h('div', { class: 'shortcut-icon-preview' }, shortcutGlyph(s), h('span', { class: 'hint' }, customIcon ? 'Custom icon' : 'Automatic icon based on the shortcut name')),
-    h('div', { class: 'shortcut-icon-actions' },
-      h('button', { class: 'btn sm', onclick: () => iconFile.click() }, customIcon ? 'Change icon…' : 'Upload icon…'),
-      customIcon ? h('button', { class: 'btn sm', onclick: () => { upd('icon', '', false); renderEditor(); } }, 'Use automatic icon') : null,
-      h('a', { class: 'shortcut-icon-link', href: 'https://www.flaticon.com/', target: '_blank', rel: 'noopener noreferrer' }, 'Browse Flaticon ↗')),
-    iconFile, iconPaste,
-    h('span', { class: 'hint' }, 'Upload PNG, JPG, WebP or SVG. Pasted images and SVGs are saved as a small PNG on this PC and sent to your connected phone. If a site blocks copying, download its icon and upload it. Use icons you have permission to use.'));
   const cmdIn = h('input', { type: 'text', value: s.cmd || '', placeholder: 'e.g. wt.exe, https://…, builtin:lock', oninput: (e) => upd('cmd', e.target.value, false) });
   const preset = h('select', { onchange: (e) => { if (e.target.value) { cmdIn.value = e.target.value; upd('cmd', e.target.value, false); cmdIn.focus(); } e.target.value = ''; } },
     ...presets().map(([v, l]) => h('option', { value: v }, l)));
@@ -1865,128 +1834,11 @@ function renderEditor() {
     h('div', { class: 'grid2' },
       h('div', {},
         text('label', 'Label', 'Text shown on the key'),
-        iconEditor,
+        h('div', { class: 'field' }, h('label', {}, 'Icon (emoji)'), h('div', { class: 'row' }, iconIn),
+          h('div', { class: 'emojis' }, ...EMOJIS.map((em) => h('button', { onclick: () => { iconIn.value = em; upd('icon', em); } }, em)))),
         h('div', { class: 'field' }, h('label', {}, 'Colour'), h('div', { class: 'row' }, colorIn), sw)),
       h('div', {}, ...actionFields(s, upd, text, cmdIn, preset),
         h('div', { class: 'field' }, h('label', {}, 'Id'), h('code', {}, s.id || '(generated on save)')))));
-}
-
-async function importShortcutIcon(shortcut, file) {
-  try {
-    const image = await shortcutIconPng(file);
-    if (!cfg.shortcuts.includes(shortcut)) return;
-    shortcut.icon = image;
-    changed(); renderDeckKeysOnly();
-    if (cfg.shortcuts[selKey] === shortcut) renderEditor();
-    toast('Shortcut icon updated');
-  } catch (error) { toast(error.message || 'Could not read that icon', true); }
-}
-
-function handleShortcutIconPaste(event, shortcut) {
-  const clipboard = event.clipboardData;
-  if (!clipboard) return;
-  const image = [...(clipboard.items || [])].find(item => item.kind === 'file' && item.type.startsWith('image/'))?.getAsFile();
-  if (image) { event.preventDefault(); void importShortcutIcon(shortcut, image); return; }
-  const directUrl = flaticonImageUrl(clipboard.getData('text/html'), clipboard.getData('text/plain'));
-  if (directUrl) { event.preventDefault(); void importShortcutIconUrl(shortcut, directUrl); return; }
-  const svg = pastedSvg(clipboard.getData('text/html')) || pastedSvg(clipboard.getData('text/plain'));
-  if (svg) {
-    event.preventDefault();
-    void importShortcutIcon(shortcut, new File([svg], 'pasted-icon.svg', { type: 'image/svg+xml' }));
-  }
-}
-
-function flaticonImageUrl(html, plain) {
-  const candidates = [plain?.trim()];
-  if (html) {
-    const image = new DOMParser().parseFromString(html, 'text/html').querySelector('img[src]');
-    if (image) candidates.push(image.getAttribute('src'));
-  }
-  for (const candidate of candidates) {
-    try {
-      const url = new URL(candidate);
-      if (url.protocol === 'https:' && url.hostname === 'cdn-icons-png.flaticon.com' && /\.(?:png|svg|jpe?g|webp)$/i.test(url.pathname)) return url.href;
-    } catch { }
-  }
-  return '';
-}
-
-async function importShortcutIconUrl(shortcut, url) {
-  try {
-    const response = await fetch(url, { mode: 'cors' });
-    if (!response.ok) throw new Error();
-    const blob = await response.blob();
-    const ext = new URL(url).pathname.split('.').pop().toLowerCase();
-    const mime = blob.type || ({ png: 'image/png', svg: 'image/svg+xml', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }[ext] || '');
-    await importShortcutIcon(shortcut, new File([blob], `icon.${ext}`, { type: mime }));
-  } catch { toast('Could not copy that image directly. Download it from Flaticon and use Upload icon.', true); }
-}
-
-function pastedSvg(value) {
-  if (!value) return '';
-  if (/^\s*(?:<\?xml[^>]*>\s*)?<svg\b/i.test(value)) return value.trim();
-  if (!value.includes('<svg')) return '';
-  const doc = new DOMParser().parseFromString(value, 'text/html');
-  const svg = doc.querySelector('svg');
-  return svg ? new XMLSerializer().serializeToString(svg) : '';
-}
-
-async function shortcutIconPng(file) {
-  if (file.size > 2 * 1024 * 1024) throw new Error('Choose an icon smaller than 2 MB.');
-  let blob = file;
-  if (file.type === 'image/svg+xml' || /\.svg$/i.test(file.name || '')) {
-    const svg = sanitizeShortcutSvg(await file.text());
-    blob = new Blob([svg], { type: 'image/svg+xml' });
-  } else if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
-    throw new Error('Use a PNG, JPG, WebP or SVG icon.');
-  }
-  const url = URL.createObjectURL(blob);
-  try {
-    const image = new Image();
-    const loaded = new Promise((resolve, reject) => { image.onload = resolve; image.onerror = () => reject(new Error('That file is not a usable image.')); });
-    image.src = url;
-    await loaded;
-    if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth > 12000 || image.naturalHeight > 12000) throw new Error('That image has invalid dimensions.');
-    const size = 128;
-    const scale = Math.min(size / image.naturalWidth, size / image.naturalHeight);
-    const width = Math.max(1, Math.round(image.naturalWidth * scale));
-    const height = Math.max(1, Math.round(image.naturalHeight * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = size; canvas.height = size;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Could not prepare that icon.');
-    context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
-    const data = canvas.toDataURL('image/png');
-    if (data.length > 120000) throw new Error('That icon is too detailed to save. Try a simpler or smaller image.');
-    return data;
-  } finally { URL.revokeObjectURL(url); }
-}
-
-function sanitizeShortcutSvg(source) {
-  const parsed = new DOMParser().parseFromString(source, 'image/svg+xml');
-  const original = parsed.documentElement;
-  if (!original || original.localName.toLowerCase() !== 'svg' || parsed.querySelector('parsererror')) throw new Error('Paste or upload a valid SVG icon.');
-  const ns = 'http://www.w3.org/2000/svg';
-  const safe = document.createElementNS(ns, 'svg');
-  const viewBox = original.getAttribute('viewBox');
-  safe.setAttribute('viewBox', viewBox && /^[\d\s.,+\-eE]+$/.test(viewBox) && viewBox.trim().split(/[\s,]+/).length === 4 ? viewBox : '0 0 24 24');
-  safe.setAttribute('width', '128'); safe.setAttribute('height', '128');
-  const allowedElements = new Set(['g', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'ellipse']);
-  const allowedAttributes = new Set(['d', 'fill', 'fill-rule', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-opacity', 'opacity', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'width', 'height', 'points', 'transform', 'vector-effect']);
-  const copy = (from, to) => {
-    for (const attr of from.attributes || []) {
-      const name = attr.name.toLowerCase(), value = attr.value;
-      if (allowedAttributes.has(name) && !/url\s*\(|javascript:|https?:|data:/i.test(value)) to.setAttribute(name, value);
-    }
-    for (const child of from.children || []) {
-      if (!allowedElements.has(child.localName)) continue;
-      const node = document.createElementNS(ns, child.localName);
-      copy(child, node); to.append(node);
-    }
-  };
-  copy(original, safe);
-  if (!safe.querySelector('path, circle, rect, line, polyline, polygon, ellipse')) throw new Error('That SVG does not contain a supported icon.');
-  return new XMLSerializer().serializeToString(safe);
 }
 
 // What a key does: run a program, press keys, type text or run a macro; plus the on / off (toggle) options.
@@ -2039,7 +1891,7 @@ function renderDeckKeysOnly() {
     const k = keys[i];
     if (!k) return;
     k.style.setProperty('--k', s.color || '#6b7280');
-    k.querySelector('.ki').replaceWith(shortcutGlyph(s));
+    k.querySelector('.ki').textContent = s.icon || '•';
     k.querySelector('.kl').textContent = s.label || '(untitled)';
   });
 }
