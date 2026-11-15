@@ -351,3 +351,25 @@ test('the landing page embeds the panel', async ({ page }) => {
   await expect(page.frameLocator('#panel').locator('#toast')).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('the pairing page hands a checked link to the app and clears it from the address bar', async ({ browser, baseURL }) => {
+  const ctx = await browser.newContext({ baseURL, userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/130 Mobile' });
+  const page = await ctx.newPage();
+  const fp = 'ab'.repeat(32);
+  await page.goto(`/pair/#v=1&pc=Desk%20PC&fp=${fp}&port=8766&h=192.168.1.10,100.64.0.7&c=${'A'.repeat(22)}&extra=%23x;y`);
+  await expect(page.locator('#pc')).toHaveText('Desk PC');
+  await expect(page.locator('#hosts')).toHaveText('192.168.1.10, 100.64.0.7 (port 8766)');
+  await expect(page.locator('#check')).toHaveText('ABAB ABAB');
+  const href = await page.locator('#open').getAttribute('href');
+  expect(href).toBe(`intent://pair?v=1&pc=Desk%20PC&fp=${fp}&port=8766&h=192.168.1.10%2C100.64.0.7&c=${'A'.repeat(22)}`
+    + '#Intent;scheme=phonebox;package=net.oxog.phonebox.deskpanel;S.browser_fallback_url=https%3A%2F%2Fgithub.com%2Fersinkoc%2Fphonebox%2Freleases%2Flatest;end');
+  expect(new URL(page.url()).hash).toBe('');
+  await page.goto('about:blank'); // a hash-only change would not run the page again
+  await page.goto(`/pair/#v=1&pc=x&fp=${fp}&port=8766&h=8.8.8.8&c=${'A'.repeat(22)}`); // not a local address
+  await expect(page.locator('#bad')).toBeVisible();
+  await page.goto('about:blank');
+  await page.goto('/pair/#v=1&fp=nope');
+  await expect(page.locator('#bad')).toBeVisible();
+  await expect(page.locator('#ok')).toBeHidden();
+  await ctx.close();
+});

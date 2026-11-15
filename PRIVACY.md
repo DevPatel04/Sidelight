@@ -50,6 +50,7 @@ identifies your GitHub account to GitHub.
 | Crypto widget (phone) | `api.coingecko.com` | The coins and currency you chose |
 | Internet radio | `*.api.radio-browser.info`, `opml.radiotime.com`, the station's own stream server and logo host | Station searches, the station you play and its logo request |
 | Spotify control | `accounts.spotify.com`, `api.spotify.com` | Your own Spotify app's client ID and the sign-in you approve; the token is saved in `config.json.spotify.json` next to your settings |
+| Pairing over Wi-Fi without USB | `ersinkoc.github.io` (the page the QR code opens), then your computer | GitHub Pages serves the page and sees your IP address; the pairing details are after `#` in the link, which browsers never send, and the page removes them from the history. The phone then sends the one-time code only to your computer, over TLS pinned to its certificate |
 | Calendars | The iCal addresses you add | The request to that address |
 | Home Assistant | Your Home Assistant server | The access token you enter |
 | Image widget | The image address you enter | The request to that address |

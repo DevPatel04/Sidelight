@@ -75,7 +75,10 @@ self-contained program: unzip and run it, no .NET to install (0.9.6 and earlier 
 Runtime on Windows). The release includes SHA-256 checksums and build provenance.
 Existing users can update from Settings; existing layouts and pairing settings are retained.
 
-You need an Android 9+ phone with [USB debugging](https://developer.android.com/studio/debug/dev-options) turned on,
+For a phone that will only use Wi-Fi, install the APK from the release on the phone and pair with a QR code (see
+[Wi-Fi & Tailscale](#wi-fi--tailscale)); app updates then come from the release page instead of over USB.
+
+Over USB, you need an Android 9+ phone with [USB debugging](https://developer.android.com/studio/debug/dev-options) turned on,
 the [.NET 10 SDK](https://dotnet.microsoft.com/download) and `adb`.
 The source installers below build the agent locally. To build the phone app, also install **JDK 17** and
 **Android SDK Platform 35** (for example through Android Studio), set `JAVA_HOME`, and point `ANDROID_HOME` or
@@ -356,10 +359,19 @@ switchable ports). The panel keeps running over Wi-Fi while the USB power is off
 
 ## Wi-Fi & Tailscale
 
-Turn on **Settings › General › Wi-Fi & Tailscale**, restart the agent when asked, and plug the phone in once. Over
-USB the phone receives the PC's addresses, a secret key and the fingerprint of the agent's self-signed TLS
-certificate. When the cable is unplugged it switches to `https://<pc>:8766` automatically and back to USB when it is
-plugged in again; the status line shows which one it uses.
+Turn on **Settings › General › Wi-Fi & Tailscale** and restart the agent when asked. Then pair the phone in one
+of two ways:
+
+- **Without a cable:** click **Pair a phone over Wi-Fi**. The window shows a QR code that downloads the app and one
+  that pairs. Scan the second with the phone's camera, open the link and tap **Open in PhoneBox**; the phone asks you
+  to confirm a code that the window also shows. No developer options, USB debugging or adb needed. The QR code holds
+  the PC's addresses, its certificate fingerprint and a one-time code (5 minutes, single use), never the key itself.
+- **Over USB:** plug the phone in once.
+
+Either way the phone gets the PC's addresses, a secret key and the fingerprint of the agent's self-signed TLS
+certificate, and trusts only that certificate. With USB, when the cable is unplugged it switches to
+`https://<pc>:8766` automatically and back to USB when it is plugged in again; the status line shows which one it
+uses.
 
 - The phone and the PC need to be on the same network. If they are not (separate Wi-Fi networks, another
   building…), install [Tailscale](https://tailscale.com) on both: the agent offers its Tailscale address too.
