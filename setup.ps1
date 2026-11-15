@@ -128,6 +128,13 @@ function Test-Provenance([string]$File) {
         Write-Info "Build provenance not checked (needs the GitHub CLI, signed in): gh attestation verify $(Split-Path $File -Leaf) --repo $Repo"
         return
     }
+    # gh 2.92.0 and earlier send the GitHub token to the TUF mirrors during verification (GHSA-8xvp-7hj6-mcj9)
+    $ghVersion = [regex]::Match("$((Invoke-Native $gh.Source @('--version')).Output)", 'gh version (\d+\.\d+\.\d+)').Groups[1].Value
+    if (-not $ghVersion -or [version]$ghVersion -lt [version]'2.93.0') {
+        Write-Caution "Build provenance not checked: GitHub CLI $(if ($ghVersion) { $ghVersion } else { '(unknown version)' }) has a security problem in"
+        Write-Caution '"gh attestation" (it sends your GitHub token to another server). Update it to 2.93.0 or later.'
+        return
+    }
     $result = Invoke-Native $gh.Source @('attestation', 'verify', $File, '--repo', $Repo)
     if ($result.Code -eq 0) { Write-Ok "$(Split-Path $File -Leaf) was built by this repository's release workflow (GitHub attestation)" }
     elseif (($result.Output -join ' ') -match 'unknown command') { Write-Info 'Build provenance not checked: this GitHub CLI is too old for "gh attestation".' }
@@ -219,7 +226,8 @@ function Select-Phone([string]$Adb) {
     while ($true) {
         $devices = @(Get-Devices $Adb)
         if ($wanted) { $devices = @($devices | Where-Object { $_.Serial -eq $wanted }) }
-        $ready = @($devices | Where-Object { $_.State -eq 'device' })
+        # only phones on a cable are picked automatically, not emulators or wireless-debugging connections
+        $ready = @($devices | Where-Object { $_.State -eq 'device' -and ($wanted -or ($_.Serial -notmatch '^emulator-|:|\._tcp')) })
         if ($ready.Count -eq 1) { return $ready[0].Serial }
         if ($ready.Count -gt 1) {
             Write-Caution "Several phones are connected: $(($ready | ForEach-Object Serial) -join ', ')"
@@ -232,6 +240,7 @@ function Select-Phone([string]$Adb) {
         foreach ($device in $devices) {
             if ($device.State -eq 'unauthorized') { Write-Caution "$($device.Serial): waiting for you to allow USB debugging on the phone (unlock it and tap Allow)." }
             elseif ($device.State -eq 'offline') { Write-Caution "$($device.Serial): offline. Unplug it and plug it in again." }
+            elseif ($device.State -eq 'device') { Write-Caution "$($device.Serial): an emulator or a wireless connection, not used unless you pass -Serial $($device.Serial)." }
             else { Write-Caution "$($device.Serial): $($device.State)" }
         }
         if (-not $devices.Count) {
@@ -401,7 +410,12 @@ function Install-PhoneBox {
         $startup = [Environment]::GetFolderPath('Startup')
         Remove-Item (Join-Path $startup 'DeskAgent.lnk') -ErrorAction SilentlyContinue   # the pre-PhoneBox prototype
         $shortcut = Join-Path $startup 'PhoneBox.lnk'
-        if (-not $NoAutostart) {
+        if ($NoAutostart) {
+            if (Test-Path $shortcut) {
+                Remove-Item $shortcut -Force
+                Write-Info 'Removed the Start-with-Windows shortcut (-NoAutostart).'
+            }
+        } else {
             Write-Step 'Start with Windows'
             if (Read-YesNo 'Start PhoneBox when you sign in to Windows?') {
                 $shell = New-Object -ComObject WScript.Shell

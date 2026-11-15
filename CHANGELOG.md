@@ -9,7 +9,7 @@
   install adb and the optional helpers when missing, after asking, then the agent and start at login. They can also
   put the app on a phone over USB, with step-by-step help for USB debugging, and finally start PhoneBox. Warnings
   cover the unsigned build, antivirus, USB debugging, firewall, Linux USB permissions and macOS prompts. Running
-  setup again updates or repairs PhoneBox and keeps the settings; `--dry-run` changes nothing. A CI workflow runs
+  setup again updates or repairs PhoneBox and keeps the settings; `-DryRun` / `--dry-run` changes nothing. A CI workflow runs
   both installers on Windows, Linux x64/ARM64 and macOS every week.
 
 **Docs**

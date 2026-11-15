@@ -99,10 +99,30 @@ check_sum() { # check_sum file sums-file
   ok "$name matches the release checksum"
 }
 
+version_ge() { # version_ge 2.93.1 2.93.0 -> 0 when the first is at least the second
+  local IFS=. i x y
+  local -a a b
+  read -r -a a <<<"$1"
+  read -r -a b <<<"$2"
+  for i in 0 1 2; do
+    x="${a[i]:-0}"; y="${b[i]:-0}"
+    if [ "$x" -gt "$y" ]; then return 0; fi
+    if [ "$x" -lt "$y" ]; then return 1; fi
+  done
+  return 0
+}
+
 check_provenance() {
-  local out
+  local out ghv
   if ! have gh || ! gh auth status >/dev/null 2>&1; then
     info "Build provenance not checked (needs the GitHub CLI, signed in): gh attestation verify $(basename "$1") --repo $repo"
+    return
+  fi
+  # gh 2.92.0 and earlier send the GitHub token to the TUF mirrors during verification (GHSA-8xvp-7hj6-mcj9)
+  ghv="$(gh --version 2>/dev/null | sed -n 's/^gh version \([0-9]*\.[0-9]*\.[0-9]*\).*/\1/p' | head -n1)" || ghv=""
+  if [ -z "$ghv" ] || ! version_ge "$ghv" 2.93.0; then
+    caution "Build provenance not checked: GitHub CLI ${ghv:-(unknown version)} has a security problem in \"gh attestation\""
+    caution "(it sends your GitHub token to another server). Update it to 2.93.0 or later."
     return
   fi
   if out="$(gh attestation verify "$1" --repo "$repo" 2>&1)"; then
@@ -233,6 +253,25 @@ plist="$HOME/Library/LaunchAgents/net.oxog.phonebox.agent.plist"
 
 systemd_user() { have systemctl && systemctl --user show-environment >/dev/null 2>&1; }
 
+remove_autostart() {
+  if [ "$os" = linux ] && [ -f "$unit" ]; then
+    systemctl --user disable phonebox.service >/dev/null 2>&1 || true
+    rm -f "$unit"
+    info 'Removed the login service; PhoneBox no longer starts at login.'
+  fi
+  if [ "$os" = osx ] && [ -f "$plist" ]; then
+    rm -f "$plist"
+    info 'Removed the login item; PhoneBox no longer starts at login.'
+  fi
+}
+
+# the install path as one systemd command-line word (it can contain spaces through XDG_DATA_HOME)
+systemd_quote() {
+  printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g' -e 's/\$/$$/g')"
+}
+
+xml_escape() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+
 stop_agent() {
   if [ "$os" = linux ] && systemd_user; then systemctl --user stop phonebox.service 2>/dev/null || true; fi
   if [ "$os" = osx ] && [ -f "$plist" ]; then launchctl unload "$plist" 2>/dev/null || true; fi
@@ -255,7 +294,7 @@ Description=PhoneBox agent (desk panel for an Android phone)
 After=graphical-session.target
 
 [Service]
-ExecStart=$app/PhoneBoxAgent
+ExecStart=$(systemd_quote "$app/PhoneBoxAgent")
 Restart=on-failure
 RestartSec=5
 
@@ -272,7 +311,7 @@ EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>net.oxog.phonebox.agent</string>
-  <key>ProgramArguments</key><array><string>$app/PhoneBoxAgent</string></array>
+  <key>ProgramArguments</key><array><string>$(xml_escape "$app/PhoneBoxAgent")</string></array>
   <key>EnvironmentVariables</key><dict>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
@@ -315,7 +354,8 @@ select_phone() { # prints the serial of the one authorised phone, or nothing to 
   while :; do
     devices="$("$adb" devices 2>/dev/null | awk -F'\t' 'NF >= 2 { print $1 "\t" $2 }')"
     if [ -n "$wanted" ]; then devices="$(printf '%s\n' "$devices" | awk -F'\t' -v s="$wanted" '$1 == s')"; fi
-    ready="$(printf '%s\n' "$devices" | awk -F'\t' '$2 == "device" { print $1 }')"
+    # only phones on a cable are picked automatically, not emulators or wireless-debugging connections
+    ready="$(printf '%s\n' "$devices" | awk -F'\t' -v w="$wanted" '$2 == "device" && (w != "" || $1 !~ /^emulator-|:|\._tcp/) { print $1 }')"
     count="$(printf '%s' "$ready" | grep -c . || true)"
     if [ "$count" = 1 ]; then printf '%s' "$ready"; return; fi
     if [ "$count" -gt 1 ]; then
@@ -333,6 +373,7 @@ select_phone() { # prints the serial of the one authorised phone, or nothing to 
         case "$state" in
           unauthorized) caution "$s: waiting for you to allow USB debugging on the phone (unlock it and tap Allow)." >&2 ;;
           offline) caution "$s: offline. Unplug it and plug it in again." >&2 ;;
+          device) caution "$s: an emulator or a wireless connection, not used unless you pass --serial $s." >&2 ;;
           no\ permissions*) linux_usb_help >&2 ;;
           *) caution "$s: $state" >&2 ;;
         esac
@@ -511,10 +552,9 @@ main() {
   if [ "$autostart" = 1 ]; then
     step 'Start at login'
     if ask 'Start PhoneBox when you log in?' y; then write_autostart || true
-    else
-      if [ "$os" = linux ] && [ -f "$unit" ]; then systemctl --user disable phonebox.service >/dev/null 2>&1 || true; rm -f "$unit"; info 'Removed the existing login service.'; fi
-      if [ "$os" = osx ] && [ -f "$plist" ]; then rm -f "$plist"; info 'Removed the existing login item.'; fi
-    fi
+    else remove_autostart; fi
+  else
+    remove_autostart
   fi
 
   local phone_done=0 device apk

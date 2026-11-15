@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # the jobs run downloaded programs and need no Git access
       - name: shellcheck
         run: |
           bash -n setup.sh
@@ -38,6 +40,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # the jobs run downloaded programs and need no Git access
       - name: First install
         shell: powershell
         run: '& ([scriptblock]::Create((Get-Content -Raw .\setup.ps1))) -Yes -NoPhone -AllowAdministrator'
@@ -70,6 +74,8 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # the jobs run downloaded programs and need no Git access
       - name: First install (piped, as with curl | bash)
         run: cat setup.sh | bash -s -- --yes --no-phone
       - name: Check the running agent

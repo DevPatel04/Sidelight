@@ -99,7 +99,7 @@ Setup installs the [latest release](https://github.com/ersinkoc/phonebox/release
    |---|---|---|
    | Windows | `%LOCALAPPDATA%\PhoneBox\app` | `%APPDATA%\PhoneBox` |
    | Linux | `~/.local/share/PhoneBox/app` | `~/.config/PhoneBox` |
-   | macOS | `~/Library/Application Support/PhoneBox/app` | the same folder |
+   | macOS | `~/Library/Application Support/PhoneBox/app` | `~/Library/Application Support/PhoneBox` |
 
    Then it asks whether to start PhoneBox at login: a Startup-folder shortcut on Windows, a systemd user service
    on Linux, a launchd agent on macOS.
