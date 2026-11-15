@@ -62,6 +62,21 @@ public sealed class PairingCodes
     }
 
     /// <summary>
+    /// The code from a <c>POST /api/pair/claim</c> body, or null for anything else. Anyone on the Wi-Fi can send this
+    /// request without the key, so every bad body (wrong or missing Content-Type, unknown charset, malformed or
+    /// oversized JSON) must end as a plain refusal, not as an unhandled exception that is logged to agent.log.
+    /// </summary>
+    internal static async Task<string?> ReadClaimCodeAsync(HttpRequest req)
+    {
+        string? code = null;
+        // the body limit (1 KB, set by the middleware for keyless requests) also stops chunked uploads without a length
+        try { code = (await req.ReadFromJsonAsync<PairClaim>())?.Code; }
+        catch (Exception e) when (e is System.Text.Json.JsonException or BadHttpRequestException or IOException
+            or InvalidOperationException) { } // InvalidOperationException: not JSON, or a charset .NET does not know
+        return code is { Length: > 0 and <= 64 } ? code : null;
+    }
+
+    /// <summary>
     /// The link in the QR code. Everything is in the fragment (after <c>#</c>), which browsers never send to a server,
     /// so opening the link in a browser instead of the app does not leak the code to the web page's host.
     /// </summary>

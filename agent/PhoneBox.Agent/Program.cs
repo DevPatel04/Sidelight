@@ -258,11 +258,8 @@ app.MapGet("/api/pair/status", (PairingCodes codes) => Results.Json(new { claims
 app.MapPost("/api/pair/claim", async (HttpRequest req, ConfigStore cfg, PairingCodes codes) =>
 {
     if (lanCert is null || req.ContentLength is > 1024) return Results.StatusCode(StatusCodes.Status403Forbidden);
-    string? code = null;
-    // the body limit (1 KB, set by the middleware for keyless requests) also stops chunked uploads without a length
-    try { code = (await req.ReadFromJsonAsync<PairClaim>())?.Code; }
-    catch (Exception e) when (e is System.Text.Json.JsonException or BadHttpRequestException or IOException) { }
-    if (code is not { Length: > 0 and <= 64 } || !codes.Claim(code, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))
+    var code = await PairingCodes.ReadClaimCodeAsync(req);
+    if (code is null || !codes.Claim(code, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))
         return Results.StatusCode(StatusCodes.Status403Forbidden);
     var lan = cfg.Get().Lan;
     app.Logger.LogInformation("phone paired over Wi-Fi ({Model})", req.Headers["X-PhoneBox-Model"].ToString());
