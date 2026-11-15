@@ -61,6 +61,10 @@ public sealed class PairingTests
     }
 
     [Fact]
+    public void TheCheckCodeIsTheStartOfTheFingerprint() =>
+        Assert.Equal("AB12 CD34", PairingCodes.Check("ab12cd34" + new string('0', 56)));
+
+    [Fact]
     public void TheQrCodeIsAnSvg()
     {
         var svg = PairingCodes.Svg(PairingCodes.Link("PC", new string('a', 64), 8766, ["192.168.1.10"], new string('A', 22)));

@@ -72,6 +72,13 @@ public sealed class PairingCodes
         + "&h=" + string.Join(",", hosts.Select(Uri.EscapeDataString))
         + "&c=" + code;
 
+    /// <summary>
+    /// The start of the certificate fingerprint ("AB12 CD34"): the settings page shows it next to the QR code and the
+    /// phone shows it in its confirmation, so a pairing link from anyone else is easy to spot.
+    /// </summary>
+    public static string Check(string fingerprint) =>
+        fingerprint.Length < 8 ? fingerprint.ToUpperInvariant() : $"{fingerprint[..4]} {fingerprint[4..8]}".ToUpperInvariant();
+
     /// <summary>A QR code as SVG markup (shown through an &lt;img&gt;, so it cannot run anything).</summary>
     public static string Svg(string text)
     {

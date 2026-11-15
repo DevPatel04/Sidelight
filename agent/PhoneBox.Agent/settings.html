@@ -1436,7 +1436,7 @@ async function pairOverWifi() {
   const pairBox = h('div', { class: 'pair-qr' },
     h('b', {}, '2. Scan this with the phone’s camera'),
     h('img', { src: svg(r.qr), alt: 'Pairing QR code' }),
-    h('small', { class: 'hint' }, 'Open the link it shows and choose PhoneBox. ', left));
+    h('small', { class: 'hint' }, 'Open the link it shows and choose PhoneBox. The phone asks you to confirm the code ', h('b', {}, r.check), '. ', left));
   $('modalBody').replaceChildren(
     h('h3', {}, `Pair a phone with ${r.pc}`),
     h('p', { class: 'hint', style: 'margin:0' }, 'No USB cable, developer options or adb needed. The phone and this computer must be on the same network (or both on Tailscale).'),

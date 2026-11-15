@@ -234,7 +234,8 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
         return Results.Json(new { enabled = false, configured = cfg.Get().Lan.Enabled });
     var (code, expiresAt) = codes.Start(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     var hosts = Lan.Addresses();
-    var link = PairingCodes.Link(Environment.MachineName, Lan.Fingerprint(lanCert), lanCfg.Port, hosts, code);
+    var fingerprint = Lan.Fingerprint(lanCert);
+    var link = PairingCodes.Link(Environment.MachineName, fingerprint, lanCfg.Port, hosts, code);
     var apk = $"https://github.com/ersinkoc/phonebox/releases/download/v{AppPaths.Version}/PhoneBox-{AppPaths.Version}.apk";
     return Results.Json(new
     {
@@ -244,6 +245,7 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
         port = lanCfg.Port,
         expiresAt,
         claims = codes.Claims,
+        check = PairingCodes.Check(fingerprint),
         link,
         qr = PairingCodes.Svg(link),
         app = apk,

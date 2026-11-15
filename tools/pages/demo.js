@@ -601,7 +601,7 @@
       const box = (label) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 29 29"><rect width="29" height="29" fill="#fff"/>${
         [0, 22].flatMap((x) => [0, 22].filter((y) => !(x === 22 && y === 22)).map((y) => `<rect x="${x}" y="${y}" width="7" height="7" fill="#000"/><rect x="${x + 1}" y="${y + 1}" width="5" height="5" fill="#fff"/><rect x="${x + 2}" y="${y + 2}" width="3" height="3" fill="#000"/>`)).join('')
       }<text x="14.5" y="16" font-size="3" text-anchor="middle" font-family="sans-serif">${label}</text></svg>`;
-      return json({ enabled: true, pc: 'DEMO-PC', hosts: ['192.168.1.20', '100.101.102.103'], port: 8766, expiresAt: now() + 300e3, claims: 0,
+      return json({ enabled: true, pc: 'DEMO-PC', hosts: ['192.168.1.20', '100.101.102.103'], port: 8766, expiresAt: now() + 300e3, claims: 0, check: 'DE40 0001',
         link: 'https://ersinkoc.github.io/phonebox/pair/#v=1&pc=DEMO-PC&fp=demo&port=8766&h=192.168.1.20&c=demo',
         qr: box('demo pairing'), app: 'https://github.com/ersinkoc/phonebox/releases/latest', appQr: box('demo app') });
     }
