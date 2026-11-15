@@ -293,7 +293,7 @@ write_autostart() {
 '*) unsafe=1 ;; esac
     # systemd also refuses an executable path with a quote, an apostrophe or a backslash ("special characters"),
     # e.g. an AD home such as /home/o'brien@corp.example: the unit would be enabled but never start
-    case "$app" in *'"'*|*"'"*|*'\'*) unsafe=1 ;; esac
+    case "$app" in *'"'*|*"'"*|*[\\]*) unsafe=1 ;; esac
     if [ "$unsafe" = 1 ]; then
       caution "The install or settings path contains \$, a quote, a backslash or a line break, which a systemd service cannot be given safely;"
       caution "add $app/PhoneBoxAgent to your desktop's startup applications instead."
