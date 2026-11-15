@@ -855,8 +855,9 @@ export function parsePomodoro(text) {
     const min = m ? +(m[2] || m[3]) : 0;
     if (!m || min < 1 || min > 600) return { steps: null, bad: part };
     steps.push({ kind: kindOf(m[1] || m[4]), ms: min * 60_000 });
+    if (steps.length > 48) return { steps: null, bad: 'more than 48 steps' };
   }
-  return { steps: steps.length ? steps.slice(0, 48) : null, bad: null };
+  return { steps: steps.length ? steps : null, bad: null };
 }
 
 W.pomodoro = {
@@ -931,7 +932,8 @@ W.pomodoro = {
         buzz(finished ? '0,200,120,200,120,200,120,600' : '0,200,120,200,120,400');
         const next = plan[st.step].kind;
         toast(finished ? 'Sequence finished, well done'
-          : was !== 'focus' ? 'Back to focus' : next === 'long' ? 'Time for a long break' : 'Time for a break', 'ok', '🍅 Pomodoro', 5);
+          : next === 'long' ? 'Time for a long break' : next === 'break' ? 'Time for a break'
+            : was === 'focus' ? 'Next focus session' : 'Back to focus', 'ok', '🍅 Pomodoro', 5);
       }
       const left = remaining();
       const kind = plan[st.step].kind;

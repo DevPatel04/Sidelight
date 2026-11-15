@@ -100,3 +100,19 @@ test('a timer running before the update keeps running', async ({ page }) => {
   await page.clock.fastForward(31_000);
   await expect(p.label).toHaveText('Focus');
 });
+
+test('the message names the step that starts next', async ({ page }) => {
+  const p = await show(page, { sequence: '1 break, 1 long, 1 focus, 1 focus' });
+  await p.play();
+  await page.clock.fastForward(MIN + 1500);
+  await expect(page.locator('#toast')).toContainText('Time for a long break');
+  await page.clock.fastForward(MIN + 1500);
+  await expect(page.locator('#toast')).toContainText('Back to focus');
+  await page.clock.fastForward(MIN + 1500);
+  await expect(page.locator('#toast')).toContainText('Next focus session');
+});
+
+test('a sequence longer than 48 steps is refused, not cut short', async ({ page }) => {
+  const p = await show(page, { focus: 1, break: 1, sequence: Array(49).fill('1 focus').join(', ') });
+  await expect(p.sub).toHaveText('Sequence not understood: "more than 48 steps"');
+});
