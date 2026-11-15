@@ -366,6 +366,8 @@ of two ways:
   that pairs. Scan the second with the phone's camera, open the link and tap **Open in PhoneBox**; the phone asks you
   to confirm a code that the window also shows. No developer options, USB debugging or adb needed. The QR code holds
   the PC's addresses, its certificate fingerprint and a one-time code (5 minutes, single use), never the key itself.
+  A phone paired this way only uses Wi-Fi: plugging it into the PC does not wake it or open the panel, there is no
+  USB fallback when Wi-Fi drops, and app updates are installed from the release page instead of over USB.
 - **Over USB:** plug the phone in once.
 
 Either way the phone gets the PC's addresses, a secret key and the fingerprint of the agent's self-signed TLS
