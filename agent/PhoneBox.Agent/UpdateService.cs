@@ -195,11 +195,14 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
     private async Task UpdatePhoneAsync(CancellationToken ct)
     {
         _state = "updating phone app";
+        // decided before the download: a phone that already has the new app can report it while the APK downloads,
+        // and must not turn this into a retry that skips the phones that never got it
+        var appCurrent = AppVersion is not null && !Newer(_latest!.Version, AppVersion);
         var apk = await VerifiedDownloadAsync(_latest!.Apk!, $"PhoneBox-{_latest.Version}.apk", ct);
         var adbExe = AdbReverse.FindAdb(cfg.Get().AdbPath) ?? throw new InvalidOperationException("adb not found");
         var connected = adb.Devices.Split(", ", StringSplitOptions.RemoveEmptyEntries);
         var retry = _phoneRetryFor == _latest.Version ? _phoneRetry : [];
-        var targets = PhoneTargets(connected, AppVersion is not null && !Newer(_latest.Version, AppVersion), retry);
+        var targets = PhoneTargets(connected, appCurrent, retry);
         var failed = new List<(string Serial, string Why)>();
         foreach (var serial in targets)
         {
