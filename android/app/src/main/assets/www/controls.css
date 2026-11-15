@@ -52,3 +52,28 @@
 @media (pointer: coarse){
   .radio-nav{width:22px;height:34px;opacity:.72}
 }
+
+/* Spotify queue: compact, readable rows with artwork and separate play/open actions. */
+.spotify-queue-feed{gap:6px;overflow:hidden}
+.spotify-now-playing{display:flex;align-items:center;gap:8px;min-width:0;flex:none;padding:6px 7px;border:1px solid rgba(29,185,84,.28);border-radius:10px;background:rgba(29,185,84,.10)}
+.spotify-now-playing .spotify-track-copy{flex:1}
+.spotify-queue-heading{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;padding:0 2px;color:var(--muted,#94a3b8);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.spotify-queue-brand{color:#1ed760;letter-spacing:.04em}
+.spotify-queue-list{display:flex;flex:1;flex-direction:column;gap:2px;min-height:0;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#ffffff30 transparent}
+.spotify-queue-row{display:flex;flex:none;align-items:center;gap:3px;min-width:0}
+.spotify-track-play{display:flex;flex:1;align-items:center;gap:8px;width:100%;min-width:0;min-height:46px;padding:4px 6px;border:1px solid transparent;border-radius:8px;background:transparent;text-align:left}
+.spotify-track-play:hover,.spotify-track-play:focus-visible{border-color:#ffffff12;background:#ffffff0a;outline:none}
+.spotify-track-cover{display:block;flex:none;width:38px;height:38px;border-radius:5px;object-fit:contain;background:#ffffff0a}
+.spotify-cover-fallback{display:grid;place-items:center;color:#1ed760;font-size:20px}
+.spotify-track-copy{display:flex;flex:1;flex-direction:column;gap:2px;min-width:0;overflow:hidden}
+.spotify-track-name,.spotify-track-artist{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.spotify-track-name{font-size:12px;font-weight:600;line-height:1.25}
+.spotify-track-artist{color:var(--muted,#94a3b8);font-size:10px;line-height:1.25}
+.spotify-now-playing .spotify-track-name{font-size:12px}
+.spotify-track-open{display:grid;flex:none;width:28px;height:36px;place-items:center;border-radius:7px;color:#1ed760;font-size:16px;text-decoration:none}
+.spotify-track-open:hover,.spotify-track-open:focus-visible{background:#ffffff10;outline:none}
+.spotify-queue-list .deck-empty{flex:1}
+.spotify-now-playing-copy{display:flex;flex:1;flex-direction:column;gap:3px;min-width:0;overflow:hidden}
+.spotify-now-label{color:#1ed760;font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.spotify-queue-logo{display:block;width:76px;height:20px;object-fit:contain}
+.spotify-track-cover{border-radius:4px}

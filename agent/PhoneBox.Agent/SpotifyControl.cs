@@ -146,10 +146,24 @@ public sealed class SpotifyControl : IDisposable
             {
                 var playing = await Request(HttpMethod.Get, "me/player/currently-playing", null, ct);
                 var queue = await Request(HttpMethod.Get, "me/player/queue", null, ct);
-                JsonNode? Track(JsonNode? item) => item is null ? null : new JsonObject { ["id"] = item["uri"]?.DeepClone(),
-                    ["name"] = item["name"]?.DeepClone(), ["artist"] = string.Join(", ", (item["artists"] as JsonArray ?? []).Select(a => a?["name"]?.GetValue<string>() ?? "")) };
+                JsonNode? Track(JsonNode? item)
+                {
+                    if (item is null) return null;
+                    var images = item["album"]?["images"] as JsonArray ?? item["images"] as JsonArray;
+                    var image = images?.FirstOrDefault()?["url"]?.DeepClone();
+                    var artist = string.Join(", ", (item["artists"] as JsonArray ?? []).Select(a => a?["name"]?.GetValue<string>() ?? ""));
+                    if (artist.Length == 0) artist = item["show"]?["name"]?.GetValue<string>() ?? "";
+                    return new JsonObject
+                    {
+                        ["id"] = item["uri"]?.DeepClone(),
+                        ["name"] = item["name"]?.DeepClone(),
+                        ["artist"] = artist,
+                        ["image"] = image,
+                        ["spotifyUrl"] = item["external_urls"]?["spotify"]?.DeepClone(),
+                    };
+                }
                 _snapshot = new() { ["connected"] = true, ["current"] = Track(playing?["item"]), ["playing"] = playing?["is_playing"]?.DeepClone(),
-                    ["queue"] = new JsonArray((queue?["queue"] as JsonArray ?? []).Take(30).Select(Track).ToArray()) };
+                    ["queue"] = new JsonArray((queue?["queue"] as JsonArray ?? []).Take(20).Select(Track).ToArray()) };
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex) when (ex is IOException or HttpRequestException or JsonException or OperationCanceledException)

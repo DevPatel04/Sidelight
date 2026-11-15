@@ -166,7 +166,9 @@ table.items td.val { font-family: Consolas, monospace; font-size: 12px; max-widt
   background: linear-gradient(160deg, color-mix(in srgb, var(--k) 28%, #11151b), #11151b); color: #eef2f6;
   border: 2px solid color-mix(in srgb, var(--k) 45%, transparent); user-select: none;
 }
-.key .ki { font-size: 26px; line-height: 1; }
+.key .ki { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; color: var(--ki); background: color-mix(in srgb, var(--ki) 15%, #11151b); border: 1px solid color-mix(in srgb, var(--ki) 25%, transparent); }
+.key .ki svg { display: block; width: 22px; height: 22px; }
+.key .ki.k-icon-mark { font: 800 17px/1 system-ui, sans-serif; letter-spacing: -.07em; }
 .key .kl { font-size: 12.5px; font-weight: 500; max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .key.sel { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
 .key.add { background: transparent; color: var(--muted); border: 2px dashed var(--line); }
@@ -628,6 +630,7 @@ dd { margin: 0; word-break: break-all; }
 <div class="modal" id="modal" hidden><div class="modal-box"><div id="modalBody"></div><div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" id="modalClose">Cancel</button></div></div></div>
 
 <script src="../panel/appearance.js"></script>
+<script src="../panel/shortcut-icons.js"></script>
 <script>
 'use strict';
 const $ = (id) => document.getElementById(id);
@@ -645,7 +648,6 @@ const h = (tag, attrs = {}, ...kids) => {
 };
 
 const COLORS = ['#ef4444', '#f97316', '#f59e0b', '#e5b84b', '#84cc16', '#22c55e', '#14b8a6', '#0ea5e9', '#2f80ed', '#6366f1', '#a855f7', '#ec4899', '#d97757', '#64748b', '#9ca3af'];
-const EMOJIS = ['⌨️', '💻', '📁', '📝', '🌐', '🎧', '🎵', '💬', '📧', '📅', '🧮', '⚙️', '✂️', '📊', '🔇', '🔊', '🌙', '🔒', '🚀', '🐙', '🐳', '🧪', '🛠️', '📦', '🎮', '📷', '🎙️', '⭐', '✳️', '🦊'];
 let osName = 'windows';
 const PRESETS_LINUX = [
   ['', 'Pick a preset…'],
@@ -1360,13 +1362,13 @@ function optionField(w, o, onValChange) {
         h('div', { class: 'swatches' }, ...COLORS.map((c) => h('button', { style: { background: c }, onclick: () => { set(o.key, c); renderInspector(); } })))));
     case 'shortcut':
       return field(h('select', { onchange: (e) => set(o.key, e.target.value) }, h('option', { value: '' }, '(first shortcut)'),
-        ...cfg.shortcuts.map((s) => h('option', { value: s.id, selected: s.id === v }, `${s.icon} ${s.label}`))),
+        ...cfg.shortcuts.map((s) => h('option', { value: s.id, selected: s.id === v }, s.label))),
         h('span', { class: 'hint' }, 'New shortcuts get their id when you save.'));
     case 'shortcuts': {
       const cur = () => { const x = optVal(w, o); return Array.isArray(x) ? x : []; };
       return field(h('div', { class: 'opts' }, ...cfg.shortcuts.map((s) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: cur().includes(s.id), onchange: (e) => {
         set(o.key, cfg.shortcuts.map((x) => x.id).filter((id) => (id === s.id ? e.target.checked : cur().includes(id))));
-      } }), `${s.icon} ${s.label}`))));
+      } }), s.label))));
     }
     default:
       return field(h('input', { type: 'text', value: v ?? '', oninput: (e) => set(o.key, e.target.value) }),
@@ -1620,7 +1622,7 @@ function ruleCard(r, i) {
     sel(r.level || 'info', { info: 'info', ok: 'ok', warn: 'warning', error: 'error' }, (v) => set('level', v)));
   if (r.then === 'push') act.push(text('key', 'key, e.g. onair'), text('pushValue', 'value (default: true)', 'grow'));
   if (r.then === 'shortcut') act.push(h('select', { onchange: (e) => set('shortcut', e.target.value || null) }, h('option', { value: '' }, '— pick a shortcut —'),
-    ...(cfg.shortcuts || []).map((s) => h('option', { value: s.id, selected: s.id === r.shortcut }, `${s.icon || ''} ${s.label}`.trim()))));
+    ...(cfg.shortcuts || []).map((s) => h('option', { value: s.id, selected: s.id === r.shortcut }, s.label))));
 
   const num = (key, min, max, width = 64) => h('input', { type: 'number', min, max, style: `width:${width}px`, value: r[key] ?? '', placeholder: '0',
     oninput: (e) => set(key, e.target.value === '' ? (key === 'countdownSec' ? null : 0) : +e.target.value) });
@@ -1695,7 +1697,7 @@ function renderCharge() {
   const sc = cfg.charge.method === 'shortcuts';
   $('chargeHa').hidden = sc; $('chargeOn').hidden = $('chargeOff').hidden = !sc;
   for (const [id, key] of [['chargeOnSel', 'onShortcut'], ['chargeOffSel', 'offShortcut']])
-    $(id).replaceChildren(h('option', { value: '' }, '— pick a shortcut —'), ...(cfg.shortcuts || []).map((s) => h('option', { value: s.id, selected: s.id === cfg.charge[key] }, `${s.icon || ''} ${s.label}`.trim())));
+    $(id).replaceChildren(h('option', { value: '' }, '— pick a shortcut —'), ...(cfg.shortcuts || []).map((s) => h('option', { value: s.id, selected: s.id === cfg.charge[key] }, s.label)));
 }
 async function chargeTest(action) {
   if (JSON.stringify(cfg) !== saved) { toast('Save first, then test', true); return; }
@@ -1785,7 +1787,7 @@ function renderDeck() {
   cfg.shortcuts.forEach((s, i) => {
     const k = h('div', { class: 'key' + (i === selKey ? ' sel' : ''), draggable: 'true', 'data-i': i, style: { '--k': s.color || '#6b7280' },
       onclick: () => { selKey = i; renderDeck(); } },
-      h('span', { class: 'ki' }, s.icon || '•'), h('span', { class: 'kl' }, s.label || '(untitled)'));
+      shortcutGlyph(s), h('span', { class: 'kl' }, s.label || '(untitled)'));
     k.style.setProperty('--k', s.color || '#6b7280');
     dragSort(k, cfg.shortcuts, (from, to) => { selKey = to; renderDeck(); changed(); });
     deck.append(k);
@@ -1794,8 +1796,17 @@ function renderDeck() {
   renderEditor();
 }
 
+function shortcutGlyph(s) {
+  const glyph = window.phoneboxShortcutIcon(s);
+  const icon = h('span', { class: 'ki shortcut-glyph' + (glyph.mark ? ' k-icon-mark' : '') });
+  icon.style.setProperty('--ki', glyph.color);
+  if (glyph.mark) icon.textContent = glyph.mark;
+  else icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${glyph.svg}</svg>`;
+  return icon;
+}
+
 function addShortcut() {
-  cfg.shortcuts.push({ id: '', label: 'New shortcut', icon: '⭐', color: '#0ea5e9', cmd: '' });
+  cfg.shortcuts.push({ id: '', label: 'New shortcut', color: '#0ea5e9', cmd: '' });
   selKey = cfg.shortcuts.length - 1;
   renderDeck();
   changed();
@@ -1813,7 +1824,6 @@ function renderEditor() {
     h('input', { type: 'text', value: s[key] ?? '', placeholder: ph, oninput: (e) => upd(key, e.target.value) }),
     hint ? h('span', { class: 'hint' }, hint) : null);
 
-  const iconIn = h('input', { type: 'text', class: 'icon-input', value: s.icon || '', maxlength: 8, oninput: (e) => upd('icon', e.target.value) });
   const colorIn = h('input', { type: 'color', value: s.color || '#6b7280', oninput: (e) => { upd('color', e.target.value); markSwatch(); } });
   const sw = h('div', { class: 'swatches' }, ...COLORS.map((c) => h('button', { title: c, style: { background: c }, 'data-c': c,
     onclick: () => { colorIn.value = c; upd('color', c); markSwatch(); } })));
@@ -1834,8 +1844,7 @@ function renderEditor() {
     h('div', { class: 'grid2' },
       h('div', {},
         text('label', 'Label', 'Text shown on the key'),
-        h('div', { class: 'field' }, h('label', {}, 'Icon (emoji)'), h('div', { class: 'row' }, iconIn),
-          h('div', { class: 'emojis' }, ...EMOJIS.map((em) => h('button', { onclick: () => { iconIn.value = em; upd('icon', em); } }, em)))),
+        h('div', { class: 'field' }, h('label', {}, 'Button icon'), h('span', { class: 'hint' }, 'Chosen automatically from the shortcut name.')),
         h('div', { class: 'field' }, h('label', {}, 'Colour'), h('div', { class: 'row' }, colorIn), sw)),
       h('div', {}, ...actionFields(s, upd, text, cmdIn, preset),
         h('div', { class: 'field' }, h('label', {}, 'Id'), h('code', {}, s.id || '(generated on save)')))));
@@ -1891,7 +1900,7 @@ function renderDeckKeysOnly() {
     const k = keys[i];
     if (!k) return;
     k.style.setProperty('--k', s.color || '#6b7280');
-    k.querySelector('.ki').textContent = s.icon || '•';
+    k.querySelector('.ki').replaceWith(shortcutGlyph(s));
     k.querySelector('.kl').textContent = s.label || '(untitled)';
   });
 }

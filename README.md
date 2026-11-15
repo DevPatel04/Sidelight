@@ -10,7 +10,7 @@ Widgets for your PC, AI coding sessions, music, weather and anything you push to
   <a href="https://github.com/ersinkoc/phonebox/actions/workflows/build.yml"><img src="https://github.com/ersinkoc/phonebox/actions/workflows/build.yml/badge.svg" alt="build"></a>
   <a href="https://github.com/ersinkoc/phonebox/releases/latest"><img src="https://img.shields.io/github/v/release/ersinkoc/phonebox?label=release" alt="latest release"></a>
   <img src="https://img.shields.io/badge/Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-.NET%2010-512bd4" alt="Windows, Linux, macOS; .NET 10">
-  <img src="https://img.shields.io/badge/Android-9%2B-3ddc84" alt="Android 9+">
+  <img src="https://img.shields.io/badge/Android-7%2B-3ddc84" alt="Android 7+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
@@ -74,7 +74,7 @@ agents for Windows x64, Linux x64/ARM64 and macOS Apple Silicon/Intel. Agent arc
 runtime (Desktop Runtime on Windows). The release includes SHA-256 checksums and build provenance.
 Existing users can update from Settings; existing layouts and pairing settings are retained.
 
-You need an Android 9+ phone with [USB debugging](https://developer.android.com/studio/debug/dev-options) turned on,
+You need an Android 7+ phone with [USB debugging](https://developer.android.com/studio/debug/dev-options) turned on,
 the [.NET 10 SDK](https://dotnet.microsoft.com/download) and `adb`.
 The source installers below build the agent locally. To build the phone app, also install **JDK 17** and
 **Android SDK Platform 35** (for example through Android Studio), set `JAVA_HOME`, and point `ANDROID_HOME` or

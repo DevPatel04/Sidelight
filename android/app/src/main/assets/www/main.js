@@ -2,6 +2,7 @@
 // they import what they need from here, so this module must not run code that needs them while it loads
 // (the start section at the end runs after every module has loaded).
 import { W } from './registry.js';
+import './shortcut-icons.js';
 import './appearance.js';
 import { cached } from './widgets/helpers.js';
 import './widgets/basic.js';
@@ -415,7 +416,12 @@ export async function runShortcut(btn, id) {
 }
 
 export function keyButton(s) {
-  const b = h('button', 'key' + (s.toggle ? ' toggle' : ''), h('span', 'k-icon', s.icon || '•'), h('span', 'k-label', s.label));
+  const glyph = window.phoneboxShortcutIcon(s);
+  const icon = h('span', 'k-icon' + (glyph.mark ? ' k-icon-mark' : ''));
+  icon.style.setProperty('--ki', glyph.color);
+  if (glyph.mark) icon.textContent = glyph.mark;
+  else icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${glyph.svg}</svg>`;
+  const b = h('button', 'key' + (s.toggle ? ' toggle' : ''), icon, h('span', 'k-label', s.label));
   b.style.setProperty('--k', s.color || '#6b7280');
   b.dataset.id = s.id;
   b.addEventListener('click', () => runShortcut(b, s.id));

@@ -233,6 +233,24 @@ class MainActivity : Activity(), SensorEventListener {
             view.evaluateJavascript("window.__phoneboxKey='$bridgeKey';", null)
     }
 
+    @Suppress("DEPRECATION")
+    private fun vibrateOneShot(vibrator: Vibrator, durationMillis: Long) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(durationMillis, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            vibrator.vibrate(durationMillis)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun vibratePattern(vibrator: Vibrator, timings: LongArray) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createWaveform(timings, -1))
+        } else {
+            vibrator.vibrate(timings, -1)
+        }
+    }
+
     inner class Bridge {
         private fun ok(key: String) = key == bridgeKey
 
@@ -252,7 +270,7 @@ class MainActivity : Activity(), SensorEventListener {
         fun haptic(key: String) {
             if (!ok(key)) return
             val v = getSystemService(Vibrator::class.java) ?: return
-            if (v.hasVibrator()) v.vibrate(VibrationEffect.createOneShot(14, VibrationEffect.DEFAULT_AMPLITUDE))
+            if (v.hasVibrator()) vibrateOneShot(v, 14)
         }
 
         /** Notification vibration; pattern is a "wait,vibrate,wait,vibrate..." list of milliseconds. */
@@ -261,7 +279,7 @@ class MainActivity : Activity(), SensorEventListener {
             if (!ok(key)) return
             val v = getSystemService(Vibrator::class.java) ?: return
             val timings = pattern.split(',').mapNotNull { it.trim().toLongOrNull() }.toLongArray()
-            if (v.hasVibrator() && timings.isNotEmpty()) v.vibrate(VibrationEffect.createWaveform(timings, -1))
+            if (v.hasVibrator() && timings.isNotEmpty()) vibratePattern(v, timings)
         }
 
         @JavascriptInterface

@@ -15,7 +15,7 @@ android {
 
     defaultConfig {
         applicationId = "net.oxog.phonebox.deskpanel"
-        minSdk = 28
+        minSdk = 24
         targetSdk = 35
         versionCode = 26
         versionName = "0.9.5"

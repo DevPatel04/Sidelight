@@ -682,9 +682,64 @@ integrationWidget('obs-camera', 'OBS virtual camera', 'obs', (root,data,send)=>{
   const b=button(data.cameraActive?'Stop virtual camera':'Start virtual camera',()=>send('camera'));b.disabled=!data.cameraAvailable;root.append(b);
 });
 integrationWidget('media-queue', 'Spotify queue', 'spotify/state', (root,data,send)=>{
-  root.append(h('div','deck-track',data.current?.name || 'Nothing playing'));
-  for(const item of data.queue || []) root.append(button(item.name+(item.artist?' · '+item.artist:''),()=>send('play-queued',{id:item.id})));
-  if(!data.queue?.length)root.append(h('div','deck-empty','The queue is empty'));
+  root.classList.add('spotify-queue-feed');
+  const cover = item => {
+    let imageUrl = '';
+    try {
+      const url = new URL(item?.image || '');
+      if (url.protocol === 'https:' && url.hostname.endsWith('.scdn.co')) imageUrl = url.href;
+    } catch (_) {}
+    if (!imageUrl) return h('span','spotify-track-cover spotify-cover-fallback','♫');
+    const image = h('img','spotify-track-cover');
+    image.src = imageUrl; image.alt = ''; image.loading = 'lazy'; image.referrerPolicy = 'no-referrer';
+    image.onerror = () => image.replaceWith(h('span','spotify-track-cover spotify-cover-fallback','♫'));
+    return image;
+  };
+  const openSpotify = item => {
+    let href = '';
+    try {
+      const url = new URL(item?.spotifyUrl || '');
+      if (url.protocol === 'https:' && url.hostname === 'open.spotify.com') href = url.href;
+    } catch (_) {}
+    if (!href) return null;
+    const link = h('a','spotify-track-open','↗');
+    link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    link.title = 'Open in Spotify'; link.setAttribute('aria-label',`Open ${item.name || 'track'} in Spotify`);
+    return link;
+  };
+  const meta = item => h('span','spotify-track-copy',
+    h('span','spotify-track-name',item?.name || 'Unknown track'),
+    h('span','spotify-track-artist',item?.artist || 'Unknown artist'));
+
+  const now = data.current;
+  const nowRow = h('div','spotify-now-playing');
+  const nowCopy = h('span','spotify-now-playing-copy',
+    h('span','spotify-now-label',now ? 'Now playing' : 'Spotify'),
+    meta(now || {name:'Nothing playing',artist:'Start Spotify to see your queue'}));
+  nowRow.append(cover(now),nowCopy);
+  const nowLink = openSpotify(now);
+  if (nowLink) nowRow.append(nowLink);
+  const brand = h('a','spotify-queue-brand');
+  brand.href = 'https://open.spotify.com/'; brand.target = '_blank'; brand.rel = 'noopener noreferrer';
+  brand.title = 'Open Spotify'; brand.setAttribute('aria-label','Open Spotify');
+  const logo = h('img','spotify-queue-logo');
+  logo.src = 'https://developer-assets.spotifycdn.com/images/guidelines/design/full-logo-framed.svg';
+  logo.alt = 'Spotify'; logo.loading = 'lazy'; logo.referrerPolicy = 'no-referrer';
+  logo.onerror = () => { brand.textContent = 'Spotify'; };
+  brand.append(logo);
+  root.append(nowRow,h('div','spotify-queue-heading',h('span',null,'Up next'),brand));
+
+  const list = h('div','spotify-queue-list');
+  for (const item of data.queue || []) {
+    const play = button([cover(item),meta(item)],()=>send('play-queued',{id:item.id}),`Play ${item.name || 'track'}${item.artist ? ' by '+item.artist : ''}`);
+    play.classList.add('spotify-track-play');
+    const row = h('div','spotify-queue-row',play);
+    const link = openSpotify(item);
+    if (link) row.append(link);
+    list.append(row);
+  }
+  if (!data.queue?.length) list.append(h('div','deck-empty','The queue is empty'));
+  root.append(list);
 });
 integrationWidget('media-favorites', 'Spotify favorites', 'spotify/state', (root,data,send)=>{
   root.append(h('div','deck-track',data.current?.name || 'Nothing playing'),h('div','deck-caption',data.current?.artist || ''));
