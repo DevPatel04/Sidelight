@@ -53,7 +53,7 @@ public sealed class MonitorAuditTests : IDisposable
 
         healthy = false;                       // the network drops (laptop asleep, Wi-Fi down) for half an hour
         for (var i = 0; i < 3; i++) await Refresh();
-        server.Stop();
+        server.Close(); // not Stop(): Stop() then Dispose() re-binds the port on macOS and can hit "Address already in use"
 
         Assert.Equal(2, monitor.Snapshot().Errors.Count);
         Assert.Equal(2, monitor.Snapshot().Events.Count);
@@ -90,7 +90,7 @@ public sealed class MonitorAuditTests : IDisposable
         Assert.Null(await guard.Switch(charge, "off"));        // 80 % reached: the plug is switched off
         plugReachable = false;                                  // Home Assistant restarts / the network drops
         Assert.NotNull(await guard.Switch(charge, "on"));      // the phone went silent: "on" is attempted and fails
-        server.Stop();
+        server.Close(); // not Stop(): Stop() then Dispose() re-binds the port on macOS and can hit "Address already in use"
 
         var status = JsonSerializer.SerializeToElement(guard.Status());
         var power = status.GetProperty("power").GetString();
