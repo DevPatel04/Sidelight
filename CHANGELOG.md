@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+**Setup**
+- One-step installers: `irm https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.ps1 | iex` on Windows,
+  `curl -fsSL https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.sh | bash` on Linux and macOS. They
+  download the latest release and check its checksum (and its build provenance with a signed-in GitHub CLI). They
+  install adb and the optional helpers when missing, after asking, then the agent and start at login. They can also
+  put the app on a phone over USB, with step-by-step help for USB debugging, and finally start PhoneBox. Warnings
+  cover the unsigned build, antivirus, USB debugging, firewall, Linux USB permissions and macOS prompts. Running
+  setup again updates or repairs PhoneBox and keeps the settings; `--dry-run` changes nothing. A CI workflow runs
+  both installers on Windows, Linux x64/ARM64 and macOS every week.
+
+**Docs**
+- The README quick start is rewritten around setup: what it does, its options and warnings, connecting the phone
+  over USB or Wi-Fi only, other ways to install, and how to uninstall.
+
 ## 0.9.8 — 2026-11-15
 
 Pair a phone over Wi-Fi without a USB cable: the computer shows a QR code, the phone scans it with its camera and
