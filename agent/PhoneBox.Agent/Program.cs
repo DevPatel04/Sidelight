@@ -301,7 +301,9 @@ app.MapGet("/api/info", (AdbReverse adb, ConfigStore cfg) => Results.Json(new
     configPath = cfg.Path,
     logPath = AppPaths.LogPath,
     adb = AdbReverse.FindAdb(cfg.Get().AdbPath),
-    connected = adb.Connected,
+    // USB (adb) or a live stream from the phone in the last few seconds, which covers Wi-Fi / Tailscale too
+    connected = adb.Connected || ApprovalStore.PhoneConnected,
+    via = adb.Connected ? "USB" : ApprovalStore.PhoneConnected ? "Wi-Fi" : null,
     devices = adb.AllDevices,
     appMissing = adb.MissingApp,
     usbProblem = adb.UsbProblem,
