@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace PhoneBox.Agent;
@@ -32,9 +33,30 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
     /// <summary>Phone app version, reported by the app on every request (X-PhoneBox-App header).</summary>
     public static volatile string? AppVersion;
 
-    public static bool RunningInstalled =>
-        string.Equals(Path.GetFullPath(AppContext.BaseDirectory).TrimEnd('\\', '/'), Path.GetFullPath(InstallDir).TrimEnd('\\', '/'),
-            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    public static bool RunningInstalled => SameFolder(AppContext.BaseDirectory, InstallDir);
+
+    /// <summary>
+    /// On macOS/Linux the .NET host reports the agent's folder with symbolic links resolved, while the install folder
+    /// comes from HOME / XDG_DATA_HOME and may go through one (a home folder moved to another disk and linked back), so
+    /// both sides are resolved before comparing.
+    /// </summary>
+    internal static bool SameFolder(string a, string b) =>
+        string.Equals(Resolved(a), Resolved(b), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    private static string Resolved(string folder)
+    {
+        var full = Path.GetFullPath(folder).TrimEnd('\\', '/');
+        if (OperatingSystem.IsWindows()) return full;
+        IntPtr real;
+        try { real = realpath(full, IntPtr.Zero); } // null when the folder does not exist: compare the path as it is
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { return full; } // runs at startup: never fail it
+        if (real == IntPtr.Zero) return full;
+        try { return (Marshal.PtrToStringUTF8(real) ?? full).TrimEnd('/'); }
+        finally { free(real); }
+    }
+
+    [DllImport("libc")] private static extern IntPtr realpath(string path, IntPtr resolved);
+    [DllImport("libc")] private static extern void free(IntPtr pointer);
 
     public UpdateStatus Status()
     {
@@ -334,18 +356,15 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
     private static bool Newer(string candidate, string current) =>
         Version.TryParse(candidate, out var a) && Version.TryParse(current.Split('-')[0], out var b) && a > b;
 
-    private static async Task<string> Run(string file, string args, CancellationToken ct)
+    /// <summary>
+    /// Runs adb for the updater, bounded and reaped like every other tool (<see cref="ToolProcess"/>): an install that
+    /// never returns (a stuck phone or cable) would otherwise hold the update gate until the agent restarts, and a
+    /// cancelled update would leave adb running. A slow phone can take a while to install, hence the generous default.
+    /// </summary>
+    private static async Task<string> Run(string file, string args, CancellationToken ct, TimeSpan? timeout = null)
     {
-        var psi = new ProcessStartInfo(file, args)
-        {
-            RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
-            WorkingDirectory = AppPaths.NeutralCwd,
-        };
-        using var p = Process.Start(psi)!;
-        var stdout = p.StandardOutput.ReadToEndAsync(ct);
-        var stderr = p.StandardError.ReadToEndAsync(ct);
-        await p.WaitForExitAsync(ct);
-        return await stdout + await stderr;
+        var result = await ToolProcess.RunAsync(new ProcessStartInfo(file, args), timeout ?? TimeSpan.FromMinutes(3), ct);
+        return result.Output + result.Error;
     }
 
     private sealed record Release(string Version, string? Url, string? Apk, string? AgentZip);

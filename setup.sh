@@ -288,14 +288,18 @@ write_autostart() {
       caution "Add $app/PhoneBoxAgent to your desktop's startup applications instead."
       return 1
     fi
-    case "$app$HOME${XDG_DATA_HOME:-}${XDG_CONFIG_HOME:-}" in
-      *'$'*|*'
-'*)
-        caution "The install or settings path contains \$ or a line break, which a systemd service cannot be given safely;"
-        caution "add $app/PhoneBoxAgent to your desktop's startup applications instead."
-        remove_autostart   # an older unit would otherwise start the previous install at login and in start_agent
-        return 1 ;;
-    esac
+    local unsafe=0
+    case "$app$HOME${XDG_DATA_HOME:-}${XDG_CONFIG_HOME:-}" in *'$'*|*'
+'*) unsafe=1 ;; esac
+    # systemd also refuses an executable path with a quote, an apostrophe or a backslash ("special characters"),
+    # e.g. an AD home such as /home/o'brien@corp.example: the unit would be enabled but never start
+    case "$app" in *'"'*|*"'"*|*'\'*) unsafe=1 ;; esac
+    if [ "$unsafe" = 1 ]; then
+      caution "The install or settings path contains \$, a quote, a backslash or a line break, which a systemd service cannot be given safely;"
+      caution "add $app/PhoneBoxAgent to your desktop's startup applications instead."
+      remove_autostart   # an older unit would otherwise start the previous install at login and in start_agent
+      return 1
+    fi
     # the service must see the same XDG folders as this shell, or the agent would use other settings and install folders
     local env_lines="" v
     for v in XDG_DATA_HOME XDG_CONFIG_HOME; do
@@ -377,7 +381,7 @@ select_phone() { # prints the serial of the one authorised phone, or nothing to 
       caution "Several phones are connected: $(printf '%s' "$ready" | tr '\n' ' ')" >&2
       if [ "$yes" = 1 ] || [ "$tty_ok" = 0 ]; then caution 'Run setup again with --serial <id> to pick one; skipping the phone app.' >&2; return; fi
       wanted="$(read_line 'Type the serial of the phone to use (empty to skip):')"
-      [ -n "$wanted" ] || return
+      [ -n "$wanted" ] || return 0   # skipping is not an error: main runs under set -e
       continue
     fi
     if [ -z "$devices" ]; then
