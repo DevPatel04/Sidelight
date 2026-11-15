@@ -261,6 +261,23 @@ public class ConfigConcurrencyTests
         finally { File.Delete(path); File.Delete(path + ".bak"); }
     }
 
+    [Theory]
+    [InlineData("\"TR\"", "tr")]       // any case
+    [InlineData("\" de \"", "de")]     // stray spaces
+    [InlineData("\"xx\"", "auto")]     // a language PhoneBox does not have
+    [InlineData("null", "auto")]
+    [InlineData("\"\"", "auto")]
+    public void ADisplayLanguageItDoesNotKnowFollowsThePhone(string json, string expected)
+    {
+        var (s, path) = NewStore();
+        try
+        {
+            Assert.Null(s.Save("{\"display\":{\"language\":" + json + "}}"));
+            Assert.Equal(expected, s.Get().Display.Language);
+        }
+        finally { File.Delete(path); File.Delete(path + ".bak"); }
+    }
+
     [Fact]
     public void EmbeddedI18nResourceExists()
     {
