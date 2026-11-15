@@ -249,7 +249,9 @@ Double-click the tray icon on Windows (or open <http://127.0.0.1:8765>):
   the corner to resize) and set their options. The widget palette is grouped by category and searchable.
   **Live preview** swaps the canvas for the real panel with your unsaved changes and live data.
 - **Rules**: automations, see [Rules](#rules).
-- **Shortcuts**: add, edit, reorder and test keys (label, emoji, colour). A key runs a program, presses a key
+- **Shortcuts**: add, edit, reorder and test keys; choose an icon automatically from its name, upload an image,
+  or paste an image / SVG from an icon library. Icons are saved locally with the settings. A key runs a
+  program, presses a key
   combination (`ctrl+shift+m`), types text or runs a macro (keys, text, waits, other shortcuts); on / off keys show
   their state on the phone (mute does by itself, others from a pushed value).
 - **Webhooks**: the webhook key, copy-paste examples, test buttons and the values pushed so far.

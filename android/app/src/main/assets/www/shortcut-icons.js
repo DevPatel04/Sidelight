@@ -19,6 +19,12 @@
     launch: { color: '#cbd5e1', svg: '<path d="M13 5h6v6M19 5l-9 9"/><path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>' },
   };
   window.phoneboxShortcutIcon = (shortcut) => {
+    // Custom icons are stored as small PNG data URLs in the desktop settings.
+    // SVG input is sanitized and rasterized before it is saved.
+    if (typeof shortcut?.icon === 'string' && shortcut.icon.length <= 120000
+      && /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(shortcut.icon)) {
+      return { color: shortcut.color || '#cbd5e1', image: shortcut.icon };
+    }
     const name = `${shortcut?.label || ''} ${shortcut?.id || ''}`.toLowerCase();
     if (/\b(after\s*effects|aftereffects|ae)\b/.test(name)) return icons.aftereffects;
     if (/\bpremiere\b/.test(name)) return icons.premiere;

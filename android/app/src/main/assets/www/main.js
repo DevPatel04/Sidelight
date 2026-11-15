@@ -419,7 +419,8 @@ export function keyButton(s) {
   const glyph = window.phoneboxShortcutIcon(s);
   const icon = h('span', 'k-icon' + (glyph.mark ? ' k-icon-mark' : ''));
   icon.style.setProperty('--ki', glyph.color);
-  if (glyph.mark) icon.textContent = glyph.mark;
+  if (glyph.image) icon.append(h('img', { class: 'shortcut-image', src: glyph.image, alt: '' }));
+  else if (glyph.mark) icon.textContent = glyph.mark;
   else icon.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${glyph.svg}</svg>`;
   const b = h('button', 'key' + (s.toggle ? ' toggle' : ''), icon, h('span', 'k-label', s.label));
   b.style.setProperty('--k', s.color || '#6b7280');

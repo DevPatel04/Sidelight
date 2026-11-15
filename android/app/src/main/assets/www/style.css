@@ -492,6 +492,7 @@ body.offline .offline-msg { display: flex; }
 .key:active { transform: scale(.94); filter: brightness(1.3); }
 .key .k-icon { width: clamp(32px, 30cqh, 48px); height: clamp(32px, 30cqh, 48px); flex: none; display: grid; place-items: center; border-radius: 14px; color: var(--ki, var(--k)); background: color-mix(in srgb, var(--ki, var(--k)) 16%, rgba(255, 255, 255, .035)); border: 1px solid color-mix(in srgb, var(--ki, var(--k)) 26%, transparent); }
 .key .k-icon svg { display: block; width: 54%; height: 54%; }
+.key .k-icon .shortcut-image { display: block; width: 72%; height: 72%; object-fit: contain; border-radius: 4px; padding: 2px; background: rgba(255, 255, 255, .94); }
 .key .k-icon.k-icon-mark { font: 800 clamp(16px, 7cqmin, 25px)/1 system-ui, sans-serif; letter-spacing: -.07em; }
 .key .k-label { font-size: clamp(10px, 3.6cqmin, 14px); font-weight: 500; color: #e5e9ef; max-width: 92%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .w-button .key .k-icon { width: clamp(44px, 36cqh, 68px); height: clamp(44px, 36cqh, 68px); }
