@@ -464,6 +464,7 @@ function Install-PhoneBox {
 # Everything runs from here, so a download cut off half way cannot run half a script.
 try {
     Install-PhoneBox
+    $global:LASTEXITCODE = 0   # optional native checks (gh, winget) may have left a non-zero code; setup succeeded
 } catch {
     Write-Host ''
     Write-Host "Setup stopped: $($_.Exception.Message)" -ForegroundColor Red
