@@ -117,10 +117,14 @@ test('the stream path also replays events the agent queued while it restarted', 
   await page.evaluate(() => {
     // the agent restarted: its counter starts over below the phone's, and an event is already queued
     window.PhoneBoxDemo.restart();
-    window.PhoneBoxDemo.emit('notify', { title: 'After', text: 'post-restart', level: 'ok' });
+    window.PhoneBoxDemo.emit('notify', { title: 'Backlog', text: 'backlog event', level: 'ok' });
     window.__evSeq = 1; // streamed states now report the restarted counter
   });
-  await expect(page.locator('#toast')).toContainText('post-restart');
+  await page.waitForTimeout(700); // a streamed state has armed the replay
+  // a live event arrives while the backlog is being replayed: it has to be applied after it, not before
+  await page.evaluate(() => window.onAgentStream('event', JSON.stringify({ seq: 2, kind: 'notify', data: { title: 'Live', text: 'live event', level: 'ok' } })));
+  await expect(page.locator('#toast')).toContainText('live event');
+  await expect.poll(async () => page.evaluate(async () => (await import('/panel/main.js')).D.notes.slice(0, 2).map((n) => n.title))).toEqual(['Live', 'Backlog']);
 });
 
 test('a webhook switches pages after a countdown', async ({ page }) => {
