@@ -69,6 +69,7 @@ export let rulesPaused = null;    // unix ms until which the agent's rules are p
 export let nightOn = null;
 export let evSeq = null;          // last event seq the agent reported in a state (notifications, page switches…)
 let evReplay = false;             // the agent restarted: the next poll replays the events it kept (from 0)
+let evGen = 0;                    // bumped when a restart arms evReplay, so an answer already in flight cannot disarm a newer one
 let stateTs = 0;                  // server ts of the newest state applied (a late response must not reset the events)
 const evSeen = new Set();         // event seqs already handled in this agent run (the stream and a poll can repeat one)
 const evMark = (s) => { evSeen.add(s); if (evSeen.size > 400) evSeen.delete(evSeen.values().next().value); };
@@ -1480,11 +1481,14 @@ export function applyState(s) {
   setOnline(true);
   if (s.cfgVersion !== undefined && cfgVersion !== null && s.cfgVersion !== cfgVersion) loadConfig();
   if (s.pushVersion !== undefined && s.pushVersion !== pushVersion) loadPush();
-  if (s.ts == null || s.ts >= stateTs) {                // a state older than the newest applied one may not touch the events
+  // compares the agent's wall clock across responses: if the PC's clock steps back (NTP), polled events are
+  // ignored until it catches up — the stream still delivers them meanwhile
+  const fresh = s.ts == null || s.ts >= stateTs;
+  if (fresh) {
     stateTs = s.ts ?? stateTs;
     for (const e of s.events || []) if (typeof e.seq === 'number' && !evSeen.has(e.seq)) { evMark(e.seq); handleEvent(e); }
     // the agent restarted: it counts events from 0 again — forget what was handled and replay its backlog once
-    if (evSeq != null && s.evSeq != null && s.evSeq < evSeq) { evSeen.clear(); evReplay = true; evSeq = 0; }
+    if (evSeq != null && s.evSeq != null && s.evSeq < evSeq) { evSeen.clear(); evReplay = true; evGen++; evSeq = 0; }
     evSeq = Math.max(evSeq ?? 0, s.evSeq ?? 0);
   }
   // the "back" event can be missed while offline; the list of active rules settles it
@@ -1510,6 +1514,7 @@ export function applyState(s) {
     }
   }
   emit('state');
+  return fresh;
 }
 
 // Live stream from the Android shell (see AgentStream.kt); polling below is the fallback when it is not running.
@@ -1527,11 +1532,14 @@ window.onAgentStream = (event, data) => {
 export const streaming = () => streamOn && Date.now() - lastStateAt < 3000;
 
 export async function poll() {
-  if (!streaming()) {
+  // a pending replay must go through even while the stream is live: the stream only sends events newer than
+  // its own connect, so the poll is the only way to get the ones the restarted agent queued before it
+  if (!streaming() || evReplay) {
+    const replay = evReplay, gen = evGen;
     try {
-      const s = await api('/state' + (evReplay ? '?ev=0' : evSeq != null ? '?ev=' + evSeq : ''));
-      evReplay = false; // the replay answered; a restart reported in the answer arms it again below
-      applyState(s);
+      const s = await api('/state' + (replay ? '?ev=0' : evSeq != null ? '?ev=' + evSeq : ''));
+      // disarm only when this replay's own answer applied: a stale answer or a restart armed meanwhile keeps it on
+      if (applyState(s) && replay && gen === evGen) evReplay = false;
     }
     catch (_) { if (!streaming()) setOnline(false); }
   }

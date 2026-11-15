@@ -104,6 +104,25 @@ test('an event the agent queued while it restarted is still delivered', async ({
   await expect(page.locator('#toast')).toContainText('post-restart');
 });
 
+test('the stream path also replays events the agent queued while it restarted', async ({ page }) => {
+  await page.goto('/panel/');
+  await expect(page.locator('.w').first()).toBeVisible();
+  // the phone runs on the live stream, not the poll: feed states so streaming() stays true
+  await page.evaluate(() => {
+    window.__evSeq = 5;
+    window.onAgentStream('open');
+    window.__feed = setInterval(() => window.onAgentStream('state', JSON.stringify({ ts: Date.now(), evSeq: window.__evSeq })), 500);
+  });
+  await page.waitForTimeout(1200); // a few streamed states: the panel now tracks seq 5
+  await page.evaluate(() => {
+    // the agent restarted: its counter starts over below the phone's, and an event is already queued
+    window.PhoneBoxDemo.restart();
+    window.PhoneBoxDemo.emit('notify', { title: 'After', text: 'post-restart', level: 'ok' });
+    window.__evSeq = 1; // streamed states now report the restarted counter
+  });
+  await expect(page.locator('#toast')).toContainText('post-restart');
+});
+
 test('a webhook switches pages after a countdown', async ({ page }) => {
   await page.goto('/panel/');
   await expect(page.locator('.w').first()).toBeVisible();
