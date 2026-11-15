@@ -27,6 +27,9 @@ Fixes from an evidence-led audit. Each one was reproduced on the unchanged code 
   Before, one bad mirror broke "Load countries" and "Import stations".
 
 **Android app**
+- Notifications, page switches and permission prompts that the agent queued while it restarted (after saving
+  settings, an update or a crash) now reach the phone. Before, the panel skipped them because the restarted agent
+  counted its events from 0 again (#86, thanks to Seyamalam).
 - Page switching:
   - **Stay** on a rule's "Back to …" card now keeps the page.
   - A rule that ended while you were on another page no longer undoes that page when you open it yourself later.
