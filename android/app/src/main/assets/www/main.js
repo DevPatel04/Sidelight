@@ -737,7 +737,9 @@ export function handleNotify(d) {
   D.notes = D.notes.slice(0, 30);
   store.set('notes', D.notes);
   emit('notes');
-  if (d.page != null) requestPage({ page: d.page, name: d.title || null, countdown: d.countdown });
+  // the webhook body is passed through as sent; like every other countdown, this one is 0-30 s (or the default)
+  const countdown = d.countdown == null || d.countdown === '' ? NaN : Number(d.countdown);
+  if (d.page != null) requestPage({ page: d.page, name: d.title || null, countdown: Number.isFinite(countdown) ? Math.min(30, Math.max(0, countdown)) : undefined });
 }
 
 // ---------------------------------------------------------------- permission prompts (Claude Code hook → phone)
@@ -1071,12 +1073,16 @@ function dismiss(req) {
   haptic();
   navQueue = navQueue.filter((r) => r !== req);
   if (req.kind === 'home') lastTouch = Date.now();
+  // staying after a rule ended ends its hold, or the list of active rules (applyState) would ask to go back again
+  if (req.kind === 'back' && ruleHold?.rule === req.rule) ruleHold = null;
   navCount = null;
   pump();
 }
 
 function nextRequest() {
   const hold = ruleHold && curPage === ruleHold.page ? ruleHold : null;
+  // the rule ended after you moved on: its hold is over, so coming back to that page later does not undo it
+  if (ruleHold && !hold && navQueue.some((r) => r.kind === 'back' && r.rule === ruleHold.rule)) ruleHold = null;
   navQueue = navQueue.filter((r) => (r.kind === 'back' ? hold && hold.rule === r.rule : r.kind === 'home' ? idleDue() : true));
   // already there: a rule just takes the page over
   for (const r of navQueue.filter((r) => r.kind === 'goto' && r.page === curPage)) {
