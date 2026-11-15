@@ -65,3 +65,14 @@ test('a notification with a malformed countdown switches after the default one a
   await step(page, 35_000);
   expect(await activeDot(page)).toBe(4);
 });
+
+test('a notification whose countdown is an object is shown, and the next event still arrives', async ({ page }) => {
+  await show(page);
+  // valid JSON, but Number() of it throws ("Cannot convert object to primitive value")
+  await emit(page, 'notify', { title: 'Odd', text: 'object countdown', page: 'three', countdown: { toString: null } });
+  await expect(page.locator('#toast')).toContainText('object countdown');
+  await step(page, 6000);
+  expect(await activeDot(page)).toBe(2);
+  await emit(page, 'notify', { title: 'Next', text: 'still delivered' });
+  await expect(page.locator('#toast')).toContainText('still delivered');
+});

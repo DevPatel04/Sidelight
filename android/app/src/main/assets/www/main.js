@@ -738,7 +738,10 @@ export function handleNotify(d) {
   store.set('notes', D.notes);
   emit('notes');
   // the webhook body is passed through as sent; like every other countdown, this one is 0-30 s (or the default)
-  const countdown = d.countdown == null || d.countdown === '' ? NaN : Number(d.countdown);
+  // only a number or a numeric string: Number() of an object such as {"toString":null} throws, which would stop the
+  // events after this one from being handled
+  const raw = d.countdown;
+  const countdown = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
   if (d.page != null) requestPage({ page: d.page, name: d.title || null, countdown: Number.isFinite(countdown) ? Math.min(30, Math.max(0, countdown)) : undefined });
 }
 
