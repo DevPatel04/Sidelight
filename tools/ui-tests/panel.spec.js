@@ -91,6 +91,19 @@ test('a webhook notification shows a toast', async ({ page }) => {
   await expect(page.locator('#toast')).toContainText('main passed');
 });
 
+test('an event the agent queued while it restarted is still delivered', async ({ page }) => {
+  await page.goto('/panel/');
+  await expect(page.locator('.w').first()).toBeVisible();
+  await page.evaluate(() => {
+    window.PhoneBoxDemo.emit('notify', { title: 'One', text: 'first', level: 'ok' });
+    window.PhoneBoxDemo.emit('notify', { title: 'Two', text: 'second', level: 'ok' });
+  });
+  await expect(page.locator('#toast')).toContainText('second');
+  // the agent restarted: its event counter starts over below the phone's (PushStore keeps events in memory)
+  await page.evaluate(() => { window.PhoneBoxDemo.restart(); window.PhoneBoxDemo.emit('notify', { title: 'After', text: 'post-restart', level: 'ok' }); });
+  await expect(page.locator('#toast')).toContainText('post-restart');
+});
+
 test('a webhook switches pages after a countdown', async ({ page }) => {
   await page.goto('/panel/');
   await expect(page.locator('.w').first()).toBeVisible();

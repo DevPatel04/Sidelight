@@ -67,7 +67,11 @@ export let lastUserTouch = 0;     // last real touch or key (rules wait a while 
 export let wakeUntil = 0;
 export let rulesPaused = null;    // unix ms until which the agent's rules are paused
 export let nightOn = null;
-export let evSeq = null;          // last agent event seen (notifications, page switches…)
+export let evSeq = null;          // last event seq the agent reported in a state (notifications, page switches…)
+let evReplay = false;             // the agent restarted: the next poll replays the events it kept (from 0)
+let stateTs = 0;                  // server ts of the newest state applied (a late response must not reset the events)
+const evSeen = new Set();         // event seqs already handled in this agent run (the stream and a poll can repeat one)
+const evMark = (s) => { evSeen.add(s); if (evSeen.size > 400) evSeen.delete(evSeen.values().next().value); };
 export let pushVersion = null;
 
 /** Latest data from the agent and the web; widgets read from here. */
@@ -1476,9 +1480,13 @@ export function applyState(s) {
   setOnline(true);
   if (s.cfgVersion !== undefined && cfgVersion !== null && s.cfgVersion !== cfgVersion) loadConfig();
   if (s.pushVersion !== undefined && s.pushVersion !== pushVersion) loadPush();
-  if (evSeq != null && s.evSeq != null && s.evSeq < evSeq) evSeq = s.evSeq; // the agent restarted: it counts from 0 again
-  if (evSeq != null) for (const e of s.events || []) if (e.seq > evSeq) handleEvent(e);
-  evSeq = Math.max(evSeq ?? 0, s.evSeq ?? 0);
+  if (s.ts == null || s.ts >= stateTs) {                // a state older than the newest applied one may not touch the events
+    stateTs = s.ts ?? stateTs;
+    for (const e of s.events || []) if (typeof e.seq === 'number' && !evSeen.has(e.seq)) { evMark(e.seq); handleEvent(e); }
+    // the agent restarted: it counts events from 0 again — forget what was handled and replay its backlog once
+    if (evSeq != null && s.evSeq != null && s.evSeq < evSeq) { evSeen.clear(); evReplay = true; evSeq = 0; }
+    evSeq = Math.max(evSeq ?? 0, s.evSeq ?? 0);
+  }
   // the "back" event can be missed while offline; the list of active rules settles it
   if (ruleHold && Array.isArray(s.rules) && !s.rules.includes(ruleHold.rule) && Date.now() - ruleHold.at > 8000) requestBack(ruleHold.rule);
   rulesPaused = s.rulesPaused || null;
@@ -1514,13 +1522,17 @@ window.onAgentStream = (event, data) => {
   try { d = JSON.parse(data); } catch (_) { return; }
   if (event === 'state') applyState(d);
   else if (event === 'work') applyWork(d);
-  else if (event === 'event' && d.seq > (evSeq ?? 0)) { evSeq = d.seq; handleEvent(d); }
+  else if (event === 'event' && typeof d.seq === 'number' && !evSeen.has(d.seq)) { evMark(d.seq); handleEvent(d); }
 };
 export const streaming = () => streamOn && Date.now() - lastStateAt < 3000;
 
 export async function poll() {
   if (!streaming()) {
-    try { applyState(await api('/state' + (evSeq != null ? '?ev=' + evSeq : ''))); }
+    try {
+      const s = await api('/state' + (evReplay ? '?ev=0' : evSeq != null ? '?ev=' + evSeq : ''));
+      evReplay = false; // the replay answered; a restart reported in the answer arms it again below
+      applyState(s);
+    }
     catch (_) { if (!streaming()) setOnline(false); }
   }
   setTimeout(poll, 1000);

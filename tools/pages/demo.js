@@ -650,5 +650,8 @@
     on('ask', (d) => ask(d || undefined, false));
   }
 
-  window.PhoneBoxDemo = { emit, ask, reset() { localStorage.removeItem('pb-demo-config'); store.set('pb-demo-version', cfgVersion() + 1); } };
+  window.PhoneBoxDemo = { emit, ask,
+    reset() { localStorage.removeItem('pb-demo-config'); store.set('pb-demo-version', cfgVersion() + 1); },
+    // the agent restarted: PushStore keeps events in memory only, so its counter and backlog start over
+    restart() { seq = 0; events.length = 0; } };
 })();
