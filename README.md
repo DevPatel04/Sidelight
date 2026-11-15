@@ -258,6 +258,13 @@ Appearance**. Choose Original, Rounded cards, Flat, Content only or Seamless pan
 Pages and individual widgets can override global defaults. Live preview shows unsaved changes before Save.
 Existing layouts keep their original appearance. See the [appearance guide](docs/APPEARANCE.md).
 
+For OLED screens that show the same page all day, **Settings → General → OLED burn-in protection** has two options:
+
+- move the panel by a few pixels every 2 minutes (and the night clock around the screen);
+- dim the panel after a set time without a touch. The touch that brightens it again does not press anything.
+
+The AMOLED black theme and the night screen help too.
+
 ## Control Deck
 
 Turn a phone into a touch control deck with application audio faders, microphone controls, device selection,
@@ -365,7 +372,7 @@ Double-click the tray icon on Windows (or open <http://127.0.0.1:8765>):
 - **General**: weather location search; calendars (ICS links from Google, Outlook or iCloud), Home Assistant and OBS
   connections; night mode; theme and accent colour, orientation (landscape, portrait or follow the phone), clock seconds,
   vibration, volume-key paging and the phone's sensors (brightness that follows the room, the night screen when the
-  room goes dark, wave to wake it); [page switching](#rules) (home page, countdown, back home after);
+  room goes dark, wave to wake it); OLED burn-in protection; [page switching](#rules) (home page, countdown, back home after);
   kiosk options (screen pinning, the panel as the phone's home screen so it starts after a reboot, keep the phone
   awake on the charger; no root needed); on macOS, optionally follow the computer lock (sleep the phone on lock,
   wake it and open PhoneBox on unlock, with an ADB connection; phones secured by a PIN or password must be unlocked
