@@ -296,6 +296,15 @@ function Install-PhoneBox {
     $installed = $null
     if (Test-Path $exe) { $installed = ("$((Get-Item $exe).VersionInfo.ProductVersion)" -split '\+')[0] }
     Write-Ok "Windows build $build, x64$(if ($installed) { ", PhoneBox $installed installed" })"
+    # Smart App Control (Windows 11) blocks programs that are neither signed nor known to Microsoft: 1 on, 2 evaluation
+    $smartAppControl = 0
+    try { $smartAppControl = [int](Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -ErrorAction Stop).VerifiedAndReputablePolicyState } catch { }
+    if ($smartAppControl -eq 1 -or $smartAppControl -eq 2) {
+        Write-Caution "Smart App Control is $(if ($smartAppControl -eq 1) { 'on' } else { 'in evaluation mode' }). It blocks programs that are neither signed nor known"
+        Write-Caution 'to Microsoft. The release agent has run with it on; agents built from source can be blocked. If Windows'
+        Write-Caution 'blocks PhoneBoxAgent.exe, do not turn Smart App Control off for it (it cannot be turned back on without'
+        Write-Caution "resetting Windows); please report the message in https://github.com/$Repo/issues/69 instead."
+    }
 
     Write-Step 'Finding the release'
     $tag = if ($Version) { $Version } else { Get-LatestVersion }
@@ -430,6 +439,9 @@ function Install-PhoneBox {
                 Write-Caution "PhoneBoxAgent.exe was removed, probably by an antivirus. See https://github.com/$Repo/issues/69."
             } else {
                 Write-Caution "The agent did not answer. Its log: $env:LOCALAPPDATA\PhoneBox\agent.log"
+                if ($smartAppControl -eq 1) {
+                    Write-Caution 'Smart App Control may have blocked it: see Windows Security > App & browser control, and the warning above.'
+                }
             }
         }
 
