@@ -22,8 +22,16 @@ public sealed class AppCatalog(ConfigStore config, ILogger<AppCatalog> log)
     private Dictionary<string, AppEntry> _byId = [];
     private long _scannedAt = long.MinValue / 2;
     private int _scanning;
-    private readonly ConcurrentDictionary<string, byte[]?> _icons = new();
+    private sealed record IconEntry(byte[]? Png, long At);
+    private readonly ConcurrentDictionary<string, IconEntry> _icons = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _iconGates = new(); // one conversion per app at a time
     private readonly SemaphoreSlim _iconSlots = new(2); // icon conversion spawns sips / qlmanage: at most two at a time
+
+    /// <summary>How long a failed conversion is remembered before it is tried again (a timeout on a busy computer).</summary>
+    internal long FailureRetryMs { get; init; } = 60_000;
+
+    /// <summary>For tests: the conversion instead of sips / Quick Look.</summary>
+    internal Func<AppEntry, byte[]?> Converter { get; init; } = MakeIcon;
 
     /// <summary>Folders scanned for .app bundles (top level and one folder deep, e.g. /Applications/Utilities).</summary>
     internal IReadOnlyList<string> Roots { get; init; } = OperatingSystem.IsMacOS()
@@ -35,7 +43,8 @@ public sealed class AppCatalog(ConfigStore config, ILogger<AppCatalog> log)
     /// <summary>Convert all icons in the background after a scan (off in tests, which scan fake bundles).</summary>
     internal bool WarmIcons { get; init; } = true;
 
-    public bool OpenAllowed() => config.Get().Widgets().Any(w => w.Type == WidgetType);
+    /// <summary>Only while an All apps widget is on a page that is shown (like AllowKill): hiding the page turns opening off.</summary>
+    public bool OpenAllowed() => config.Get().Widgets(enabledPagesOnly: true).Any(w => w.Type == WidgetType);
 
     /// <summary>The installed apps by name. The first call scans; later calls return the last scan and rescan in the background.</summary>
     public IReadOnlyList<AppEntry> List()
@@ -85,7 +94,7 @@ public sealed class AppCatalog(ConfigStore config, ILogger<AppCatalog> log)
     {
         foreach (var a in apps)
         {
-            if (_icons.ContainsKey(a.Id)) continue;
+            if (TryCached(a.Id, out _)) continue;
             try { await IconAsync(a.Id, CancellationToken.None); } catch { }
         }
     }
@@ -122,29 +131,53 @@ public sealed class AppCatalog(ConfigStore config, ILogger<AppCatalog> log)
         return ok ? null : $"Could not open {app.Name}";
     }
 
-    /// <summary>A 96 px PNG of the app's icon, converted once and kept in memory.</summary>
+    /// <summary>
+    /// A 96 px PNG of the app's icon. Successes are kept; a failure is kept for <see cref="FailureRetryMs"/>, then the
+    /// next request converts again.
+    /// </summary>
     public async Task<byte[]?> IconAsync(string id, CancellationToken ct)
     {
         if (!Supported || Find(id) is not { } app) return null;
-        if (_icons.TryGetValue(id, out var cached)) return cached;
-        await _iconSlots.WaitAsync(ct);
+        if (TryCached(id, out var cached)) return cached;
+        // background warming and a phone request can ask for the same app at once: the second waits for the first
+        var gate = _iconGates.GetOrAdd(id, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
         try
         {
-            if (_icons.TryGetValue(id, out cached)) return cached;
-            var png = MakeIcon(app);
-            _icons[id] = png;
-            return png;
+            if (TryCached(id, out cached)) return cached;
+            await _iconSlots.WaitAsync(ct);
+            try
+            {
+                var png = Converter(app);
+                _icons[id] = new IconEntry(png, Environment.TickCount64);
+                return png;
+            }
+            finally { _iconSlots.Release(); }
         }
-        finally { _iconSlots.Release(); }
+        finally { gate.Release(); }
+    }
+
+    private bool TryCached(string id, out byte[]? png)
+    {
+        png = null;
+        if (!_icons.TryGetValue(id, out var e)) return false;
+        if (e.Png is null && Environment.TickCount64 - e.At >= FailureRetryMs) return false; // failed a while ago: try again
+        png = e.Png;
+        return true;
     }
 
     private static byte[]? MakeIcon(AppEntry app)
     {
         var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "phonebox-app-icons");
+        var id = IdOf(app.Path);
+        // converters write to names of their own; only a finished PNG is moved (renamed) to the cached name, so a reader
+        // never sees a half-written file, now or after a restart
+        var tmp = System.IO.Path.Combine(dir, $"{id}.{Guid.NewGuid():N}.tmp.png");
+        var ql = System.IO.Path.Combine(dir, $"ql-{id}-{Guid.NewGuid():N}");
         try
         {
             Directory.CreateDirectory(dir);
-            var out1 = System.IO.Path.Combine(dir, IdOf(app.Path) + ".png");
+            var out1 = System.IO.Path.Combine(dir, id + ".png");
             if (File.Exists(out1)) return File.ReadAllBytes(out1);
 
             // 1) the icon file the bundle names in Info.plist (.icns)
@@ -154,23 +187,28 @@ public sealed class AppCatalog(ConfigStore config, ILogger<AppCatalog> log)
             {
                 if (!iconName.EndsWith(".icns", StringComparison.OrdinalIgnoreCase)) iconName += ".icns";
                 var icns = System.IO.Path.Combine(app.Path, "Contents", "Resources", System.IO.Path.GetFileName(iconName));
-                if (File.Exists(icns) && Run(8000, "/usr/bin/sips", "-s", "format", "png", "--resampleWidth", "96", icns, "--out", out1) is not null && File.Exists(out1))
-                    return File.ReadAllBytes(out1);
+                if (File.Exists(icns) && Run(8000, "/usr/bin/sips", "-s", "format", "png", "--resampleWidth", "96", icns, "--out", tmp) is not null && File.Exists(tmp))
+                    return Publish(tmp, out1);
             }
 
             // 2) apps whose icon lives only in an asset catalog: Quick Look renders the bundle's icon
-            var ql = System.IO.Path.Combine(dir, "ql-" + IdOf(app.Path));
             Directory.CreateDirectory(ql);
             Run(10_000, "/usr/bin/qlmanage", "-t", "-s", "96", "-o", ql, app.Path);
-            var thumb = Directory.EnumerateFiles(ql, "*.png").FirstOrDefault();
-            if (thumb is not null)
-            {
-                File.Move(thumb, out1, overwrite: true);
-                return File.ReadAllBytes(out1);
-            }
+            if (Directory.EnumerateFiles(ql, "*.png").FirstOrDefault() is { } thumb) return Publish(thumb, out1);
         }
         catch { }
+        finally
+        {
+            try { File.Delete(tmp); } catch { }
+            try { if (Directory.Exists(ql)) Directory.Delete(ql, true); } catch { }
+        }
         return null;
+    }
+
+    private static byte[] Publish(string finished, string target)
+    {
+        File.Move(finished, target, overwrite: true); // a rename within the folder: atomic
+        return File.ReadAllBytes(target);
     }
 
     private static string? Run(int timeoutMs, string exe, params string[] args)
