@@ -157,19 +157,28 @@ app.UseRouting();
 app.Use(async (ctx, next) =>
 {
     var origin = ctx.Request.Headers.Origin.ToString();
+    var keyless = false; // a Wi-Fi request let in without a key (pairing claim): it must not touch any phone state
     if (lanCert is not null && ctx.Connection.LocalPort == lanCfg.Port)
     {
         // The phone's key opens the panel API; the separate webhook key opens only the webhook endpoints, in a header
         // or, for senders that cannot set headers, in ?token= (URLs end up in logs, so it must not be the phone's key).
         var lan = configStore.Get().Lan;
-        // Pairing without USB: the phone has no key yet and trades a one-time code for it (checked by the endpoint).
-        var authorized = Lan.IsPairingClaim(ctx.Request.Method, ctx.Request.Path)
-            || Lan.Matches(ctx.Request.Headers.Authorization, lan.Token!)
+        var keyed = Lan.Matches(ctx.Request.Headers.Authorization, lan.Token!)
             || (Lan.IsWebhook(ctx.Request.Path) && (Lan.Matches(ctx.Request.Headers.Authorization, lan.WebhookToken!)
                 || Lan.MatchesQuery(ctx.Request.Query["token"], lan.WebhookToken!)));
-        if (origin != "" || !Lan.AllowedOverLan(ctx.Request.Path) || !authorized)
+        // Pairing without USB: the phone has no key yet and trades a one-time code for it (checked by the endpoint).
+        keyless = !keyed && Lan.IsPairingClaim(ctx.Request.Method, ctx.Request.Path);
+        if (origin != "" || !Lan.AllowedOverLan(ctx.Request.Path) || !(keyed || keyless))
         {
             ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+        if (keyless)
+        {
+            // the code is all it may send: no phone registry, app version or "phone connected" updates
+            ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()!.MaxRequestBodySize = 1024;
+            ctx.Response.Headers.CacheControl = "no-store";
+            await next();
             return;
         }
     }
@@ -247,8 +256,11 @@ app.MapPost("/api/pair/claim", async (HttpRequest req, ConfigStore cfg, PairingC
 {
     if (lanCert is null || req.ContentLength is > 1024) return Results.StatusCode(StatusCodes.Status403Forbidden);
     string? code = null;
-    try { code = (await req.ReadFromJsonAsync<PairClaim>())?.Code; } catch (System.Text.Json.JsonException) { }
-    if (!codes.Claim(code, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())) return Results.StatusCode(StatusCodes.Status403Forbidden);
+    // the body limit (1 KB, set by the middleware for keyless requests) also stops chunked uploads without a length
+    try { code = (await req.ReadFromJsonAsync<PairClaim>())?.Code; }
+    catch (Exception e) when (e is System.Text.Json.JsonException or BadHttpRequestException or IOException) { }
+    if (code is not { Length: > 0 and <= 64 } || !codes.Claim(code, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))
+        return Results.StatusCode(StatusCodes.Status403Forbidden);
     var lan = cfg.Get().Lan;
     app.Logger.LogInformation("phone paired over Wi-Fi ({Model})", req.Headers["X-PhoneBox-Model"].ToString());
     return Results.Json(new
