@@ -7,6 +7,8 @@
   QR code to install the app and one to pair. The pairing link carries the computer's addresses, the certificate
   fingerprint and a one-time code (5 minutes, single use); the phone trades the code for the Wi-Fi key over the
   pinned TLS connection, so the key is never in the QR code.
+- Claude quota: the last successful reading is kept on disk, so after a restart (an update) or while Anthropic
+  rate-limits the checks, the panel shows the last values and their age instead of an empty quota.
 
 ## 0.9.7 — 2026-11-15
 

@@ -148,8 +148,48 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
         return false;
     }
 
+    /// <summary>
+    /// The last successful Claude reading, so a restart (an update) or a stretch of 429s shows the last values with
+    /// their age instead of nothing. Only usage percentages and reset times; no token.
+    /// </summary>
+    internal string ClaudeCachePath { get; init; } = Path.Combine(AppPaths.LocalDir, "claude-quota.json");
+
+    /// <summary>A cached reading older than this is not shown any more.</summary>
+    private const long ClaudeCacheMaxAgeMs = 7L * 24 * 3600 * 1000;
+
+    internal void LoadClaudeCache(long nowMs)
+    {
+        try
+        {
+            if (!File.Exists(ClaudeCachePath)) return;
+            var cached = JsonSerializer.Deserialize<QuotaProvider>(File.ReadAllText(ClaudeCachePath), ConfigStore.WriteOpts);
+            if (cached is not { Id: "claude", Limits.Count: > 0, UpdatedAt: { } at } || nowMs - at > ClaudeCacheMaxAgeMs) return;
+            _claude ??= cached with { Error = null }; // limits whose reset has passed are shown as reset (see Snapshot)
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        {
+            log.LogDebug("claude quota cache: {Msg}", ex.Message);
+        }
+    }
+
+    internal void SaveClaudeCache(QuotaProvider reading)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(ClaudeCachePath)!);
+            var tmp = ClaudeCachePath + ".tmp";
+            AppPaths.WriteAllTextPrivate(tmp, JsonSerializer.Serialize(reading, ConfigStore.WriteOpts));
+            File.Move(tmp, ClaudeCachePath, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log.LogDebug("claude quota cache: {Msg}", ex.Message);
+        }
+    }
+
     private async Task RunUsageLoopAsync(CancellationToken ct)
     {
+        LoadClaudeCache(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
         while (!ct.IsCancellationRequested)
         {
             if (Environment.TickCount64 >= _nextCodexBar)
@@ -247,6 +287,7 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
             _claude = new QuotaProvider("claude", "Claude", plan, ParseClaudeLimits(doc.RootElement),
                 ClaudeExtra(doc.RootElement), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), null);
+            SaveClaudeCache(_claude);
             return true;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
