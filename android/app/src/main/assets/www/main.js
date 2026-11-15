@@ -79,6 +79,14 @@ const evDrain = () => {           // the backlog applied: release the held event
   for (const e of evQueue.sort((a, b) => a.seq - b.seq)) if (!evSeen.has(e.seq)) { evMark(e.seq); handleEvent(e); }
   evQueue = [];
 };
+const evOffer = (e) => {          // one event from the stream or a state answer: dedupe, then hold or dispatch
+  if (typeof e.seq !== 'number' || evSeen.has(e.seq)) return;
+  // a replay is armed: hold it so the backlog applies first — the drain sorts held and replayed events together
+  if (evReplay) {
+    if (!evQueue.some((q) => q.seq === e.seq)) evQueue.push(e);
+    if (evQueue.length > 100) evDrop = Math.max(evDrop, evQueue.shift().seq);
+  } else { evMark(e.seq); handleEvent(e); }
+};
 export let pushVersion = null;
 
 /** Latest data from the agent and the web; widgets read from here. */
@@ -1490,8 +1498,9 @@ export function applyState(s, replayGen = null) {
   // compares the agent's wall clock across responses: if the PC's clock steps back (NTP), polled events are
   // ignored until it catches up — the stream still delivers them meanwhile
   const fresh = s.ts == null || s.ts >= stateTs;
-  // the answer to a ?ev=0 replay can be overtaken by streamed states on the way; its events are still the backlog
-  if (fresh || replayGen === evGen) for (const e of s.events || []) if (typeof e.seq === 'number' && !evSeen.has(e.seq)) { evMark(e.seq); handleEvent(e); }
+  // the answer to a ?ev=0 replay can be overtaken by streamed states on the way; its events are still the backlog.
+  // they go through evOffer like live ones: while a replay is armed the queue merges them before dispatch
+  if (fresh || replayGen === evGen) for (const e of s.events || []) evOffer(e);
   if (fresh) {
     stateTs = s.ts ?? stateTs;
     // the agent restarted: it counts events from 0 again — forget what was handled and replay its backlog once
@@ -1534,11 +1543,7 @@ window.onAgentStream = (event, data) => {
   try { d = JSON.parse(data); } catch (_) { return; }
   if (event === 'state') applyState(d);
   else if (event === 'work') applyWork(d);
-  else if (event === 'event' && typeof d.seq === 'number' && !evSeen.has(d.seq)) {
-    // a replay is on the way: hold live events so the queued backlog applies before them
-    if (evReplay) { evQueue.push(d); if (evQueue.length > 100) evDrop = Math.max(evDrop, evQueue.shift().seq); }
-    else { evMark(d.seq); handleEvent(d); }
-  }
+  else if (event === 'event') evOffer(d);
 };
 export const streaming = () => streamOn && Date.now() - lastStateAt < 3000;
 

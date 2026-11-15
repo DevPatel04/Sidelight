@@ -127,7 +127,7 @@ test('the stream path also replays events the agent queued while it restarted', 
   await expect.poll(async () => page.evaluate(async () => (await import('/panel/main.js')).D.notes.slice(0, 2).map((n) => n.title))).toEqual(['Live', 'Backlog']);
 });
 
-test('a replay that overflowed its event buffer replays once more to recover the lost events', async ({ page }) => {
+test('a follow-up replay merges its events with the ones still held', async ({ page }) => {
   await page.goto('/panel/');
   await expect(page.locator('.w').first()).toBeVisible();
   await page.evaluate(() => {
@@ -140,7 +140,7 @@ test('a replay that overflowed its event buffer replays once more to recover the
     window.PhoneBoxDemo.restart();
     window.PhoneBoxDemo.emit('notify', { title: 'Backlog', text: 'backlog event', level: 'ok' });
   });
-  // freeze the first ?ev=0 answer at a snapshot taken before the flood: it cannot contain the dropped event
+  // freeze the first ?ev=0 answer at a snapshot taken before the flood: it cannot contain the flooded events
   // (the demo answers fetch() inside the page, so the interception wraps window.fetch rather than the network)
   await page.evaluate(() => {
     const answer = window.fetch('/api/state?ev=0').then((r) => r.json());
@@ -159,18 +159,20 @@ test('a replay that overflowed its event buffer replays once more to recover the
   await page.evaluate(() => {
     window.__evSeq = 1;
     window.onAgentStream('state', JSON.stringify({ ts: Date.now(), evSeq: 1 })); // arms the replay in this same task
-    // a live flood arrives while the answer is in flight: 101 events overflow the 100-event buffer and seq 2 is
-    // pushed out. It exists in the agent's backlog (emit) but the frozen answer above cannot contain it
-    const dropped = window.PhoneBoxDemo.emit('notify', { title: 'Dropped', text: 'recovered by the second pass', level: 'ok' });
-    window.onAgentStream('event', JSON.stringify(dropped));
-    for (let i = 3; i <= 102; i++) window.onAgentStream('event', JSON.stringify({ seq: i, kind: 'back', data: {} }));
-    window.__evSeq = 2; // the demo counter is 2 now, so the streamed states keep matching it
+    // events 2–102 arrive live and are in the agent's backlog too; the agent only retains the last 50 (53–102),
+    // so the follow-up replay returns the newer half while seqs 3–52 stay held in the buffer (2 was pushed out)
+    const push = (kind, data) => window.onAgentStream('event', JSON.stringify(window.PhoneBoxDemo.emit(kind, data)));
+    for (let i = 0; i < 50; i++) push('back', {});
+    push('back', { rule: 'r1' });                            // seq 52 — held: must run before the goto below
+    push('goto', { page: 3, rule: 'r1' });                   // seq 53 — first event the follow-up replay returns
+    for (let i = 0; i < 49; i++) push('back', {});
+    window.__evSeq = 102;                                    // streamed states now match the demo counter
   });
-  // the frozen answer ends at evSeq 1 < the dropped seq 2: the replay stays armed and a second pass recovers it
-  await expect.poll(
-    async () => page.evaluate(async () => (await import('/panel/main.js')).D.notes.slice(0, 2).map((n) => n.title)),
-    { timeout: 10000 }
-  ).toEqual(['Dropped', 'Backlog']);
+  // if the replayed goto ran first, the older back would remove it from the nav queue and the page never opens
+  // (page numbers are 1-based for the user, so page 3 shows as index 2)
+  await expect.poll(async () => page.evaluate(async () => (await import('/panel/main.js')).curPage), { timeout: 10000 }).toBe(2);
+  await page.waitForTimeout(1500); // and it has to stay open — the back must not run after it
+  await expect.poll(async () => page.evaluate(async () => (await import('/panel/main.js')).curPage)).toBe(2);
 });
 
 test('a webhook switches pages after a countdown', async ({ page }) => {
