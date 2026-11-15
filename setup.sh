@@ -265,9 +265,10 @@ remove_autostart() {
   fi
 }
 
-# the install path as one systemd command-line word (it can contain spaces through XDG_DATA_HOME)
+# a path or an assignment as one quoted systemd word (the install path can contain spaces through XDG_DATA_HOME);
+# "$" is left alone: systemd does not expand it in the executable path, and paths with "$" are refused below
 systemd_quote() {
-  printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g' -e 's/\$/$$/g')"
+  printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/%/%%/g')"
 }
 
 xml_escape() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
@@ -287,6 +288,19 @@ write_autostart() {
       caution "Add $app/PhoneBoxAgent to your desktop's startup applications instead."
       return 1
     fi
+    case "$app$HOME${XDG_DATA_HOME:-}${XDG_CONFIG_HOME:-}" in
+      *'$'*|*'
+'*)
+        caution "The install or settings path contains \$ or a line break, which a systemd service cannot be given safely;"
+        caution "add $app/PhoneBoxAgent to your desktop's startup applications instead."
+        return 1 ;;
+    esac
+    # the service must see the same XDG folders as this shell, or the agent would use other settings and install folders
+    local env_lines="" v
+    for v in XDG_DATA_HOME XDG_CONFIG_HOME; do
+      if [ -n "${!v:-}" ]; then env_lines="${env_lines}Environment=$(systemd_quote "$v=${!v}")
+"; fi
+    done
     mkdir -p "$(dirname "$unit")"
     cat > "$unit" <<EOF
 [Unit]
@@ -297,7 +311,7 @@ After=graphical-session.target
 ExecStart=$(systemd_quote "$app/PhoneBoxAgent")
 Restart=on-failure
 RestartSec=5
-
+${env_lines}
 [Install]
 WantedBy=default.target
 EOF
