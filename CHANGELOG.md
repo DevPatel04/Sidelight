@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+**Agent**
+- Pair a phone over Wi-Fi without USB: Settings › General › Wi-Fi & Tailscale › **Pair a phone over Wi-Fi** shows a
+  QR code to install the app and one to pair. The pairing link carries the computer's addresses, the certificate
+  fingerprint and a one-time code (5 minutes, single use); the phone trades the code for the Wi-Fi key over the
+  pinned TLS connection, so the key is never in the QR code.
+
 ## 0.9.7 — 2026-11-15
 
 The agent no longer needs .NET installed: each release is one self-contained program. The Claude quota shows again
