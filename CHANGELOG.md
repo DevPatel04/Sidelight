@@ -10,6 +10,16 @@
 - Claude quota: the last successful reading is kept on disk, so after a restart (an update) or while Anthropic
   rate-limits the checks, the panel shows the last values and their age instead of an empty quota.
 
+**Android app**
+- Opens pairing links from the computer's QR code: it shows the computer's name, addresses and a check code to compare
+  with the computer's pairing window, and pairs only after you confirm. It accepts only private network and Tailscale
+  addresses, and pairing a computer never replaces another one with the same name.
+
+**Docs**
+- A pairing page at `/pair/` on the project site, which the QR code opens: it checks the link, shows the check code
+  and hands the link to the app (or to the download page when the app is missing). The pairing details stay in the
+  part of the link that browsers never send to a server. The README and the privacy policy describe both ways to pair.
+
 ## 0.9.7 — 2026-11-15
 
 The agent no longer needs .NET installed: each release is one self-contained program. The Claude quota shows again
