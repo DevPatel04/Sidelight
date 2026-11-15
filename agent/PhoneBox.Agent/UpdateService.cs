@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO.Compression;
 using System.Net.Http.Json;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace PhoneBox.Agent;
@@ -104,17 +105,10 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
             var repo = cfg.Get().Updates.Repo;
             using var doc = JsonDocument.Parse(await ApiStringAsync($"https://api.github.com/repos/{repo}/releases/latest", ct));
             var r = doc.RootElement;
-            var tag = r.GetProperty("tag_name").GetString() ?? "";
-            string? apk = null, zip = null;
             foreach (var a in r.GetProperty("assets").EnumerateArray())
-            {
-                var name = a.GetProperty("name").GetString() ?? "";
-                var url = a.GetProperty("browser_download_url").GetString();
-                if (url is not null && a.TryGetProperty("url", out var api) && api.GetString() is { } apiUrl) _apiUrls[url] = apiUrl;
-                if (name.StartsWith("PhoneBox-", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)) apk = url;
-                if (name.StartsWith("PhoneBoxAgent-", StringComparison.OrdinalIgnoreCase) && name.EndsWith($"-{AppPaths.Rid}.zip", StringComparison.OrdinalIgnoreCase)) zip = url;
-            }
-            _latest = new Release(tag.TrimStart('v', 'V'), r.GetProperty("html_url").GetString(), apk, zip);
+                if (a.GetProperty("browser_download_url").GetString() is { } url && a.TryGetProperty("url", out var api) && api.GetString() is { } apiUrl)
+                    _apiUrls[url] = apiUrl;
+            _latest = SelectAssets(r, AppPaths.Rid);
             _lastCheck = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             _error = null;
             _state = "idle";
@@ -138,7 +132,16 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
             // the agent was just replaced and is restarting: this (old) process still sees the update as pending,
             // and a second swap would trip over its own files
             if (_state == "restarting") return;
-            if (s.AppUpdate && adb.Connected) await UpdatePhoneAsync(ct);
+            if (s.AppUpdate && adb.Connected)
+            {
+                // a phone that refuses the app must not keep the agent itself from updating
+                try { await UpdatePhoneAsync(ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                {
+                    _error = ex.Message;
+                    log.LogWarning("phone update failed: {Msg}", ex.Message);
+                }
+            }
             if (s.AgentUpdate && RunningInstalled) await UpdateAgentAsync(ct);
         }
         catch (Exception ex)
@@ -167,7 +170,7 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
             _state = "installing the phone app";
             if (_latest is null) { await CheckCoreAsync(ct); _state = "installing the phone app"; } // not CheckAsync: this method already holds the gate
             if (_latest?.Apk is null) return "could not find the phone app in the GitHub releases";
-            var apk = await DownloadAsync(_latest.Apk, $"PhoneBox-{_latest.Version}.apk", ct);
+            var apk = await VerifiedDownloadAsync(_latest.Apk, $"PhoneBox-{_latest.Version}.apk", ct);
             var adbExe = AdbReverse.FindAdb(cfg.Get().AdbPath) ?? throw new InvalidOperationException("adb not found");
             foreach (var serial in targets)
             {
@@ -188,23 +191,30 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
     private async Task UpdatePhoneAsync(CancellationToken ct)
     {
         _state = "updating phone app";
-        var apk = await DownloadAsync(_latest!.Apk!, $"PhoneBox-{_latest.Version}.apk", ct);
+        var apk = await VerifiedDownloadAsync(_latest!.Apk!, $"PhoneBox-{_latest.Version}.apk", ct);
         var adbExe = AdbReverse.FindAdb(cfg.Get().AdbPath) ?? throw new InvalidOperationException("adb not found");
+        var failed = new List<string>();
         foreach (var serial in adb.Devices.Split(", ", StringSplitOptions.RemoveEmptyEntries))
         {
             var output = await Run(adbExe, ["-s", serial, "install", "-r", apk], ct);
             if (!output.Contains("Success"))
-                throw new InvalidOperationException($"phone update on {serial} failed: {output.Trim().Split('\n').LastOrDefault()}");
+            {
+                // the next phone still gets its update (a refused one, e.g. signed with another key, keeps its app)
+                failed.Add($"{serial}: {output.Trim().Split('\n').LastOrDefault()}");
+                continue;
+            }
             await Run(adbExe, ["-s", serial, "shell", "am", "start", "-n", AdbReverse.PanelActivity], ct);
             log.LogInformation("phone app on {Serial} updated to {Version}", serial, _latest.Version);
         }
+        // only when every phone has it: otherwise the update stays pending and is tried again
+        if (failed.Count > 0) throw new InvalidOperationException("phone update failed on " + string.Join("; ", failed));
         AppVersion = _latest.Version;
     }
 
     private async Task UpdateAgentAsync(CancellationToken ct)
     {
         _state = "updating agent";
-        var zip = await DownloadAsync(_latest!.AgentZip!, $"PhoneBoxAgent-{_latest.Version}.zip", ct);
+        var zip = await VerifiedDownloadAsync(_latest!.AgentZip!, $"PhoneBoxAgent-{_latest.Version}.zip", ct);
         var staging = Path.Combine(Downloads, "agent-" + _latest.Version);
         if (Directory.Exists(staging)) Directory.Delete(staging, true);
         ZipFile.ExtractToDirectory(zip, staging);
@@ -370,7 +380,87 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
         return result.Output + result.Error;
     }
 
-    private sealed record Release(string Version, string? Url, string? Apk, string? AgentZip);
+    internal sealed record Release(string Version, string? Url, string? Apk, string? AgentZip, string? Sums);
+
+    /// <summary>
+    /// The phone app, this machine's agent zip and the checksum file of a GitHub release
+    /// (PhoneBox-&lt;v&gt;.apk, PhoneBoxAgent-&lt;v&gt;-&lt;rid&gt;.zip, SHA256SUMS-&lt;v&gt;.txt, as release.yml names them).
+    /// </summary>
+    internal static Release SelectAssets(JsonElement release, string rid)
+    {
+        string? apk = null, zip = null, sums = null;
+        foreach (var a in release.GetProperty("assets").EnumerateArray())
+        {
+            var name = a.GetProperty("name").GetString() ?? "";
+            var url = a.GetProperty("browser_download_url").GetString();
+            if (name.StartsWith("PhoneBox-", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)) apk = url;
+            if (name.StartsWith("PhoneBoxAgent-", StringComparison.OrdinalIgnoreCase) && name.EndsWith($"-{rid}.zip", StringComparison.OrdinalIgnoreCase)) zip = url;
+            if (name.StartsWith("SHA256SUMS-", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)) sums = url;
+        }
+        var tag = release.GetProperty("tag_name").GetString() ?? "";
+        return new Release(tag.TrimStart('v', 'V'), release.GetProperty("html_url").GetString(), apk, zip, sums);
+    }
+
+    /// <summary>The asset's file name: the last segment of its download link.</summary>
+    internal static string AssetName(string url) => Uri.UnescapeDataString(new Uri(url).Segments[^1]);
+
+    /// <summary>
+    /// The SHA-256 that a "sha256sum" listing gives for a file ("&lt;hex&gt;  name" or "&lt;hex&gt; *name"), lower case,
+    /// or null when the file is not listed or the text is not such a listing (an error page saved instead).
+    /// </summary>
+    internal static string? ExpectedSha256(string sums, string fileName)
+    {
+        foreach (var raw in sums.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.Length < 66 || line[64] != ' ') continue;
+            var hex = line[..64];
+            if (!hex.All(char.IsAsciiHexDigit)) continue;
+            var name = line[65..].TrimStart('*', ' ');
+            if (name == fileName) return hex.ToLowerInvariant();
+        }
+        return null;
+    }
+
+    /// <summary>True when the file's SHA-256 is the expected one (hex, any case).</summary>
+    internal static bool HashMatches(string file, string expectedHex)
+    {
+        using var stream = File.OpenRead(file);
+        return Convert.ToHexStringLower(SHA256.HashData(stream)) == expectedHex.ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Downloads a release asset and checks it against the release's SHA256SUMS. A copy that does not match (a damaged
+    /// download, or an old partial file kept in the updates folder) is deleted and fetched once more, then refused. A
+    /// release without a checksum file (none so far) is installed as before, with a warning.
+    /// </summary>
+    private async Task<string> VerifiedDownloadAsync(string url, string localName, CancellationToken ct)
+    {
+        var release = _latest!;
+        if (release.Sums is null)
+        {
+            log.LogWarning("release {Version} has no SHA256SUMS file; {Name} is installed without a checksum check", release.Version, localName);
+            return await DownloadAsync(url, localName, ct);
+        }
+        var asset = AssetName(url);
+        var sumsName = AssetName(release.Sums);
+        string? expected = null;
+        for (var attempt = 0; attempt < 2 && expected is null; attempt++)
+        {
+            var sumsPath = await DownloadAsync(release.Sums, sumsName, ct);
+            expected = ExpectedSha256(await File.ReadAllTextAsync(sumsPath, ct), asset);
+            if (expected is null) File.Delete(sumsPath); // not a listing, or an older copy: fetch it again
+        }
+        if (expected is null) throw new InvalidOperationException($"{asset} is not listed in {sumsName}; the update was not installed");
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var path = await DownloadAsync(url, localName, ct);
+            if (HashMatches(path, expected)) return path;
+            File.Delete(path); // never reuse a copy that does not match
+            log.LogWarning("{Name} does not match the release checksum; downloading it again", asset);
+        }
+        throw new InvalidOperationException($"{asset} does not match the release checksum; the update was not installed");
+    }
 }
 
 /// <summary>Set before stopping the host to make Program start a fresh instance afterwards.</summary>

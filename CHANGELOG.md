@@ -6,6 +6,11 @@ Fixes from an evidence-led audit. Each one was reproduced on the unchanged code 
 
 **Agent**
 - **Updates:**
+  - Downloaded updates are checked against the release's SHA-256 checksums before they are installed. A copy that
+    does not match is deleted and fetched again, and refused if it still does not match. Before, a damaged copy kept
+    in the updates folder could be used again and again.
+  - A phone that refuses the app update (another signing key, or "Install via USB" off on Xiaomi) no longer keeps the
+    other phones, or the agent itself, from updating.
   - A stuck `adb install` (a hung phone or cable) no longer blocks updates until the agent restarts. adb now has a
     3-minute limit and is stopped when an update is cancelled.
   - On Linux and macOS, the agent now updates itself when the home folder is a symbolic link (for example, moved to
