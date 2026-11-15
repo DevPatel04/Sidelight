@@ -397,6 +397,13 @@ dd { margin: 0; word-break: break-all; }
             <div class="field" style="flex:1"><label>Longitude</label><input type="number" step="0.001" data-bind="weather.lon" data-type="num"></div>
           </div>
         </div>
+        <p class="hint" style="margin:8px 0 0">The phone asks Open-Meteo for this location only while a page has a widget that uses the weather (weather, forecast, sun &amp; moon, a clock with its weather line, Custom HTML).</p>
+      </div>
+
+      <div class="card">
+        <h3>Ping</h3>
+        <div class="field"><label>Host pinged every 5 seconds for the ping metric and the "ping high" rule (empty = off)</label>
+          <input type="text" data-bind="ping.host" placeholder="off" spellcheck="false" autocomplete="off"></div>
       </div>
 
       <div class="card">

@@ -1,4 +1,4 @@
-import { $, API, D, PANEL_HEADERS, LOCALE, Q_STYLE, api, bridge, cfg, color, cssVar, rulesPaused, toggleRulesPause, fillIcon, fmtDur, fmtHM, fmtMem, gotoPageRef, gpuMem, gpusOf, h, haptic, openSheet, paceInfo, pad, quotaProviders, r1, shortGpu, store, tick, toast } from '../main.js';
+import { $, API, D, PANEL_HEADERS, LOCALE, Q_STYLE, api, bridge, cfg, color, cssVar, rulesPaused, toggleRulesPause, fillIcon, fmtDur, fmtHM, fmtMem, gotoPageRef, gpuMem, gpusOf, h, haptic, openSheet, paceInfo, pad, pairedPcs, quotaProviders, r1, shortGpu, store, switchPc, tick, toast, transport } from '../main.js';
 import { W } from '../registry.js';
 import { canKillAnywhere, dialEl, every } from './helpers.js';
 
@@ -373,6 +373,38 @@ W.battery = {
       } catch (_) {}
     });
     return { update: load };
+  },
+};
+
+// The computers this phone is paired with, one tap to switch (as in the page overview). A USB cable always wins, so
+// the buttons wait while one is plugged in.
+W.pcswitch = {
+  needs: ['state'],
+  create(box, { o }) {
+    const row = h('div', 'pcs-row'), sub = h('div', 'pcs-sub');
+    box.append(o.title === '' ? '' : h('div', 'w-title', o.title || 'Computers'), row, sub);
+    let shown = '';
+    const render = () => {
+      const pcs = pairedPcs(), usb = transport() === 'usb';
+      const key = JSON.stringify([pcs, usb, !!bridge]);
+      if (key === shown) return;
+      shown = key;
+      if (!bridge) { row.replaceChildren(h('div', 'empty', 'Only on the phone')); sub.textContent = ''; return; }
+      if (pcs.length < 2) {
+        row.replaceChildren(h('div', 'empty', pcs.length ? 'Pair another computer over Wi-Fi to switch here' : 'No computer paired over Wi-Fi'));
+        sub.textContent = '';
+        return;
+      }
+      row.replaceChildren(...pcs.map((pc) => {
+        const b = h('button', 'ov-pc' + (pc.active && !usb ? ' on' : ''), '🖥️ ' + (pc.name || 'Computer'));
+        b.disabled = usb;
+        b.addEventListener('click', (e) => { e.stopPropagation(); switchPc(pc); });
+        return b;
+      }));
+      sub.textContent = usb ? 'USB cable connected: the panel uses that computer' : '';
+    };
+    render();
+    return { update: render };
   },
 };
 

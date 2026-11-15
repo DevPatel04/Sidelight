@@ -4,7 +4,7 @@ PhoneBox has no accounts, no servers of its own, no telemetry, no analytics and 
 receives any data from you. This page lists every place the agent (on your computer) and the Android app (on your
 phone) connect to, so you can see exactly what leaves your machine and turn it off.
 
-Last updated: 2026-11-15 (PhoneBox 0.9.5).
+Last updated: 2026-11-15 (PhoneBox 0.9.5 and the changes after it).
 
 ## What stays on your devices
 
@@ -33,8 +33,8 @@ identifies your GitHub account to GitHub.
 | What | Where | What is sent | How to turn it off |
 |---|---|---|---|
 | Update check | `api.github.com` (release info), `github.com` (downloads) | The repository name; with `gh` signed in and only when GitHub turns away an anonymous request, your GitHub CLI token, to `api.github.com` only | **Settings › General › Updates › Install new releases automatically** turns off installing. The check every 6 hours stays; it sends nothing about you |
-| Network latency (ping widget, "ping high" rule) | `1.1.1.1` (Cloudflare DNS), an ICMP echo every 5 seconds | An empty ping packet | Not switchable yet; block ICMP to `1.1.1.1` in your firewall if you need to |
-| Weather (phone) | `api.open-meteo.com`, every 15 minutes while the panel runs | The coordinates of the city you chose (Tallinn by default) | Not switchable yet; choose a city you are comfortable sharing in **Settings › General › Weather** |
+| Network latency (ping metric, "ping high" rule) | `1.1.1.1` (Cloudflare DNS) by default, an ICMP echo every 5 seconds | An empty ping packet | After 0.9.5: empty **Settings › General › Ping**, or enter another host. 0.9.5 and earlier: not switchable; block ICMP to `1.1.1.1` in your firewall |
+| Weather (phone) | `api.open-meteo.com`, every 15 minutes | The coordinates of the city you chose (Tallinn by default) | After 0.9.5: asked only while a page has a widget that shows the weather (weather, forecast, sun & moon, a clock with its weather line, or a Custom HTML widget, which gets the weather too); remove those, or turn off the clock's weather line. 0.9.5 and earlier: asked while the panel runs; choose a city you are comfortable sharing in **Settings › General › Weather** |
 | Air quality widget (phone) | `air-quality-api.open-meteo.com`, while the widget is on a page | The same coordinates | Remove the widget |
 | City search (settings page) | `geocoding-api.open-meteo.com` | The city name you type, only when you search | Don't search |
 

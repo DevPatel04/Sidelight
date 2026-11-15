@@ -328,6 +328,8 @@ export async function loadWeather(force = false) {
   const cached = store.get('wx', null);
   if (cached && cached.key === key && !D.weather) { D.weather = cached.data; emit('weather'); }
   if (!force && cached && cached.key === key && Date.now() - cached.at < 14 * 60_000) return;
+  // only while a page shows the weather (PRIVACY.md): no widget, no request with the location
+  if (!anyNeeds('weather')) return;
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
       '&current=temperature_2m,apparent_temperature,weather_code,is_day' +
@@ -813,7 +815,7 @@ export function handleEvent(e) {
 export const WIDGET_ICONS = { rules: '⚡', chargecare: '🔋', nextup: '⏭️', moon: '🌙', wordclock: '🔤', clock: '🕒', weather: '⛅', forecast: '🌦️', media: '🎵', stat: '📈', gauge: '⏲️', chart: '📊', meters: '💾', gpu: '🎮', quotas: '✳️', sessions: '🤖',
   github: '🐙', processes: '⚙️', shortcuts: '🎛️', button: '🔘', worldclock: '🌍', calendar: '📅', pomodoro: '🍅', countdown: '⏳', note: '📝', command: '💻',
   push: '📡', inbox: '📬', label: '🔤', analog: '🕰️', progress: '📆', stopwatch: '⏱️', timer: '⏲️', counter: '🔢', breathe: '🫁', quote: '💬',
-  checklist: '✅', battery: '🔋', topprocs: '🔥', quotaring: '🎯', volume: '🔊', sun: '🌅', air: '🍃', hackernews: '📰', exchange: '💱', crypto: '🪙', image: '🖼️' };
+  checklist: '✅', battery: '🔋', topprocs: '🔥', quotaring: '🎯', volume: '🔊', sun: '🌅', air: '🍃', hackernews: '📰', exchange: '💱', crypto: '🪙', image: '🖼️', pcswitch: '🖥️' };
 
 // ================================================================= pages
 export const pager = $('pager');
@@ -1207,22 +1209,27 @@ export function openOverview() {
   $('ovGrid').replaceChildren(...pages.map(tile));
   renderRulesBtn();
   // several paired computers: switch between them here (a USB cable always wins)
-  let pcs = [];
-  try { pcs = bridge?.pcs ? JSON.parse(bridge.pcs()) : []; } catch (_) {}
+  const pcs = pairedPcs();
   $('ovPcs').replaceChildren(...(pcs.length > 1 ? pcs.map((pc) => {
     const b = h('button', 'ov-pc' + (pc.active ? ' on' : ''), '🖥️ ' + (pc.name || 'Computer'));
-    b.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (pc.active) return;
-      haptic(); toast(`Switching to ${pc.name || 'the other computer'}…`);
-      setTimeout(() => bridge.selectPc(pc.id), 300);
-    });
+    b.addEventListener('click', (e) => { e.stopPropagation(); switchPc(pc); });
     return b;
   }) : []));
   $('ovGrid').style.setProperty('--n', Math.min(4, Math.ceil(Math.sqrt(pages.length * 1.6))));
   ov.hidden = false;
 }
 window.openOverview = openOverview;
+
+/** The computers this phone is paired with over Wi-Fi: [{ id, name, active }] (empty outside the app). */
+export function pairedPcs() {
+  try { return bridge?.pcs ? JSON.parse(bridge.pcs()) : []; } catch (_) { return []; }
+}
+/** Makes another paired computer the one used over Wi-Fi; the app then reloads the panel from it. */
+export function switchPc(pc) {
+  if (!pc || pc.active || !bridge?.selectPc) return;
+  haptic(); toast(`Switching to ${pc.name || 'the other computer'}…`);
+  setTimeout(() => bridge.selectPc(pc.id), 300);
+}
 export function closeOverview() { $('overview').hidden = true; }
 $('overview').addEventListener('click', closeOverview);
 $('ovRules').addEventListener('click', (e) => { e.stopPropagation(); toggleRulesPause(); });

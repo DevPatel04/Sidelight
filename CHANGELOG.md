@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+**Panel**
+- Computers widget: the computers this phone is paired with over Wi-Fi, one tap to switch, as in the page overview.
+  The buttons wait while a USB cable is plugged in, since USB always wins (#58).
+- The weather is fetched only while a page has a widget that uses it (weather, forecast, sun & moon, a clock with its
+  weather line, Custom HTML); before, the phone asked Open-Meteo every 15 minutes whatever was on screen.
+
+**Agent**
+- Settings › General › Ping: the host pinged every 5 seconds for the ping metric and the "ping high" rule (1.1.1.1 by
+  default); empty turns pinging off.
+
 **Docs**
 - A privacy policy ([PRIVACY.md](PRIVACY.md)) lists every connection the agent and the app make and how to turn each
   one off; the README no longer says that nothing else leaves the machine.

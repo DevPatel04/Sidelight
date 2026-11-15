@@ -12,6 +12,7 @@ public sealed class AgentConfig
     public string? DeviceSerial { get; set; }
     public string? AdbPath { get; set; }
     public WeatherConfig Weather { get; set; } = new();
+    public PingConfig Ping { get; set; } = new();
     public NightConfig Night { get; set; } = new();
     public DisplayConfig Display { get; set; } = new();
     public LanConfig Lan { get; set; } = new();
@@ -80,6 +81,12 @@ public sealed class WeatherConfig
     public string City { get; set; } = "Tallinn";
     public double Lat { get; set; } = 59.437;
     public double Lon { get; set; } = 24.745;
+}
+
+public sealed class PingConfig
+{
+    /// <summary>Host or IP address pinged every 5 s for the ping metric and the "ping high" rule; empty = off.</summary>
+    public string? Host { get; set; } = PingMonitor.DefaultHost;
 }
 
 public sealed class NightConfig
@@ -432,6 +439,9 @@ public sealed partial class ConfigStore(string path)
         c.Display.HomePage = string.IsNullOrWhiteSpace(c.Display.HomePage) ? null : c.Display.HomePage.Trim();
         c.Lan ??= new();
         c.Updates ??= new();
+        c.Ping ??= new();
+        c.Ping.Host = c.Ping.Host?.Trim() ?? "";
+        if (c.Ping.Host.Length > 253 || c.Ping.Host.Any(ch => ch <= ' ' || ch > '~')) c.Ping.Host = PingMonitor.DefaultHost;
         c.Claude ??= new();
         c.Claude.TimeoutSec = Math.Clamp(c.Claude.TimeoutSec, 10, 3600);
         if (string.IsNullOrWhiteSpace(c.Updates.Repo)) c.Updates.Repo = "ersinkoc/phonebox";

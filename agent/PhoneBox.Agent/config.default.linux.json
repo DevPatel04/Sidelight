@@ -10,6 +10,9 @@
   // Weather location (Open-Meteo, no API key required)
   "weather": { "city": "Tallinn", "lat": 59.437, "lon": 24.745 },
 
+  // Ping target for the ping metric and the "ping high" rule, every 5 s (empty = off)
+  "ping": { "host": "1.1.1.1" },
+
   // Night mode: between these times the screen dims and only the clock stays. Tap to wake it for 30 s.
   "night": { "enabled": true, "start": "00:30", "end": "07:30", "brightness": 0.02 },
 
