@@ -71,6 +71,12 @@ class AgentLink(context: Context) {
         } catch (_: Exception) { emptyList() }
     }
 
+    /**
+     * Guards every read-modify-save of the computer list (USB re-pairing, a QR pairing, select, forget): each one
+     * reads [pcs], filters it and saves it, and two at once would drop the other's change.
+     */
+    private val pcsLock = Any()
+
     private fun savePcs(list: List<Pc>, active: String?) {
         pcs = list
         activeId = active
@@ -86,7 +92,7 @@ class AgentLink(context: Context) {
     }
 
     /** Makes another paired computer the one used over Wi-Fi. */
-    fun select(id: String): Boolean {
+    fun select(id: String): Boolean = synchronized(pcsLock) {
         if (pcs.none { it.id == id }) return false
         savePcs(pcs, id)
         factory = null
@@ -94,7 +100,7 @@ class AgentLink(context: Context) {
         return true
     }
 
-    fun forget(id: String) {
+    fun forget(id: String) = synchronized(pcsLock) {
         val rest = pcs.filter { it.id != id }
         savePcs(rest, if (activeId == id) rest.firstOrNull()?.id else activeId)
     }
@@ -215,11 +221,13 @@ class AgentLink(context: Context) {
                     // add or refresh this computer and make it the active one
                     val hosts = j.getJSONArray("hosts")
                     val pc = Pc(j.getString("fingerprint"), name, (0 until hosts.length()).map { hosts.getString(it) }, j.getInt("port"), j.getString("token"))
-                    savePcs(pcs.filter { it.id != pc.id && !(name.isNotEmpty() && it.name == name) } + pc, pc.id)
+                    synchronized(pcsLock) { savePcs(pcs.filter { it.id != pc.id && !(name.isNotEmpty() && it.name == name) } + pc, pc.id) }
                 } else if (name.isNotEmpty()) {
                     // Wi-Fi was turned off on this computer: forget its pairing, keep the others
-                    val rest = pcs.filter { it.name != name }
-                    if (rest.size != pcs.size) savePcs(rest, rest.firstOrNull { it.id == activeId }?.id ?: rest.firstOrNull()?.id)
+                    synchronized(pcsLock) {
+                        val rest = pcs.filter { it.name != name }
+                        if (rest.size != pcs.size) savePcs(rest, rest.firstOrNull { it.id == activeId }?.id ?: rest.firstOrNull()?.id)
+                    }
                 }
             } catch (_: Exception) {
             }
@@ -315,9 +323,11 @@ class AgentLink(context: Context) {
                 // the name the user confirmed; only an entry for this very certificate is replaced, never one that
                 // merely has the same name
                 val pc = Pc(link.fingerprint.lowercase(), link.pc, hosts, j.optInt("port", link.port), j.getString("token"))
-                savePcs(pcs.filter { it.id != pc.id } + pc, pc.id)
-                factory = null
-                preferredHost = 0
+                synchronized(pcsLock) {
+                    savePcs(pcs.filter { it.id != pc.id } + pc, pc.id)
+                    factory = null
+                    preferredHost = 0
+                }
                 return null
             } catch (e: javax.net.ssl.SSLException) {
                 problem = "The computer at $host has a different certificate than the QR code. Start pairing again."

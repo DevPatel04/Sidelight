@@ -152,6 +152,7 @@ class MainActivity : Activity(), SensorEventListener {
         Thread {
             val problem = link.claim(pairing)
             runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread // the pairing is stored; there is no window to show it in
                 if (problem == null) {
                     Toast.makeText(this, "Paired with ${pairing.pc}", Toast.LENGTH_LONG).show()
                     stream.stop(); stream.start(); web.reload()
