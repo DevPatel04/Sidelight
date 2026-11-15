@@ -293,6 +293,7 @@ write_autostart() {
 '*)
         caution "The install or settings path contains \$ or a line break, which a systemd service cannot be given safely;"
         caution "add $app/PhoneBoxAgent to your desktop's startup applications instead."
+        remove_autostart   # an older unit would otherwise start the previous install at login and in start_agent
         return 1 ;;
     esac
     # the service must see the same XDG folders as this shell, or the agent would use other settings and install folders
