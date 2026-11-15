@@ -2390,6 +2390,13 @@ $('openPhone').onclick = async () => {
   if (!info?.connected) { toast('No phone connected', true); return; }
   if (info.via === 'USB') await fetch('/api/phone/open', { method: 'POST' });
   const p = cfg?.pages?.[selPage];
+  // the phone only has the saved pages: a page that is new or hidden in unsaved edits is not there yet
+  let onPhone = null;
+  try { onPhone = (JSON.parse(saved || '{}').pages || []).find((s) => s.id === p?.id && s.enabled !== false); } catch (_) { }
+  if (p?.id && p.enabled !== false && !onPhone) {
+    toast(`Save first: ${p.title || 'this page'} is not on the phone yet`, true);
+    return;
+  }
   if (p?.id && p.enabled !== false) {
     await fetch('/api/goto/' + encodeURIComponent(p.id) + '?countdown=0', { method: 'POST' });
     toast(`Showing ${p.title || 'this page'} on the phone`);
