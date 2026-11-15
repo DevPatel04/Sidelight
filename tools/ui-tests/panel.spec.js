@@ -175,6 +175,33 @@ test('a follow-up replay merges its events with the ones still held', async ({ p
   await expect.poll(async () => page.evaluate(async () => (await import('/panel/main.js')).curPage)).toBe(2);
 });
 
+test('events sent before the first state of a reopened stream wait for it', async ({ page }) => {
+  await page.goto('/panel/');
+  await expect(page.locator('.w').first()).toBeVisible();
+  await page.evaluate(() => {
+    window.__evSeq = 5;
+    window.onAgentStream('open');
+    window.__feed = setInterval(() => window.onAgentStream('state', JSON.stringify({ ts: Date.now(), evSeq: window.__evSeq })), 500);
+  });
+  await page.waitForTimeout(1200);
+  await page.evaluate(() => {
+    // the stream reopened against a restarted agent: it can send an event before its first state identifies the run
+    window.onAgentStream('close');
+    window.onAgentStream('open');
+    window.PhoneBoxDemo.restart();
+    const early = window.PhoneBoxDemo.emit('notify', { title: 'Early', text: 'before the first state', level: 'ok' });
+    window.onAgentStream('event', JSON.stringify(early)); // seq 1 arrives while the panel still tracks seq 5
+    window.__evSeq = 1;
+    window.onAgentStream('state', JSON.stringify({ ts: Date.now(), evSeq: 1 })); // the first state arms the replay
+  });
+  // the event must be applied exactly once: not on arrival and again when the replay delivers it
+  const earlyCount = async () => page.evaluate(async () =>
+    (await import('/panel/main.js')).D.notes.filter((n) => n.title === 'Early').length);
+  await expect.poll(earlyCount, { timeout: 10000 }).toBe(1);
+  await page.waitForTimeout(2500); // let any duplicate from the replay land — the count must stay 1
+  await expect.poll(earlyCount).toBe(1);
+});
+
 test('a webhook switches pages after a countdown', async ({ page }) => {
   await page.goto('/panel/');
   await expect(page.locator('.w').first()).toBeVisible();

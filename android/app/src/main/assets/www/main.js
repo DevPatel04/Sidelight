@@ -79,6 +79,7 @@ const evDrain = () => {           // the backlog applied: release the held event
   for (const e of evQueue.sort((a, b) => a.seq - b.seq)) if (!evSeen.has(e.seq)) { evMark(e.seq); handleEvent(e); }
   evQueue = [];
 };
+let evPre = null;                 // stream events before the first state of a connection — that state picks the run first
 const evOffer = (e) => {          // one event from the stream or a state answer: dedupe, then hold or dispatch
   if (typeof e.seq !== 'number' || evSeen.has(e.seq)) return;
   // a replay is armed: hold it so the backlog applies first — the drain sorts held and replayed events together
@@ -1537,13 +1538,15 @@ export function applyState(s, replayGen = null) {
 export let streamOn = false;
 export let lastStateAt = 0;
 window.onAgentStream = (event, data) => {
-  if (event === 'open') { streamOn = true; return; }
+  // the stream can send events before its first state (Program.cs sends the backlog first): an event that is only
+  // new to this run would dispatch now and again when the replay delivers it — hold them until the state decides
+  if (event === 'open') { streamOn = true; evPre = []; return; }
   if (event === 'close') { streamOn = false; return; }
   let d;
   try { d = JSON.parse(data); } catch (_) { return; }
-  if (event === 'state') applyState(d);
+  if (event === 'state') { applyState(d); for (const e of evPre || []) evOffer(e); evPre = null; }
   else if (event === 'work') applyWork(d);
-  else if (event === 'event') evOffer(d);
+  else if (event === 'event') { if (evPre) { evPre.push(d); if (evPre.length > 100) evPre.shift(); } else evOffer(d); }
 };
 export const streaming = () => streamOn && Date.now() - lastStateAt < 3000;
 
