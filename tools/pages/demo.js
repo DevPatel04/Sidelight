@@ -296,6 +296,9 @@
     ['claude', 'Claude', 7, 2.7, 1800], ['docker', 'Docker Desktop', 4, 2.1, 2600], ['spotify', 'Spotify', 5, 1.4, 420], ['discord', 'Discord', 6, 1.1, 610],
     ['explorer', 'Windows Explorer', 3, 0.9, 380], ['obs64', 'OBS Studio', 1, 0.8, 520], ['slack', 'Slack', 5, 0.6, 700], ['steam', 'Steam', 3, 0.4, 340],
     ['onedrive', 'Microsoft OneDrive', 1, 0.3, 120], ['python', 'Python', 2, 0.3, 160], ['figma', 'Figma', 3, 0.2, 640]];
+  const DEMO_APPS = ['Calculator', 'Calendar', 'Figma', 'Finder', 'Mail', 'Maps', 'Music', 'Notes', 'OBS', 'Photos', 'Safari', 'Slack',
+    'Spotify', 'System Settings', 'Terminal', 'Visual Studio Code', 'Xcode', 'Zoom']
+    .map((name, i) => ({ id: 'demo-app-' + i, name, hue: (i * 47) % 360 }));
   const procs = () => ({ total: 312, groupCount: 141, groups: PROCS.map(([name, title, count, cpu, memMb]) =>
     ({ name, title, count, cpu: Math.round(cpu * rnd(0.8, 1.2) * 10) / 10, memMb, locked: name === 'explorer', hasIcon: false })) });
   function procDetail(name) {
@@ -515,6 +518,11 @@
       { name: 'MX Keys', level: 18, kind: 'keyboard', charging: null },
       { name: 'Xbox Wireless Controller', level: 40, kind: 'controller', charging: null },
     ] });
+    if (path === '/api/apps') { const c = await config(); return json({ supported: true, canOpen: widgets(c).some((w) => w.type === 'apps'), apps: DEMO_APPS }); }
+    if (path === '/api/apps/open' && method === 'POST') {
+      if (!widgets(await config()).some((w) => w.type === 'apps')) return json({ error: 'Add an All apps widget to a page to open apps from the phone' }, 400);
+      return DEMO_APPS.some((a) => a.id === q.get('id')) ? json({ ok: true }) : json({ error: 'Unknown app' }, 400);
+    }
     if (path.startsWith('/api/obs/') && method === 'POST') {
       if (!allows(await config(), isObs)) return json({ error: "controlling OBS is turned off in the widget's settings" }, 400);
       return obsAct(path.slice(9), q.get('scene')) ? json({ ok: true }) : json({ error: 'unknown action' }, 400);
@@ -612,8 +620,17 @@
   };
 
   // Album art and radio logos are <img>, which fetch() does not see: swap their address for the demo cover.
+  // App icons become a coloured tile with the app's initial.
+  const appIcon = (id) => {
+    const a = DEMO_APPS.find((x) => x.id === id) || { name: '?', hue: 210 };
+    return 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect x="6" y="6" width="84" height="84" rx="20" fill="hsl(${a.hue} 65% 52%)"/>`
+      + `<text x="48" y="62" font-family="system-ui,sans-serif" font-size="42" font-weight="700" text-anchor="middle" fill="#fff">${a.name.slice(0, 1)}</text></svg>`);
+  };
   const swapDemoImg = (img) => {
-    if (img.tagName === 'IMG' && /\/api\/(art|controls\/radio-logo)/.test(img.getAttribute('src') || '')) img.src = ART;
+    if (img.tagName !== 'IMG') return;
+    const src = img.getAttribute('src') || '';
+    if (/\/api\/(art|controls\/radio-logo)/.test(src)) img.src = ART;
+    else if (/\/api\/apps\/icon/.test(src)) img.src = appIcon(new URL(src, location.href).searchParams.get('id'));
   };
   new MutationObserver((list) => {
     for (const m of list) {
