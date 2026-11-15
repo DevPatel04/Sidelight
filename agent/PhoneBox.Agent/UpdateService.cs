@@ -171,7 +171,7 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
             var adbExe = AdbReverse.FindAdb(cfg.Get().AdbPath) ?? throw new InvalidOperationException("adb not found");
             foreach (var serial in targets)
             {
-                var output = await Run(adbExe, $"-s {serial} install \"{apk}\"", ct);
+                var output = await Run(adbExe, ["-s", serial, "install", apk], ct);
                 if (!output.Contains("Success")) return $"installing on {serial} failed: {output.Trim().Split('\n').LastOrDefault()}";
                 log.LogInformation("phone app {Version} installed on {Serial}", _latest.Version, serial);
             }
@@ -192,10 +192,10 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
         var adbExe = AdbReverse.FindAdb(cfg.Get().AdbPath) ?? throw new InvalidOperationException("adb not found");
         foreach (var serial in adb.Devices.Split(", ", StringSplitOptions.RemoveEmptyEntries))
         {
-            var output = await Run(adbExe, $"-s {serial} install -r \"{apk}\"", ct);
+            var output = await Run(adbExe, ["-s", serial, "install", "-r", apk], ct);
             if (!output.Contains("Success"))
                 throw new InvalidOperationException($"phone update on {serial} failed: {output.Trim().Split('\n').LastOrDefault()}");
-            await Run(adbExe, $"-s {serial} shell am start -n {AdbReverse.PanelActivity}", ct);
+            await Run(adbExe, ["-s", serial, "shell", "am", "start", "-n", AdbReverse.PanelActivity], ct);
             log.LogInformation("phone app on {Serial} updated to {Version}", serial, _latest.Version);
         }
         AppVersion = _latest.Version;
@@ -360,10 +360,13 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
     /// Runs adb for the updater, bounded and reaped like every other tool (<see cref="ToolProcess"/>): an install that
     /// never returns (a stuck phone or cable) would otherwise hold the update gate until the agent restarts, and a
     /// cancelled update would leave adb running. A slow phone can take a while to install, hence the generous default.
+    /// Each argument is passed on its own (ArgumentList), so a path with spaces or quotes needs no quoting.
     /// </summary>
-    private static async Task<string> Run(string file, string args, CancellationToken ct, TimeSpan? timeout = null)
+    private static async Task<string> Run(string file, string[] args, CancellationToken ct, TimeSpan? timeout = null)
     {
-        var result = await ToolProcess.RunAsync(new ProcessStartInfo(file, args), timeout ?? TimeSpan.FromMinutes(3), ct);
+        var start = new ProcessStartInfo(file);
+        foreach (var arg in args) start.ArgumentList.Add(arg);
+        var result = await ToolProcess.RunAsync(start, timeout ?? TimeSpan.FromMinutes(3), ct);
         return result.Output + result.Error;
     }
 
