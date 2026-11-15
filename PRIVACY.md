@@ -10,6 +10,7 @@ Last updated: 2026-11-15 (PhoneBox 0.9.5 and the changes after it).
 
 - **Settings and layouts**: `config.json` in `%APPDATA%\PhoneBox` (Windows), `~/.config/PhoneBox` (Linux) or
   `~/Library/Application Support/PhoneBox` (macOS), plus `data.json` (pushed values and notifications) next to it.
+  On macOS and Linux these files are readable only by your user (0600).
 - **Log**: `agent.log` in `%LOCALAPPDATA%\PhoneBox` (Windows), `~/.local/share/PhoneBox` (Linux) or
   `~/Library/Application Support/PhoneBox` (macOS).
 - **Phone app**: caches (weather, rates, widget state) in its own app storage. The app asks for two permissions only:

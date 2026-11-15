@@ -142,7 +142,7 @@ public sealed partial class PushStore
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_dataPath)!);
             var tmp = _dataPath + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(Snapshot()));
+            AppPaths.WriteAllTextPrivate(tmp, JsonSerializer.Serialize(Snapshot()));
             File.Move(tmp, _dataPath, overwrite: true);
         }
         catch (Exception ex) { _log.LogWarning("could not save pushed data: {Msg}", ex.Message); }

@@ -403,8 +403,9 @@ public sealed partial class ConfigStore(string path)
             if (expectedVersion is { } expected && File.Exists(path) && File.GetLastWriteTimeUtc(path).Ticks != expected) return Conflict;
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
             var tmp = path + ".tmp";
-            File.WriteAllText(tmp, JsonSerializer.Serialize(cfg, WriteOpts));
-            if (File.Exists(path)) File.Copy(path, path + ".bak", overwrite: true);
+            // owner-only on macOS/Linux: the file holds the Wi-Fi, webhook and Home Assistant keys
+            AppPaths.WriteAllTextPrivate(tmp, JsonSerializer.Serialize(cfg, WriteOpts));
+            if (File.Exists(path)) { File.Copy(path, path + ".bak", overwrite: true); AppPaths.RestrictToOwner(path + ".bak"); }
             File.Move(tmp, path, overwrite: true);
             _config = cfg;
             _stamp = _seen = File.GetLastWriteTimeUtc(path);

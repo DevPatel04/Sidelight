@@ -410,6 +410,8 @@ flowchart LR
   with the paired key. Settings, shortcut tests and pairing stay local. **New key** in the settings unpairs all phones.
 - The phone only ever sends a shortcut **id**; commands are defined on the PC. Command widgets work the same way:
   the phone asks for a widget's output and never sees the command.
+- `config.json` (with the Wi-Fi, webhook and Home Assistant keys), its backup and the pushed data are readable only by
+  your user on macOS and Linux (0600); on Windows they live in your profile folder.
 - Webhooks from other machines need the separate webhook key, which cannot open the phone API and can be replaced
   on its own.
 - Ending processes is limited to your own session, never touches a list of Windows-critical processes, and can be

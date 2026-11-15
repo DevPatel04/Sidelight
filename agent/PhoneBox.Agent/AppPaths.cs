@@ -46,15 +46,49 @@ public static class AppPaths
         Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
         ?? "0.0.0";
 
-    /// <summary>Writes the default settings file on first run.</summary>
+    /// <summary>Writes the default settings file on first run; tightens an existing one (owner only on macOS/Linux).</summary>
     public static void EnsureConfig()
     {
-        if (File.Exists(ConfigPath)) return;
+        if (File.Exists(ConfigPath))
+        {
+            // older versions wrote config.json with the umask (often 0644); it holds the Wi-Fi and webhook keys
+            RestrictToOwner(ConfigPath);
+            RestrictToOwner(ConfigPath + ".bak");
+            return;
+        }
         Directory.CreateDirectory(ConfigDir);
         var name = OperatingSystem.IsMacOS() ? "config.default.macos.json" : OperatingSystem.IsLinux() ? "config.default.linux.json" : "config.default.json";
         using var src = Assembly.GetExecutingAssembly().GetManifestResourceStream(name)!;
-        using var dst = File.Create(ConfigPath);
+        using var dst = CreatePrivate(ConfigPath);
         src.CopyTo(dst);
+    }
+
+    private const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
+    /// <summary>Creates (or truncates) a file only its owner can read on macOS/Linux (0600); Windows keeps the profile ACLs.</summary>
+    public static FileStream CreatePrivate(string path)
+    {
+        var options = new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write, Share = FileShare.None };
+        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = OwnerOnly;
+        var stream = new FileStream(path, options);
+        RestrictToOwner(path); // UnixCreateMode only applies when the file is new
+        return stream;
+    }
+
+    /// <summary><see cref="File.WriteAllText(string, string?)"/> into a file only its owner can read (see <see cref="CreatePrivate"/>).</summary>
+    public static void WriteAllTextPrivate(string path, string text)
+    {
+        using var stream = CreatePrivate(path);
+        using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false));
+        writer.Write(text);
+    }
+
+    /// <summary>Sets an existing file to 0600 on macOS/Linux; no-op on Windows or when the file is missing.</summary>
+    public static void RestrictToOwner(string path)
+    {
+        if (OperatingSystem.IsWindows() || !File.Exists(path)) return;
+        try { if (File.GetUnixFileMode(path) != OwnerOnly) File.SetUnixFileMode(path, OwnerOnly); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     public static Stream? Resource(string name) => Assembly.GetExecutingAssembly().GetManifestResourceStream(name);
