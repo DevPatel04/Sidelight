@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**Android app**
+- OLED burn-in protection (#79), in **Settings › General › OLED burn-in protection**, both off by default:
+  - **Pixel shift**: the panel moves by up to 2 px every 2 minutes, and the night clock drifts around the screen.
+  - **Idle dim**: after a set time without a touch, a dark layer covers the panel. The touch that brightens it does
+    not press anything under it. A page switch, a notification, a permission prompt, waking on plug-in and the
+    proximity sensor brighten it too.
+
 **Setup**
 - One-step installers: `irm https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.ps1 | iex` on Windows,
   `curl -fsSL https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.sh | bash` on Linux and macOS. They
