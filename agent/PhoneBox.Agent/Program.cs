@@ -559,7 +559,7 @@ app.MapPost("/api/volume", (int? level, string? op, AudioControl audio) =>
         _ when level is { } l => audio.SetVolume(l),
         _ => false,
     };
-    return ok ? Results.Json(audio.Snapshot()) : Results.BadRequest();
+    return ok ? Results.Json(audio.Current()) : Results.BadRequest();
 });
 
 app.MapGet("/api/quotas", (QuotaMonitor q) => Results.Json(new { providers = q.Snapshot(), overview = q.Overview() }));

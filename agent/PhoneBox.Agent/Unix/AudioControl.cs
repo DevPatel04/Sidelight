@@ -9,23 +9,48 @@ namespace PhoneBox.Agent;
 /// </summary>
 public sealed partial class AudioControl
 {
+    private const int MaxAgeMs = 900;
     private readonly Lock _lock = new();
     private AudioSnapshot? _cached;
-    private long _at;
+    private long _at;          // when _cached was read; 0 = never read or invalidated
+    private long _gen;         // bumped by Invalidate, so an older background read cannot overwrite a newer value
+    private int _refreshing;   // 1 while a background read runs
 
+    /// <summary>
+    /// The last reading, refreshed in the background. Never waits for osascript / wpctl / pactl: the live stream
+    /// calls this every second for every phone, and under heavy CPU load those helpers can take seconds each.
+    /// </summary>
     public AudioSnapshot? Snapshot()
     {
+        long at, gen; AudioSnapshot? cached;
+        lock (_lock) { at = _at; gen = _gen; cached = _cached; }
+        if (Environment.TickCount64 - at >= MaxAgeMs && Interlocked.CompareExchange(ref _refreshing, 1, 0) == 0)
+            _ = Task.Run(() =>
+            {
+                try { var s = Read(); lock (_lock) if (_gen == gen) { _cached = s; _at = Environment.TickCount64; } }
+                catch { }
+                finally { Volatile.Write(ref _refreshing, 0); }
+            });
+        return cached;
+    }
+
+    /// <summary>A reading for a control action: the cached one while fresh, otherwise read now (may wait for the helper).</summary>
+    public AudioSnapshot? Current()
+    {
+        long gen;
         lock (_lock)
         {
-            if (Environment.TickCount64 - _at < 900) return _cached;
-            _at = Environment.TickCount64;
-            return _cached = Read();
+            if (_at != 0 && Environment.TickCount64 - _at < MaxAgeMs) return _cached;
+            gen = _gen;
         }
+        var s = Read();
+        lock (_lock) if (_gen == gen) { _cached = s; _at = Environment.TickCount64; }
+        return s;
     }
 
     public bool SetVolume(int level)
     {
-        if (OperatingSystem.IsMacOS() && Snapshot() is not { CanControl: true }) return false;
+        if (OperatingSystem.IsMacOS() && Current() is not { CanControl: true }) return false;
         level = Math.Clamp(level, 0, 100);
         var ok = OperatingSystem.IsMacOS()
             ? Sh.Run("osascript", "-e", $"set volume output volume {level} without output muted") is not null
@@ -37,11 +62,11 @@ public sealed partial class AudioControl
         return ok;
     }
 
-    public bool Step(int delta) => Snapshot() is { } s && SetVolume(s.Volume + delta);
+    public bool Step(int delta) => Current() is { } s && SetVolume(s.Volume + delta);
 
     public bool ToggleMute()
     {
-        if (OperatingSystem.IsMacOS() && Snapshot() is not { CanControl: true }) return false;
+        if (OperatingSystem.IsMacOS() && Current() is not { CanControl: true }) return false;
         var ok = OperatingSystem.IsMacOS()
             ? Sh.Run("osascript", "-e", "set volume output muted (not (output muted of (get volume settings)))") is not null
             : Sh.Which("wpctl") is not null
@@ -51,7 +76,7 @@ public sealed partial class AudioControl
         return ok;
     }
 
-    private void Invalidate() { lock (_lock) _at = 0; }
+    private void Invalidate() { lock (_lock) { _at = 0; _gen++; } }
 
     private static AudioSnapshot? Read()
     {
