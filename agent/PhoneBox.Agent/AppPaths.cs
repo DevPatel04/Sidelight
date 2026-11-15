@@ -53,10 +53,69 @@ public static class AppPaths
         Directory.CreateDirectory(ConfigDir);
         var name = OperatingSystem.IsMacOS() ? "config.default.macos.json" : OperatingSystem.IsLinux() ? "config.default.linux.json" : "config.default.json";
         using var src = Assembly.GetExecutingAssembly().GetManifestResourceStream(name)!;
+<<<<<<< HEAD
         using var dst = File.Create(ConfigPath);
         src.CopyTo(dst);
     }
 
+=======
+        using var dst = CreatePrivate(ConfigPath);
+        src.CopyTo(dst);
+    }
+
+    private const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
+    /// <summary>
+    /// Tightens the settings file in use and its backup to owner only on macOS/Linux: older versions wrote them with the
+    /// umask (often 0644), and they hold the Wi-Fi, webhook and Home Assistant keys. Also for a <c>--config</c> path.
+    /// </summary>
+    public static void RestrictConfig(string configPath)
+    {
+        RestrictToOwner(configPath);
+        RestrictToOwner(configPath + ".bak");
+    }
+
+    /// <summary>
+    /// Creates a file only its owner can read on macOS/Linux (0600), replacing any file at <paramref name="path"/>;
+    /// Windows keeps the profile ACLs. On Unix an existing file is removed first and the new one is created exclusively,
+    /// so the content never lands in a file with another owner or mode (a leftover or planted .tmp).
+    /// </summary>
+    public static FileStream CreatePrivate(string path)
+    {
+        if (OperatingSystem.IsWindows())
+            return new FileStream(path, new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write, Share = FileShare.None });
+        File.Delete(path);
+        return new FileStream(path, new FileStreamOptions
+        {
+            Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None, UnixCreateMode = OwnerOnly,
+        });
+    }
+
+    /// <summary>Copies a file into a new owner-only file (see <see cref="CreatePrivate"/>), unlike File.Copy, which keeps the source's mode.</summary>
+    public static void CopyPrivate(string source, string destination)
+    {
+        using var src = File.OpenRead(source);
+        using var dst = CreatePrivate(destination);
+        src.CopyTo(dst);
+    }
+
+    /// <summary><see cref="File.WriteAllText(string, string?)"/> into a file only its owner can read (see <see cref="CreatePrivate"/>).</summary>
+    public static void WriteAllTextPrivate(string path, string text)
+    {
+        using var stream = CreatePrivate(path);
+        using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(false));
+        writer.Write(text);
+    }
+
+    /// <summary>Sets an existing file to 0600 on macOS/Linux; no-op on Windows or when the file is missing.</summary>
+    public static void RestrictToOwner(string path)
+    {
+        if (OperatingSystem.IsWindows() || !File.Exists(path)) return;
+        try { if (File.GetUnixFileMode(path) != OwnerOnly) File.SetUnixFileMode(path, OwnerOnly); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+>>>>>>> origin/main
     public static Stream? Resource(string name) => Assembly.GetExecutingAssembly().GetManifestResourceStream(name);
 
     /// <summary>Neutral working directory for child processes, so they never lock the install folder.</summary>

@@ -397,6 +397,16 @@ dd { margin: 0; word-break: break-all; }
             <div class="field" style="flex:1"><label>Longitude</label><input type="number" step="0.001" data-bind="weather.lon" data-type="num"></div>
           </div>
         </div>
+<<<<<<< HEAD
+=======
+        <p class="hint" style="margin:8px 0 0">The phone asks Open-Meteo for this location only while a page has a widget that uses the weather (weather, forecast, sun &amp; moon, a clock with its weather line, Custom HTML).</p>
+      </div>
+
+      <div class="card">
+        <h3>Ping</h3>
+        <div class="field"><label>Host pinged every 5 seconds for the ping metric and the "ping high" rule (empty = off)</label>
+          <input type="text" data-bind="ping.host" placeholder="off" spellcheck="false" autocomplete="off"></div>
+>>>>>>> origin/main
       </div>
 
       <div class="card">
@@ -2312,7 +2322,11 @@ async function loadInfo() {
     $('ver').textContent = 'v' + i.version;
     const pill = $('phone');
     pill.className = 'pill' + (i.connected ? ' on' : '');
+<<<<<<< HEAD
     pill.querySelector('span').textContent = i.connected ? 'Phone connected' : 'No phone connected';
+=======
+    pill.querySelector('span').textContent = i.connected ? 'Phone connected' + (i.via ? ' · ' + i.via : '') : 'No phone connected';
+>>>>>>> origin/main
     osName = i.os || 'windows';
     $('followComputerLockOption').style.display = osName === 'macos' ? '' : 'none';
     $('adbFound').textContent = i.adb ? 'Found: ' + i.adb : 'adb not found — ' + ({ linux: 'sudo apt install adb', macos: 'brew install android-platform-tools' }[osName] || 'winget install Google.PlatformTools');
@@ -2375,7 +2389,30 @@ async function save() {
 
 $('save').onclick = save;
 $('revert').onclick = () => { cfg = JSON.parse(saved); renderPages(); renderDeck(); renderRules(); renderCalendars(); renderPhones(); renderCharge(); bindForm(); changed(); };
+<<<<<<< HEAD
 $('openPhone').onclick = async () => { await fetch('/api/phone/open', { method: 'POST' }); toast('Opening the panel on the phone'); };
+=======
+// Over USB this also wakes the phone and brings the panel to the front (adb); over Wi-Fi the phone switches to the
+// page selected in the editor through the live stream.
+$('openPhone').onclick = async () => {
+  let info = null;
+  try { info = await (await fetch('/api/info')).json(); } catch (_) { }
+  if (!info?.connected) { toast('No phone connected', true); return; }
+  if (info.via === 'USB') await fetch('/api/phone/open', { method: 'POST' });
+  const p = cfg?.pages?.[selPage];
+  // the phone only has the saved pages: a page that is new or hidden in unsaved edits is not there yet
+  let onPhone = null;
+  try { onPhone = (JSON.parse(saved || '{}').pages || []).find((s) => s.id === p?.id && s.enabled !== false); } catch (_) { }
+  if (p?.id && p.enabled !== false && !onPhone) {
+    toast(`Save first: ${p.title || 'this page'} is not on the phone yet`, true);
+    return;
+  }
+  if (p?.id && p.enabled !== false) {
+    await fetch('/api/goto/' + encodeURIComponent(p.id) + '?countdown=0', { method: 'POST' });
+    toast(`Showing ${p.title || 'this page'} on the phone`);
+  } else toast('Opening the panel on the phone');
+};
+>>>>>>> origin/main
 $('cityBtn').onclick = searchCity;
 function renderUpdate(u) {
   const s = u.status;

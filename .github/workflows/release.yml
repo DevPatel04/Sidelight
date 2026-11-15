@@ -158,6 +158,14 @@ jobs:
           section "$v" > notes.md
           [ -s notes.md ] || section Unreleased > notes.md
           [ -s notes.md ] || echo "PhoneBox $v" > notes.md
+<<<<<<< HEAD
+=======
+          cat >> notes.md <<'EOF'
+
+          ---
+          [Code signing policy](https://github.com/ersinkoc/phonebox#code-signing-policy) · [Privacy policy](https://github.com/ersinkoc/phonebox/blob/main/PRIVACY.md)
+          EOF
+>>>>>>> origin/main
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}

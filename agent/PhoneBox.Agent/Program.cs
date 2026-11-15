@@ -24,6 +24,10 @@ if (!firstInstance)
 
 if (!args.Contains("--config")) AppPaths.EnsureConfig();
 var configPath = args.SkipWhile(a => a != "--config").Skip(1).FirstOrDefault() ?? AppPaths.ConfigPath;
+<<<<<<< HEAD
+=======
+AppPaths.RestrictConfig(configPath);
+>>>>>>> origin/main
 var configStore = new ConfigStore(configPath);
 configStore.PersistGenerated(); // keep the Wi-Fi token stable across restarts
 var lanCfg = configStore.Get().Lan;
@@ -301,7 +305,13 @@ app.MapGet("/api/info", (AdbReverse adb, ConfigStore cfg) => Results.Json(new
     configPath = cfg.Path,
     logPath = AppPaths.LogPath,
     adb = AdbReverse.FindAdb(cfg.Get().AdbPath),
+<<<<<<< HEAD
     connected = adb.Connected,
+=======
+    // USB (adb) or a live stream from the phone in the last few seconds, which covers Wi-Fi / Tailscale too
+    connected = adb.Connected || ApprovalStore.PhoneConnected,
+    via = adb.Connected ? "USB" : ApprovalStore.PhoneConnected ? "Wi-Fi" : null,
+>>>>>>> origin/main
     devices = adb.AllDevices,
     appMissing = adb.MissingApp,
     usbProblem = adb.UsbProblem,
@@ -559,7 +569,11 @@ app.MapPost("/api/volume", (int? level, string? op, AudioControl audio) =>
         _ when level is { } l => audio.SetVolume(l),
         _ => false,
     };
+<<<<<<< HEAD
     return ok ? Results.Json(audio.Snapshot()) : Results.BadRequest();
+=======
+    return ok ? Results.Json(audio.Current()) : Results.BadRequest();
+>>>>>>> origin/main
 });
 
 app.MapGet("/api/quotas", (QuotaMonitor q) => Results.Json(new { providers = q.Snapshot(), overview = q.Overview() }));

@@ -21,7 +21,11 @@ internal sealed class PortableDeckNative(
         : new(false, "Audio backend is unavailable", [], []);
     public bool Device(string id, int? volume, bool? muted, int? channel = null)
     {
+<<<<<<< HEAD
         if (id != "default" || channel is not null || audio.Snapshot() is not { CanControl: true } current) return false;
+=======
+        if (id != "default" || channel is not null || audio.Current() is not { CanControl: true } current) return false;
+>>>>>>> origin/main
         if (volume is { } v && !audio.SetVolume(v)) return false;
         return muted is not { } m || m == current.Muted || audio.ToggleMute();
     }

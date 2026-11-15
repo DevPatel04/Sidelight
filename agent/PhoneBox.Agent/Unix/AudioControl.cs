@@ -9,6 +9,7 @@ namespace PhoneBox.Agent;
 /// </summary>
 public sealed partial class AudioControl
 {
+<<<<<<< HEAD
     private readonly Lock _lock = new();
     private AudioSnapshot? _cached;
     private long _at;
@@ -21,11 +22,68 @@ public sealed partial class AudioControl
             _at = Environment.TickCount64;
             return _cached = Read();
         }
+=======
+    private const int MaxAgeMs = 900;
+    private readonly Lock _lock = new();
+    private readonly Func<AudioSnapshot?> _read;
+    private AudioSnapshot? _cached;
+    private long _at;          // when _cached was read; 0 = never read or invalidated
+    private long _gen;         // bumped by Invalidate, so a read from before a volume change cannot land after it
+    private long _seq, _written; // read tickets: a reading only lands if no later-started read has landed
+    private int _refreshing;   // 1 while a background read runs
+
+    public AudioControl() : this(Read) { }
+
+    /// <summary>For tests: a fake reader instead of osascript / wpctl / pactl.</summary>
+    internal AudioControl(Func<AudioSnapshot?> read) => _read = read;
+
+    internal bool Refreshing => Volatile.Read(ref _refreshing) == 1;
+
+    /// <summary>
+    /// The last reading, refreshed in the background. Never waits for osascript / wpctl / pactl: the live stream
+    /// calls this every second for every phone, and under heavy CPU load those helpers can take seconds each.
+    /// </summary>
+    public AudioSnapshot? Snapshot()
+    {
+        long at; AudioSnapshot? cached;
+        lock (_lock) { at = _at; cached = _cached; }
+        if (Environment.TickCount64 - at >= MaxAgeMs && Interlocked.CompareExchange(ref _refreshing, 1, 0) == 0)
+            _ = Task.Run(() =>
+            {
+                try { var (ticket, gen) = BeginRead(); Store(ticket, gen, _read()); }
+                catch { }
+                finally { Volatile.Write(ref _refreshing, 0); }
+            });
+        return cached;
+    }
+
+    /// <summary>A reading for a control action: the cached one while fresh, otherwise read now (may wait for the helper).</summary>
+    public AudioSnapshot? Current()
+    {
+        lock (_lock)
+            if (_at != 0 && Environment.TickCount64 - _at < MaxAgeMs) return _cached;
+        var (ticket, gen) = BeginRead();
+        var s = _read();
+        Store(ticket, gen, s);
+        return s;
+    }
+
+    private (long Ticket, long Gen) BeginRead() { lock (_lock) return (++_seq, _gen); }
+
+    private void Store(long ticket, long gen, AudioSnapshot? s)
+    {
+        lock (_lock)
+            if (_gen == gen && ticket > _written) { _written = ticket; _cached = s; _at = Environment.TickCount64; }
+>>>>>>> origin/main
     }
 
     public bool SetVolume(int level)
     {
+<<<<<<< HEAD
         if (OperatingSystem.IsMacOS() && Snapshot() is not { CanControl: true }) return false;
+=======
+        if (OperatingSystem.IsMacOS() && Current() is not { CanControl: true }) return false;
+>>>>>>> origin/main
         level = Math.Clamp(level, 0, 100);
         var ok = OperatingSystem.IsMacOS()
             ? Sh.Run("osascript", "-e", $"set volume output volume {level} without output muted") is not null
@@ -37,11 +95,19 @@ public sealed partial class AudioControl
         return ok;
     }
 
+<<<<<<< HEAD
     public bool Step(int delta) => Snapshot() is { } s && SetVolume(s.Volume + delta);
 
     public bool ToggleMute()
     {
         if (OperatingSystem.IsMacOS() && Snapshot() is not { CanControl: true }) return false;
+=======
+    public bool Step(int delta) => Current() is { } s && SetVolume(s.Volume + delta);
+
+    public bool ToggleMute()
+    {
+        if (OperatingSystem.IsMacOS() && Current() is not { CanControl: true }) return false;
+>>>>>>> origin/main
         var ok = OperatingSystem.IsMacOS()
             ? Sh.Run("osascript", "-e", "set volume output muted (not (output muted of (get volume settings)))") is not null
             : Sh.Which("wpctl") is not null
@@ -51,7 +117,11 @@ public sealed partial class AudioControl
         return ok;
     }
 
+<<<<<<< HEAD
     private void Invalidate() { lock (_lock) _at = 0; }
+=======
+    private void Invalidate() { lock (_lock) { _at = 0; _gen++; } }
+>>>>>>> origin/main
 
     private static AudioSnapshot? Read()
     {

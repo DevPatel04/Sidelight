@@ -10,6 +10,12 @@ public sealed class AudioControl
     private IAudioEndpointVolume? _ep;
     private long _acquiredAt;
 
+<<<<<<< HEAD
+=======
+    /// <summary>Core Audio reads are in-process and fast, so a control action can use the same reading.</summary>
+    public AudioSnapshot? Current() => Snapshot();
+
+>>>>>>> origin/main
     public AudioSnapshot? Snapshot() => Use(ep =>
     {
         ep.GetMasterVolumeLevelScalar(out var v);

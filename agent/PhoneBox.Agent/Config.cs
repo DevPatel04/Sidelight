@@ -12,6 +12,10 @@ public sealed class AgentConfig
     public string? DeviceSerial { get; set; }
     public string? AdbPath { get; set; }
     public WeatherConfig Weather { get; set; } = new();
+<<<<<<< HEAD
+=======
+    public PingConfig Ping { get; set; } = new();
+>>>>>>> origin/main
     public NightConfig Night { get; set; } = new();
     public DisplayConfig Display { get; set; } = new();
     public LanConfig Lan { get; set; } = new();
@@ -82,6 +86,15 @@ public sealed class WeatherConfig
     public double Lon { get; set; } = 24.745;
 }
 
+<<<<<<< HEAD
+=======
+public sealed class PingConfig
+{
+    /// <summary>Host or IP address pinged every 5 s for the ping metric and the "ping high" rule; empty = off.</summary>
+    public string? Host { get; set; } = PingMonitor.DefaultHost;
+}
+
+>>>>>>> origin/main
 public sealed class NightConfig
 {
     public bool Enabled { get; set; } = true;
@@ -396,8 +409,14 @@ public sealed partial class ConfigStore(string path)
             if (expectedVersion is { } expected && File.Exists(path) && File.GetLastWriteTimeUtc(path).Ticks != expected) return Conflict;
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
             var tmp = path + ".tmp";
+<<<<<<< HEAD
             File.WriteAllText(tmp, JsonSerializer.Serialize(cfg, WriteOpts));
             if (File.Exists(path)) File.Copy(path, path + ".bak", overwrite: true);
+=======
+            // owner-only on macOS/Linux: the file holds the Wi-Fi, webhook and Home Assistant keys
+            AppPaths.WriteAllTextPrivate(tmp, JsonSerializer.Serialize(cfg, WriteOpts));
+            if (File.Exists(path)) AppPaths.CopyPrivate(path, path + ".bak");
+>>>>>>> origin/main
             File.Move(tmp, path, overwrite: true);
             _config = cfg;
             _stamp = _seen = File.GetLastWriteTimeUtc(path);
@@ -432,6 +451,12 @@ public sealed partial class ConfigStore(string path)
         c.Display.HomePage = string.IsNullOrWhiteSpace(c.Display.HomePage) ? null : c.Display.HomePage.Trim();
         c.Lan ??= new();
         c.Updates ??= new();
+<<<<<<< HEAD
+=======
+        c.Ping ??= new();
+        c.Ping.Host = c.Ping.Host?.Trim() ?? "";
+        if (c.Ping.Host.Length > 253 || c.Ping.Host.Any(ch => ch <= ' ' || ch > '~')) c.Ping.Host = PingMonitor.DefaultHost;
+>>>>>>> origin/main
         c.Claude ??= new();
         c.Claude.TimeoutSec = Math.Clamp(c.Claude.TimeoutSec, 10, 3600);
         if (string.IsNullOrWhiteSpace(c.Updates.Repo)) c.Updates.Repo = "ersinkoc/phonebox";

@@ -1,5 +1,46 @@
 # Changelog
 
+<<<<<<< HEAD
+=======
+## Unreleased
+
+**Agent**
+- Settings: **Open on phone** works over Wi-Fi and Tailscale too. It shows the page selected in the editor on the phone
+  (over USB it also wakes the phone, as before), and says "No phone connected" instead of claiming it worked (#62,
+  thanks to d4rk-lucif3r).
+
+## 0.9.6 — 2026-11-15
+
+A Computers widget to switch between paired computers, a privacy policy and code signing policy, fewer outbound
+requests (weather only when shown, a switchable ping), owner-only settings files on macOS / Linux, and a live stream
+that keeps up under heavy load on macOS (thanks to d4rk-lucif3r).
+
+**Panel**
+- Computers widget: the computers this phone is paired with over Wi-Fi, one tap to switch, as in the page overview.
+  The buttons wait while a USB cable is plugged in, since USB always wins (#58).
+- The weather is fetched only while a page has a widget that uses it (weather, forecast, sun & moon, a clock with its
+  weather line, Custom HTML); before, the phone asked Open-Meteo every 15 minutes whatever was on screen.
+
+**Agent**
+- On macOS and Linux `config.json`, its backup and the pushed data are written readable only by your user (0600), and
+  an existing config is tightened at start; before, they followed the umask (often 0644), so other local users could
+  read the Wi-Fi, webhook and Home Assistant keys.
+- Settings › General › Ping: the host pinged every 5 seconds for the ping metric and the "ping high" rule (1.1.1.1 by
+  default); empty turns pinging off.
+- macOS / Linux: the live stream no longer waits on `osascript`, `wpctl` or `pactl` for the volume. Under heavy CPU
+  load those took seconds, `/api/state` and the stream stopped answering, and the phone kept reconnecting with
+  "computer not connected"; the volume is now read in the background, and volume controls still act on a fresh
+  reading (#60, thanks to d4rk-lucif3r).
+- Settings: the badge says "Phone connected · Wi-Fi" for a phone on Wi-Fi or Tailscale instead of "No phone
+  connected", and "· USB" over the cable (#60).
+
+**Docs**
+- A privacy policy ([PRIVACY.md](PRIVACY.md)) lists every connection the agent and the app make and how to turn each
+  one off; the README no longer says that nothing else leaves the machine.
+- Code signing policy in the README and on the demo site, linked under every release: the Windows agent is to be
+  signed through SignPath Foundation (application pending, #56).
+
+>>>>>>> origin/main
 ## 0.9.5 — 2026-11-14
 
 AMD and Intel graphics cards with no vendor tool, a GPU details widget, internet radio in Now Playing with station

@@ -96,13 +96,21 @@ W.stack = {
 
       let inst = {};
       if (def) {
+<<<<<<< HEAD
         for (const need of def.needs || []) collectedNeeds.add(need);
+=======
+>>>>>>> origin/main
         try {
           inst = def.create(subBox, subCtx) || {};
         } catch (err) {
           console.warn(`stack: error creating child ${item.type}`, err);
           subBox.replaceChildren(h('div', 'empty', `${item.type}: ${err.message}`));
         }
+<<<<<<< HEAD
+=======
+        // a child can narrow its needs for its options (a clock without the weather line)
+        for (const need of inst.needs || def.needs || []) collectedNeeds.add(need);
+>>>>>>> origin/main
       } else {
         subBox.replaceChildren(h('div', 'empty', `Unknown widget: ${item.type}`));
       }

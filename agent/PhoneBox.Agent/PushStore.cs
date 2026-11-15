@@ -129,6 +129,11 @@ public sealed partial class PushStore
         if (removed) Changed();
     }
 
+<<<<<<< HEAD
+=======
+    private readonly Lock _persistLock = new();
+
+>>>>>>> origin/main
     private void Changed()
     {
         Interlocked.Exchange(ref _version, Math.Max(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), Interlocked.Read(ref _version) + 1));
@@ -138,6 +143,7 @@ public sealed partial class PushStore
     private void Persist()
     {
         Interlocked.Exchange(ref _savePending, 0);
+<<<<<<< HEAD
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_dataPath)!);
@@ -146,6 +152,20 @@ public sealed partial class PushStore
             File.Move(tmp, _dataPath, overwrite: true);
         }
         catch (Exception ex) { _log.LogWarning("could not save pushed data: {Msg}", ex.Message); }
+=======
+        // one write at a time: a slow write must not share data.json.tmp with the next timer's write
+        lock (_persistLock)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_dataPath)!);
+                var tmp = _dataPath + ".tmp";
+                AppPaths.WriteAllTextPrivate(tmp, JsonSerializer.Serialize(Snapshot()));
+                File.Move(tmp, _dataPath, overwrite: true);
+            }
+            catch (Exception ex) { _log.LogWarning("could not save pushed data: {Msg}", ex.Message); }
+        }
+>>>>>>> origin/main
     }
 
     /// <summary>Reads a webhook body: JSON as-is, anything else as a trimmed string; ?value= wins when given.</summary>
