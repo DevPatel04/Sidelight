@@ -139,6 +139,12 @@ class MainActivity : Activity(), SensorEventListener {
             .setNegativeButton("Cancel", null)
             .setOnDismissListener { hideSystemUi() }
             .show()
+            .plainButtons()
+    }
+
+    /** Dialog buttons as written: the default all-caps follows the phone's language ("PAİR" on a Turkish phone). */
+    private fun AlertDialog.plainButtons(): AlertDialog = apply {
+        listOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE).forEach { getButton(it)?.isAllCaps = false }
     }
 
     private fun pair(pairing: AgentLink.PairLink) {
@@ -151,7 +157,7 @@ class MainActivity : Activity(), SensorEventListener {
                     stream.stop(); stream.start(); web.reload()
                 } else {
                     AlertDialog.Builder(this).setTitle("Pairing did not work").setMessage(problem)
-                        .setPositiveButton("OK", null).setOnDismissListener { hideSystemUi() }.show()
+                        .setPositiveButton("OK", null).setOnDismissListener { hideSystemUi() }.show().plainButtons()
                 }
             }
         }.start()
