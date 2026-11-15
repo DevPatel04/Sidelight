@@ -131,9 +131,10 @@ class MainActivity : Activity(), SensorEventListener {
         val pairing = AgentLink.PairLink.parse(intent?.data) ?: return
         intent?.data = null // not again after a configuration change
         AlertDialog.Builder(this)
-            .setTitle("Pair with ${pairing.pc}?")
-            .setMessage("PhoneBox will connect to this computer over Wi-Fi (${pairing.hosts.joinToString()}, port ${pairing.port}) " +
-                "and show its panel. Continue only if you started pairing on that computer.")
+            .setTitle("Pair with a computer?")
+            .setMessage("\"${pairing.pc}\" at ${pairing.hosts.joinToString()} (port ${pairing.port}).\n\n" +
+                "Check that the computer's pairing window shows the code ${pairing.check}.\n\n" +
+                "Continue only if you started pairing on that computer.")
             .setPositiveButton("Pair") { _, _ -> pair(pairing) }
             .setNegativeButton("Cancel", null)
             .setOnDismissListener { hideSystemUi() }

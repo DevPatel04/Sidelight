@@ -234,10 +234,26 @@ class AgentLink(context: Context) {
      * as with USB pairing, so the key only ever goes to that computer.
      */
     class PairLink(val pc: String, val fingerprint: String, val port: Int, val hosts: List<String>, val code: String) {
+        /**
+         * The start of the certificate fingerprint, shown on the computer next to the QR code and in the phone's
+         * confirmation: a link from anyone else (another computer, a message) shows a different code.
+         */
+        val check: String get() = fingerprint.take(8).uppercase().chunked(4).joinToString(" ")
+
         companion object {
             private val FINGERPRINT = Regex("^[0-9a-f]{64}$")
             private val CODE = Regex("^[A-Za-z0-9_-]{16,64}$")
-            private val HOST = Regex("^[A-Za-z0-9.-]{1,253}$")
+
+            /**
+             * Only the addresses the agent offers: private network (10/8, 172.16/12, 192.168/16) and Tailscale
+             * (100.64/10) IPv4. A link pointing anywhere else is not a PhoneBox pairing link.
+             */
+            fun isLocalAddress(host: String): Boolean {
+                val p = host.split('.')
+                if (p.size != 4) return false
+                val b = p.map { s -> s.toIntOrNull()?.takeIf { s.length in 1..3 && it in 0..255 } ?: return false }
+                return b[0] == 10 || (b[0] == 172 && b[1] in 16..31) || (b[0] == 192 && b[1] == 168) || (b[0] == 100 && b[1] in 64..127)
+            }
 
             /**
              * Reads https://ersinkoc.github.io/phonebox/pair/#v=1&... (the QR code; the data is in the fragment so it
@@ -259,7 +275,7 @@ class AgentLink(context: Context) {
                 val fp = q["fp"]?.lowercase()?.takeIf { FINGERPRINT.matches(it) } ?: return null
                 val port = q["port"]?.toIntOrNull()?.takeIf { it in 1..65535 } ?: return null
                 val code = q["c"]?.takeIf { CODE.matches(it) } ?: return null
-                val hosts = q["h"].orEmpty().split(',').map { it.trim() }.filter { HOST.matches(it) }.take(8)
+                val hosts = q["h"].orEmpty().split(',').map { it.trim() }.filter { isLocalAddress(it) }.take(8)
                 if (hosts.isEmpty()) return null
                 val pc = q["pc"].orEmpty().filter { it >= ' ' }.take(64).ifBlank { "your computer" }
                 return PairLink(pc, fp, port, hosts, code)
@@ -294,10 +310,12 @@ class AgentLink(context: Context) {
                 }
                 val j = JSONObject(c.inputStream.bufferedReader().readText())
                 if (!j.optString("fingerprint").equals(link.fingerprint, ignoreCase = true)) return "${link.pc} sent a different certificate. Start pairing again."
-                val hosts = j.optJSONArray("hosts")?.let { a -> (0 until a.length()).map { a.getString(it) } }?.takeIf { it.isNotEmpty() } ?: link.hosts
-                val name = j.optString("pc").ifBlank { link.pc }
-                val pc = Pc(link.fingerprint.lowercase(), name, hosts, j.optInt("port", link.port), j.getString("token"))
-                savePcs(pcs.filter { it.id != pc.id && it.name != name } + pc, pc.id)
+                val hosts = j.optJSONArray("hosts")?.let { a -> (0 until a.length()).map { a.getString(it) } }
+                    ?.filter { PairLink.isLocalAddress(it) }?.takeIf { it.isNotEmpty() } ?: link.hosts
+                // the name the user confirmed; only an entry for this very certificate is replaced, never one that
+                // merely has the same name
+                val pc = Pc(link.fingerprint.lowercase(), link.pc, hosts, j.optInt("port", link.port), j.getString("token"))
+                savePcs(pcs.filter { it.id != pc.id } + pc, pc.id)
                 factory = null
                 preferredHost = 0
                 return null
