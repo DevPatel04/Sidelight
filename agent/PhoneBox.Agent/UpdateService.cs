@@ -30,6 +30,9 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
     private long? _lastCheck;
     private string _state = "idle";
     private string? _error;
+    // phones whose app update failed for _phoneRetryFor; kept apart from AppVersion, which any phone's request sets
+    private volatile string[] _phoneRetry = [];
+    private volatile string? _phoneRetryFor;
 
     /// <summary>Phone app version, reported by the app on every request (X-PhoneBox-App header).</summary>
     public static volatile string? AppVersion;
@@ -62,9 +65,10 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
     public UpdateStatus Status()
     {
         var latest = _latest?.Version;
+        var retry = latest is not null && _phoneRetryFor == latest && _phoneRetry.Length > 0;
         return new UpdateStatus(AppPaths.Version, AppVersion, latest, _latest?.Url,
             latest is not null && Newer(latest, AppPaths.Version) && _latest!.AgentZip is not null,
-            latest is not null && AppVersion is not null && Newer(latest, AppVersion) && _latest!.Apk is not null,
+            latest is not null && _latest!.Apk is not null && (AppVersion is not null && Newer(latest, AppVersion) || retry),
             _lastCheck, _state, _error);
     }
 
@@ -193,21 +197,36 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
         _state = "updating phone app";
         var apk = await VerifiedDownloadAsync(_latest!.Apk!, $"PhoneBox-{_latest.Version}.apk", ct);
         var adbExe = AdbReverse.FindAdb(cfg.Get().AdbPath) ?? throw new InvalidOperationException("adb not found");
-        var failed = new List<string>();
-        foreach (var serial in adb.Devices.Split(", ", StringSplitOptions.RemoveEmptyEntries))
+        var connected = adb.Devices.Split(", ", StringSplitOptions.RemoveEmptyEntries);
+        var retry = _phoneRetryFor == _latest.Version ? _phoneRetry : [];
+        var targets = PhoneTargets(connected, AppVersion is not null && !Newer(_latest.Version, AppVersion), retry);
+        var failed = new List<(string Serial, string Why)>();
+        foreach (var serial in targets)
         {
-            var output = await Run(adbExe, ["-s", serial, "install", "-r", apk], ct);
+            string output;
+            try { output = await Run(adbExe, ["-s", serial, "install", "-r", apk], ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                failed.Add((serial, ex.Message)); // a phone that hangs (time limit) must not cost the others their update
+                continue;
+            }
             if (!output.Contains("Success"))
             {
                 // the next phone still gets its update (a refused one, e.g. signed with another key, keeps its app)
-                failed.Add($"{serial}: {output.Trim().Split('\n').LastOrDefault()}");
+                failed.Add((serial, output.Trim().Split('\n').LastOrDefault() ?? ""));
                 continue;
             }
-            await Run(adbExe, ["-s", serial, "shell", "am", "start", "-n", AdbReverse.PanelActivity], ct);
             log.LogInformation("phone app on {Serial} updated to {Version}", serial, _latest.Version);
+            try { await Run(adbExe, ["-s", serial, "shell", "am", "start", "-n", AdbReverse.PanelActivity], ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                log.LogInformation("{Serial}: could not open the panel after the update ({Msg})", serial, ex.Message); // updated anyway
+            }
         }
-        // only when every phone has it: otherwise the update stays pending and is tried again
-        if (failed.Count > 0) throw new InvalidOperationException("phone update failed on " + string.Join("; ", failed));
+        _phoneRetry = NextPhoneRetry(retry, targets, failed.Select(f => f.Serial).ToArray());
+        _phoneRetryFor = _latest.Version;
+        // a phone that failed keeps the update pending (Status), whatever version the other phones report
+        if (failed.Count > 0) throw new InvalidOperationException("phone update failed on " + string.Join("; ", failed.Select(f => $"{f.Serial}: {f.Why}")));
         AppVersion = _latest.Version;
     }
 
@@ -400,6 +419,17 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
         var tag = release.GetProperty("tag_name").GetString() ?? "";
         return new Release(tag.TrimStart('v', 'V'), release.GetProperty("html_url").GetString(), apk, zip, sums);
     }
+
+    /// <summary>
+    /// The phones to update: all connected ones, or, when the app the phones report is already current, only those whose
+    /// update failed before (AppVersion comes from whichever phone spoke last, so it cannot speak for the others).
+    /// </summary>
+    internal static string[] PhoneTargets(string[] connected, bool appCurrent, string[] retry) =>
+        appCurrent ? connected.Where(retry.Contains).ToArray() : connected;
+
+    /// <summary>The phones still waiting for the update: earlier failures not tried now, plus the ones that failed now.</summary>
+    internal static string[] NextPhoneRetry(string[] retry, string[] attempted, string[] failed) =>
+        retry.Except(attempted).Union(failed).ToArray();
 
     /// <summary>The asset's file name: the last segment of its download link.</summary>
     internal static string AssetName(string url) => Uri.UnescapeDataString(new Uri(url).Segments[^1]);

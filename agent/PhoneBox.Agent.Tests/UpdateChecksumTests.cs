@@ -153,4 +153,22 @@ b47da3d09583268d7bacef2d4375555313bf455af8a3ab16fd4d7ee95082826e  PhoneBoxAgent-
         }
         finally { File.Delete(file); }
     }
+
+    [Fact]
+    public void WhenThePhonesReportTheCurrentAppOnlyTheOnesThatFailedAreTriedAgain()
+    {
+        // AppVersion comes from whichever phone spoke last: B updated and says "current", A refused before
+        Assert.Equal(["A"], UpdateService.PhoneTargets(["A", "B"], appCurrent: true, retry: ["A"]));
+        Assert.Empty(UpdateService.PhoneTargets(["B"], appCurrent: true, retry: ["A"]));          // A is not plugged in
+        Assert.Equal(["A", "B"], UpdateService.PhoneTargets(["A", "B"], appCurrent: false, retry: [])); // a new release: all
+    }
+
+    [Fact]
+    public void APhoneStaysPendingUntilItsOwnUpdateWorks()
+    {
+        Assert.Equal(["A"], UpdateService.NextPhoneRetry([], attempted: ["A", "B"], failed: ["A"]));
+        Assert.Equal(["A"], UpdateService.NextPhoneRetry(["A"], attempted: [], failed: []));          // A unplugged: kept
+        Assert.Empty(UpdateService.NextPhoneRetry(["A"], attempted: ["A"], failed: []));               // A worked
+        Assert.Equal(["C", "B"], UpdateService.NextPhoneRetry(["A", "C"], attempted: ["A", "B"], failed: ["B"]));
+    }
 }
