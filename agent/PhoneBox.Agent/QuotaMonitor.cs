@@ -39,6 +39,8 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     private volatile QuotaProvider? _codex;
     private volatile QuotaProvider? _antigravity;
     private long _nextClaude;
+    private int _claudeFailures;          // consecutive failed checks, for the back-off
+    private TimeSpan? _claudeRetryAfter;  // what the last 429 / 503 asked for (Retry-After)
     private long _nextCodexBar;
     private long _nextAntigravity;
     private volatile IReadOnlyList<QuotaProvider> _external = [];
@@ -184,9 +186,11 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
 
             if (Environment.TickCount64 >= _nextClaude)
             {
-                // Every 3 minutes when healthy; retry after 1 minute on errors.
+                // Every 3 minutes when healthy; on errors back off, and never ask again sooner than a 429 says.
                 var ok = await RefreshClaude(ct);
-                _nextClaude = Environment.TickCount64 + (ok ? 180_000 : 60_000);
+                _claudeFailures = ok ? 0 : _claudeFailures + 1;
+                _nextClaude = Environment.TickCount64 + (long)ClaudeDelay(ok, _claudeFailures, _claudeRetryAfter).TotalMilliseconds;
+                _claudeRetryAfter = null;
             }
             await Wake.Delay(TimeSpan.FromSeconds(30), ct);
         }
@@ -226,6 +230,15 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             req.Headers.Add("anthropic-beta", "oauth-2025-04-20");
             using var res = await _http.SendAsync(req, ct);
+            if (res.StatusCode is System.Net.HttpStatusCode.TooManyRequests or System.Net.HttpStatusCode.ServiceUnavailable)
+            {
+                // The usage endpoint is rate limited per account (Claude Code and other tools use it too). Asking again
+                // before Retry-After only keeps the limit in place, so wait at least that long.
+                _claudeRetryAfter = RetryAfter(res.Headers.RetryAfter) ?? TimeSpan.FromMinutes(5);
+                var at = DateTime.Now + ClaudeDelay(false, _claudeFailures + 1, _claudeRetryAfter);
+                _claude = Keep(plan, $"Anthropic is limiting quota checks; trying again at {at:HH:mm}");
+                return false;
+            }
             if (!res.IsSuccessStatusCode)
             {
                 _claude = Keep(plan, $"Could not fetch quota (HTTP {(int)res.StatusCode})");
@@ -246,6 +259,24 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     }
 
     /// <summary>On errors, keeps the last good values and attaches the error.</summary>
+    /// <summary>
+    /// When to check the Claude quota next: 3 minutes after a success; after a failure 1, 2, 4 … minutes (at most 15),
+    /// and never sooner than a Retry-After (at most an hour).
+    /// </summary>
+    internal static TimeSpan ClaudeDelay(bool ok, int failures, TimeSpan? retryAfter)
+    {
+        if (ok) return TimeSpan.FromMinutes(3);
+        var backoff = TimeSpan.FromMinutes(Math.Min(15, Math.Pow(2, Math.Clamp(failures, 1, 10) - 1)));
+        if (retryAfter is not { } wait) return backoff;
+        wait = TimeSpan.FromSeconds(Math.Clamp(wait.TotalSeconds, 0, 3600) + 5); // a little past the server's time
+        return wait > backoff ? wait : backoff;
+    }
+
+    internal static TimeSpan? RetryAfter(RetryConditionHeaderValue? header) =>
+        header?.Delta is { } delta ? delta
+        : header?.Date is { } date ? (date - DateTimeOffset.UtcNow is var left && left > TimeSpan.Zero ? left : TimeSpan.Zero)
+        : null;
+
     private QuotaProvider Keep(string plan, string error) =>
         _claude is { Limits.Count: > 0 } prev ? prev with { Plan = plan, Error = error }
             : new QuotaProvider("claude", "Claude", plan, [], null, null, error);
