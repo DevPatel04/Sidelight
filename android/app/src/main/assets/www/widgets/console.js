@@ -1,4 +1,4 @@
-import { API, PANEL_HEADERS, api, cfg, h, haptic, toast } from '../main.js';
+import { API, PANEL_HEADERS, api, cfg, h, haptic, t, toast } from '../main.js';
 import { W } from '../registry.js';
 
 let cached = null;
@@ -14,6 +14,7 @@ function notify(state) {
 }
 
 export async function consoleState(force = false) {
+  if (!cfg.console?.enabled) return null;
   if (!force && cached && performance.now() - at < 550) return cached;
   if (!force && pending) return pending;
   const stamp = epoch;
@@ -33,7 +34,7 @@ export async function consoleAct(body) {
   epoch++;
   at = 0;
   const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), 5000);
+  const timer = setTimeout(() => ctl.abort(), 5000);
   try {
     const r = await fetch(`${API}/console/act`, {
       method: 'POST',
@@ -41,7 +42,10 @@ export async function consoleAct(body) {
       body: JSON.stringify(body),
       signal: ctl.signal,
     });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    if (!r.ok) {
+      const err = await r.json().catch(() => null);
+      throw new Error(err?.error || ('HTTP ' + r.status));
+    }
     const data = await r.json();
     if (data.state) {
       cached = data.state;
@@ -51,7 +55,7 @@ export async function consoleAct(body) {
     if (!data.ok) throw new Error(data.error || 'Console action failed');
     return data;
   } finally {
-    clearTimeout(t);
+    clearTimeout(timer);
   }
 }
 
@@ -70,17 +74,18 @@ function resolveProfile(o, state, lastMatchedId) {
   return list.find((p) => p.id === id) || fallback;
 }
 
-function makeAxisDispatcher(getTarget) {
+function makeAxisDispatcher(getTarget, canControl) {
   let queued = 0;
   let sending = false;
   let flushTarget = null;
+  let warnedReadOnly = false;
 
   async function flush() {
     if (sending) return;
     sending = true;
     try {
       while (queued !== 0) {
-        const delta = Math.max(-10, Math.min(10, queued));
+        const delta = Math.max(-5, Math.min(5, queued));
         queued -= delta;
         const target = flushTarget;
         if (!target) break;
@@ -98,6 +103,14 @@ function makeAxisDispatcher(getTarget) {
   }
 
   return (step) => {
+    if (!canControl()) {
+      if (!warnedReadOnly) {
+        warnedReadOnly = true;
+        toast(t('w.console.controlOff'), 'err');
+      }
+      return;
+    }
+    warnedReadOnly = false;
     const target = getTarget();
     if (!target) return;
     flushTarget = target;
@@ -106,16 +119,8 @@ function makeAxisDispatcher(getTarget) {
   };
 }
 
-function appBadge(profile, state) {
-  const badge = h('span', 'ck-ico', profile.icon || '🎛️');
-  if (!window.PhoneBoxDemo && state?.activeProcess && !profile.isDefault && profile.id === (state.pinnedProfileId || state.matchedProfileId)) {
-    const img = new Image();
-    img.className = 'ck-app-img';
-    img.alt = '';
-    img.onload = () => badge.replaceChildren(img);
-    img.src = `${API}/procs/icon?name=${encodeURIComponent(state.activeProcess)}`;
-  }
-  return badge;
+function appBadge(profile) {
+  return h('span', 'ck-ico', profile.icon || '🎛️');
 }
 
 function subPageFor(profile, id) {
@@ -144,6 +149,7 @@ W['app-keypad'] = {
     let loading = false;
     let suppressClickUntil = 0;
     const subByProfile = new Map();
+    const canControl = () => o.control === true;
 
     function stepSubPage(profile, dir) {
       const subs = profile?.subPages || [];
@@ -191,6 +197,7 @@ W['app-keypad'] = {
           haptic();
           picker.hidden = true;
           picker.dataset.key = '';
+          if (!canControl()) { toast(t('w.console.controlOff'), 'err'); return; }
           try { await consoleAct({ kind: 'pin', pinned: '' }); } catch (e) { toast(e.message, 'err'); }
         };
         items.push(autoBtn);
@@ -202,6 +209,7 @@ W['app-keypad'] = {
           haptic();
           picker.hidden = true;
           picker.dataset.key = '';
+          if (!canControl()) { toast(t('w.console.controlOff'), 'err'); return; }
           try { await consoleAct({ kind: 'pin', pinned: p.id }); } catch (e) { toast(e.message, 'err'); }
         };
         items.push(btn);
@@ -210,11 +218,18 @@ W['app-keypad'] = {
     }
 
     function render() {
+      if (!cfg.console?.enabled) {
+        head.replaceChildren();
+        grid.replaceChildren(h('div', 'deck-empty', t('w.console.turnOn')));
+        dots.replaceChildren();
+        picker.hidden = true;
+        return;
+      }
       const list = enabledProfiles();
       const profile = resolveProfile(o, state, lastMatchedId);
       if (!profile) {
         head.replaceChildren();
-        grid.replaceChildren(h('div', 'deck-empty', 'Add a profile in Settings › Console'));
+        grid.replaceChildren(h('div', 'deck-empty', t('w.console.addProfile')));
         dots.replaceChildren();
         picker.hidden = true;
         return;
@@ -230,7 +245,7 @@ W['app-keypad'] = {
         const titleBtn = h('button', 'ck-title');
         titleBtn.type = 'button';
         titleBtn.setAttribute('aria-label', 'Switch console profile');
-        titleBtn.append(appBadge(profile, state), h('span', 'ck-name', profile.name));
+        titleBtn.append(appBadge(profile), h('span', 'ck-name', profile.name));
         if (subs.length > 1 && sub) titleBtn.append(h('span', 'ck-sub', sub.name));
         titleBtn.onclick = () => {
           haptic();
@@ -250,6 +265,7 @@ W['app-keypad'] = {
           pinBtn.setAttribute('aria-pressed', String(isPinnedServer));
           pinBtn.onclick = async () => {
             haptic();
+            if (!canControl()) { toast(t('w.console.controlOff'), 'err'); return; }
             try { await consoleAct({ kind: 'pin', pinned: isPinnedServer ? '' : profile.id }); }
             catch (e) { toast(e.message, 'err'); }
           };
@@ -289,10 +305,12 @@ W['app-keypad'] = {
 
         keyBtn.onclick = async () => {
           if (Date.now() < suppressClickUntil) return;
+          if (!canControl()) { toast(t('w.console.controlOff'), 'err'); return; }
+          if (!sub?.id) return;
           haptic();
           keyBtn.disabled = true;
           try {
-            await consoleAct({ kind: 'slot', profileId: profile.id, subPageId: sub?.id, slot: i });
+            await consoleAct({ kind: 'slot', profileId: profile.id, subPageId: sub.id, slot: i });
           } catch (e) {
             toast(e?.message || 'Shortcut failed', 'err');
           } finally {
@@ -332,11 +350,11 @@ W['app-keypad'] = {
 
     return {
       async update() {
-        if (loading || !alive) return;
+        if (!cfg.console?.enabled || loading || !alive) return;
         loading = true;
         try {
           const next = await consoleState();
-          if (alive) onUpdate(next);
+          if (alive && next) onUpdate(next);
         } catch (_) {
         } finally {
           loading = false;
@@ -403,16 +421,18 @@ W['app-dial'] = {
     let loading = false;
     let visualDeg = 0;
     let suppressCenterUntil = 0;
+    const canControl = () => o.control === true;
 
     const dispatchStep = makeAxisDispatcher(() => {
       const profile = resolveProfile(o, state, lastMatchedId);
       const axis = selectAxis(profile, selectedAxisIdx);
       return profile && axis ? { profileId: profile.id, axis: axis.index } : null;
-    });
+    }, canControl);
 
     const STEP_RAD = Math.PI / 9;
     let drag = null;
     ring.addEventListener('pointerdown', (e) => {
+      if (!cfg.console?.enabled) return;
       if (e.target.closest?.('.cd-center')) return;
       if (e.button && e.button !== 0) return;
       const rect = ring.getBoundingClientRect();
@@ -448,6 +468,7 @@ W['app-dial'] = {
     ring.addEventListener('pointercancel', endDrag);
 
     ring.addEventListener('wheel', (e) => {
+      if (!cfg.console?.enabled) return;
       e.preventDefault();
       const step = (Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? -e.deltaY : e.deltaX) > 0 ? 1 : -1;
       visualDeg = (visualDeg + step * 20) % 360;
@@ -457,6 +478,8 @@ W['app-dial'] = {
 
     center.onclick = async () => {
       if (Date.now() < suppressCenterUntil) return;
+      if (!cfg.console?.enabled) return;
+      if (!canControl()) { toast(t('w.console.controlOff'), 'err'); return; }
       const profile = resolveProfile(o, state, lastMatchedId);
       const axis = selectAxis(profile, selectedAxisIdx);
       if (!profile || !axis || !axis.hasTap) return;
@@ -466,10 +489,18 @@ W['app-dial'] = {
     };
 
     function render() {
+      if (!cfg.console?.enabled) {
+        head.replaceChildren();
+        center.replaceChildren(h('span', 'cd-axis-name', t('w.console.turnOn')));
+        center.disabled = true;
+        pills.replaceChildren();
+        return;
+      }
       const profile = resolveProfile(o, state, lastMatchedId);
       if (!profile) {
         head.replaceChildren();
-        center.replaceChildren(h('span', 'cd-axis-name', 'No profile'));
+        center.replaceChildren(h('span', 'cd-axis-name', t('w.console.noProfile')));
+        center.disabled = true;
         pills.replaceChildren();
         return;
       }
@@ -517,11 +548,11 @@ W['app-dial'] = {
 
     return {
       async update() {
-        if (loading || !alive) return;
+        if (!cfg.console?.enabled || loading || !alive) return;
         loading = true;
         try {
           const next = await consoleState();
-          if (alive) onUpdate(next);
+          if (alive && next) onUpdate(next);
         } catch (_) {
         } finally {
           loading = false;
@@ -556,6 +587,7 @@ W['app-roller'] = {
     let loading = false;
     let groovePx = 0;
     const axisIdx = Number(o.axis) || 2;
+    const canControl = () => o.control === true;
 
     const isVertical = () => o.orientation === 'vertical'
       || (o.orientation !== 'horizontal' && ((box.clientWidth || box.clientHeight) ? box.clientHeight > box.clientWidth * 1.05 : (w?.h || 2) > (w?.w || 6)));
@@ -573,11 +605,12 @@ W['app-roller'] = {
       const profile = resolveProfile(o, state, lastMatchedId);
       const axis = selectAxis(profile, axisIdx);
       return profile && axis ? { profileId: profile.id, axis: axis.index } : null;
-    });
+    }, canControl);
 
     const STEP_PX = 20;
     let drag = null;
     track.addEventListener('pointerdown', (e) => {
+      if (!cfg.console?.enabled) return;
       if (e.button && e.button !== 0) return;
       drag = { id: e.pointerId, x: e.clientX, y: e.clientY, accum: 0 };
       try { track.setPointerCapture(e.pointerId); } catch (_) {}
@@ -603,6 +636,7 @@ W['app-roller'] = {
     track.addEventListener('pointercancel', endDrag);
 
     track.addEventListener('wheel', (e) => {
+      if (!cfg.console?.enabled) return;
       e.preventDefault();
       const raw = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? -e.deltaY : e.deltaX;
       if (!raw) return;
@@ -613,6 +647,8 @@ W['app-roller'] = {
     }, { passive: false });
 
     tap.onclick = async () => {
+      if (!cfg.console?.enabled) return;
+      if (!canControl()) { toast(t('w.console.controlOff'), 'err'); return; }
       const profile = resolveProfile(o, state, lastMatchedId);
       const axis = selectAxis(profile, axisIdx);
       if (!profile || !axis || !axis.hasTap) return;
@@ -623,10 +659,15 @@ W['app-roller'] = {
 
     function render() {
       syncOrientation();
+      if (!cfg.console?.enabled) {
+        meta.replaceChildren(h('span', 'cr-name', t('w.console.turnOn')));
+        tap.hidden = true;
+        return;
+      }
       const profile = resolveProfile(o, state, lastMatchedId);
       const axis = selectAxis(profile, axisIdx);
       if (!profile) {
-        meta.replaceChildren(h('span', 'cr-name', 'No profile'));
+        meta.replaceChildren(h('span', 'cr-name', t('w.console.noProfile')));
         tap.hidden = true;
         return;
       }
@@ -655,11 +696,11 @@ W['app-roller'] = {
 
     return {
       async update() {
-        if (loading || !alive) return;
+        if (!cfg.console?.enabled || loading || !alive) return;
         loading = true;
         try {
           const next = await consoleState();
-          if (alive) onUpdate(next);
+          if (alive && next) onUpdate(next);
         } catch (_) {
         } finally {
           loading = false;

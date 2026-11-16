@@ -87,6 +87,14 @@ public static class KeySender
         _ => (byte)char.ToUpperInvariant(k[0]),
     };
 
+    internal static void CheckSendInputResult(uint sent, int expected, int lastError)
+    {
+        if (expected <= 0 || sent == (uint)expected) return;
+        if (sent == 0)
+            throw new InvalidOperationException("Input was blocked by an elevated window (UIPI)");
+        throw new InvalidOperationException($"Only {sent} of {expected} key events were delivered (blocked by UIPI or focus change)");
+    }
+
 #if WINDOWS
     private static void Send(List<string> combo)
     {
@@ -94,7 +102,7 @@ public static class KeySender
         var inputs = new List<INPUT>();
         foreach (var vk in vks) inputs.Add(Key(vk, false));
         foreach (var vk in Enumerable.Reverse(vks)) inputs.Add(Key(vk, true));
-        SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf<INPUT>());
+        SendChecked(inputs);
     }
 
     public static void TypeText(string text)
@@ -106,7 +114,15 @@ public static class KeySender
             inputs.Add(Unicode(ch, false));
             inputs.Add(Unicode(ch, true));
         }
-        SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf<INPUT>());
+        SendChecked(inputs);
+    }
+
+    private static void SendChecked(List<INPUT> inputs)
+    {
+        if (inputs.Count == 0) return;
+        Marshal.SetLastPInvokeError(0);
+        var sent = SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf<INPUT>());
+        CheckSendInputResult(sent, inputs.Count, Marshal.GetLastWin32Error());
     }
 
     // arrows, Home/End, Insert/Delete, PageUp/PageDown and the right-hand keys need the "extended" flag

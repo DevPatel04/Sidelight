@@ -394,9 +394,10 @@ dd { margin: 0; word-break: break-all; }
 
     <section id="console">
       <h2>App Console</h2>
-      <p class="lead">Context-aware application profiles for <b>App console</b>, <b>App dial</b>, and <b>App roller</b> widgets. Profiles switch automatically when the foreground application changes, while keeping your keybindings on this computer.</p>
+      <p class="lead">Context-aware application profiles for <b>App console</b>, <b>App dial</b>, and <b>App roller</b> widgets. Off by default: enable App Console below and turn on <b>Allow phone control</b> on each console widget. Key, text, and macro actions require an <b>App process match</b> on the profile; <code>shortcut:</code> and <code>deck:</code> actions trigger configured PhoneBox shortcuts and Control Deck tasks on this computer.</p>
       <div class="card row" style="justify-content:space-between;align-items:center">
         <div class="row" style="gap:16px">
+          <label class="check"><input type="checkbox" id="conEnabled"> Enable App Console</label>
           <label class="check"><input type="checkbox" id="conFollow"> Auto-follow active desktop app</label>
           <label class="check"><input type="checkbox" id="conFocus"> Bring matching app to front before sending keys</label>
         </div>
@@ -1466,7 +1467,7 @@ function optionField(w, o, onValChange) {
         ...cfg.shortcuts.map((s) => h('option', { value: s.id, selected: s.id === v }, `${s.icon} ${s.label}`))),
         h('span', { class: 'hint' }, 'New shortcuts get their id when you save.'));
     case 'console-profile':
-      return field(h('select', { onchange: (e) => set(o.key, e.target.value) }, h('option', { value: '' }, '(Desktop fallback / automatic)'),
+      return field(h('select', { onchange: (e) => set(o.key, e.target.value) }, h('option', { value: '' }, '(Automatic / default profile)'),
         ...(cfg.console?.profiles || []).map((p) => h('option', { value: p.id, selected: p.id === v }, `${p.icon || '🎛️'} ${p.name || p.id}`))));
     case 'shortcuts': {
       const cur = () => { const x = optVal(w, o); return Array.isArray(x) ? x : []; };
@@ -2088,27 +2089,9 @@ function makeSlot(kind, label, icon, extra = {}) {
 
 function buildConsolePresets() {
   const mod = consoleMod();
-  const switchApp = mod === 'Cmd' ? 'Cmd+Tab' : 'Alt+Tab';
   const navBack = mod === 'Cmd' ? 'Cmd+Left' : 'Alt+Left';
   const navFwd = mod === 'Cmd' ? 'Cmd+Right' : 'Alt+Right';
   return [
-    {
-      name: 'Desktop (Fallback)', icon: '🖥️', color: '#38bdf8', isDefault: true, columns: 4, rows: 2, appMatch: '', titleMatch: '',
-      subPages: [{ name: 'Media & System', slots: [
-        makeSlot('deck', 'Prev', '⏮️', { target: 'media:prev' }),
-        makeSlot('deck', 'Play / Pause', '⏯️', { target: 'media:playpause', toggle: true, stateKey: 'media:playing' }),
-        makeSlot('deck', 'Next', '⏭️', { target: 'media:next' }),
-        makeSlot('deck', 'Mute', '🔇', { target: 'audio:mute', toggle: true, stateKey: 'audio:muted' }),
-        makeSlot('keys', 'Copy', '📋', { keys: `${mod}+C`, hint: `${mod}+C` }),
-        makeSlot('keys', 'Paste', '📥', { keys: `${mod}+V`, hint: `${mod}+V` }),
-        makeSlot('keys', 'Undo', '↩️', { keys: `${mod}+Z`, hint: `${mod}+Z` }),
-        makeSlot('keys', 'Switch App', '🪟', { keys: switchApp, hint: switchApp }),
-      ] }],
-      axes: [
-        { index: 1, name: 'Volume', icon: '🔊', kind: 'system-volume', prevKeys: '', nextKeys: '', tapAction: 'deck:audio:mute', appTarget: '', sensitivity: 'normal' },
-        { index: 2, name: 'Seek', icon: '⏩', kind: 'media-seek', prevKeys: '', nextKeys: '', tapAction: 'deck:media:playpause', appTarget: '', sensitivity: 'normal' },
-      ],
-    },
     {
       name: 'OBS Studio', icon: '🎥', color: '#ef4444', isDefault: false, columns: 4, rows: 2, appMatch: 'obs64|obs', titleMatch: '',
       subPages: [{ name: 'Broadcast', slots: [
@@ -2255,7 +2238,7 @@ function buildConsolePresets() {
 }
 
 function addConsoleProfile(profile) {
-  cfg.console ??= { autoFollow: true, focusBeforeKeys: true, profiles: [] };
+  cfg.console ??= { enabled: false, autoFollow: true, focusBeforeKeys: true, profiles: [] };
   cfg.console.profiles ??= [];
   const copy = JSON.parse(JSON.stringify(profile));
   if (copy.isDefault) cfg.console.profiles.forEach((p) => { p.isDefault = false; });
@@ -2345,11 +2328,10 @@ async function openWindowPicker() {
       if (img) img.onerror = () => { img.style.display = 'none'; };
       return h('button', { type: 'button', class: 'con-win-row', onclick: () => {
         closeModal();
-        const mod = consoleMod();
         addConsoleProfile({
           name: win.process, icon: '🎛️', color: '#38bdf8', isDefault: false, columns: 4, rows: 2,
           appMatch: win.process, titleMatch: '',
-          subPages: [{ name: 'Main', slots: [makeSlot('keys', 'Copy', '📋', { keys: `${mod}+C`, hint: `${mod}+C` }), makeSlot('keys', 'Paste', '📥', { keys: `${mod}+V`, hint: `${mod}+V` })] }],
+          subPages: [{ name: 'Main', slots: [makeSlot('keys', 'Custom Key', '🔘', { keys: '' })] }],
           axes: [{ index: 1, name: 'Volume', icon: '🔊', kind: 'system-volume', tapAction: 'deck:audio:mute', sensitivity: 'normal' }],
         });
       } }, img, h('div', { style: { minWidth: '0' } }, h('b', {}, win.process), win.title ? h('div', { class: 'hint', style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' } }, win.title) : null));
@@ -2357,9 +2339,13 @@ async function openWindowPicker() {
 }
 
 function renderConsole() {
-  cfg.console ??= { autoFollow: true, focusBeforeKeys: true, profiles: [] };
+  cfg.console ??= { enabled: false, autoFollow: true, focusBeforeKeys: true, profiles: [] };
   cfg.console.profiles ??= [];
-  const followEl = $('conFollow'), focusEl = $('conFocus');
+  const enabledEl = $('conEnabled'), followEl = $('conFollow'), focusEl = $('conFocus');
+  if (enabledEl) {
+    enabledEl.checked = cfg.console.enabled === true;
+    enabledEl.onchange = (e) => { cfg.console.enabled = e.target.checked; changed(); };
+  }
   if (followEl) {
     followEl.checked = cfg.console.autoFollow !== false;
     followEl.onchange = (e) => { cfg.console.autoFollow = e.target.checked; changed(); };
@@ -2431,17 +2417,21 @@ function renderConsoleEditor() {
       extra.push(
         h('div', { class: 'field' }, h('label', {}, 'Keys'), h('div', { class: 'row' }, kIn, rec)),
         h('div', { class: 'field' }, h('label', {}, 'Phone badge hint'), hIn));
+      if (!p.appMatch?.trim()) extra.push(h('p', { class: 'hint' }, 'Set "App process match" on this profile above; keystrokes are blocked without a process match.'));
     } else if (slot.kind === 'text') {
       extra.push(h('div', { class: 'field' }, h('label', {}, 'Text to type'),
         h('textarea', { rows: 2, oninput: (e) => { slot.text = e.target.value; upd(false); } }, slot.text ?? '')));
+      if (!p.appMatch?.trim()) extra.push(h('p', { class: 'hint' }, 'Set "App process match" on this profile above; typing text is blocked without a process match.'));
     } else if (slot.kind === 'macro') {
       extra.push(h('div', { class: 'field' }, h('label', {}, 'Macro steps (one per line)'),
-        h('textarea', { rows: 4, placeholder: 'keys:Ctrl+C\nwait:150\ntext:Done', oninput: (e) => { slot.steps = e.target.value.split('\n').map((x) => x.trim()).filter(Boolean); upd(false); } }, (slot.steps || []).join('\n'))));
+        h('textarea', { rows: 4, placeholder: 'keys:Ctrl+C\nwait:150\ntext:Done', oninput: (e) => { slot.steps = e.target.value.split('\n').map((x) => x.trim()).filter(Boolean); upd(false); } }, (slot.steps || []).join('\n')),
+        h('span', { class: 'hint' }, 'Steps: keys:Combo, text:String, wait:ms, shortcut:<id>, or deck:<target>. shortcut: and deck: run configured PhoneBox shortcuts and Control Deck tasks (including commands).')));
     } else if (slot.kind === 'shortcut') {
       extra.push(h('div', { class: 'field' }, h('label', {}, 'Shortcut'),
         h('select', { onchange: (e) => { slot.target = e.target.value; upd(false); renderSlotGrid(); } },
           h('option', { value: '' }, '(pick a shortcut)'),
-          ...(cfg.shortcuts || []).map((sc) => h('option', { value: sc.id, selected: sc.id === slot.target }, `${sc.icon || ''} ${sc.label}`.trim())))));
+          ...(cfg.shortcuts || []).map((sc) => h('option', { value: sc.id, selected: sc.id === slot.target }, `${sc.icon || ''} ${sc.label}`.trim()))),
+        h('span', { class: 'hint' }, 'shortcut: triggers the selected configured PhoneBox shortcut (app, URL, script, or macro) on this computer.')));
     } else if (slot.kind === 'deck') {
       const tIn = h('input', { type: 'text', value: slot.target ?? '', placeholder: 'e.g. media:playpause, obs:scene:Main', style: { flex: '1' },
         oninput: (e) => { slot.target = e.target.value; upd(false); renderSlotGrid(); } });
@@ -2449,7 +2439,8 @@ function renderConsoleEditor() {
         h('option', { value: '' }, 'Quick pick deck command…'),
         ...deckPickList.map(([k, l]) => h('option', { value: k }, l)),
         ...(cfg.controls?.actions || []).map((a) => h('option', { value: `action:${a.id}` }, `Action: ${a.label || a.id}`)));
-      extra.push(h('div', { class: 'field' }, h('label', {}, 'Deck target'), h('div', { class: 'row' }, tIn, dSel)));
+      extra.push(h('div', { class: 'field' }, h('label', {}, 'Deck target'), h('div', { class: 'row' }, tIn, dSel),
+        h('span', { class: 'hint' }, 'deck: runs media, audio, OBS, or a configured Control Deck task/action (action:<id>) on this computer.')));
     }
     slotInspector.append(
       h('h3', {}, `Slot #${selConSlot + 1} (${sub.name})`),
@@ -2517,7 +2508,8 @@ function renderConsoleEditor() {
         } else if (['app-volume', 'mic-gain', 'brightness'].includes(ax.kind)) {
           card.append(h('input', { type: 'text', value: ax.appTarget || '', placeholder: 'Target app/device match (blank = auto)', oninput: (e) => { ax.appTarget = e.target.value; upd(false); } }));
         }
-        card.append(h('input', { type: 'text', value: ax.tapAction || '', placeholder: 'Center tap action (e.g. Space, deck:audio:mute)', oninput: (e) => { ax.tapAction = e.target.value; upd(false); } }));
+        card.append(h('input', { type: 'text', value: ax.tapAction || '', placeholder: 'Center tap action (e.g. Space, shortcut:<id>, deck:audio:mute)', oninput: (e) => { ax.tapAction = e.target.value; upd(false); } }),
+          h('span', { class: 'hint' }, 'Key combo (requires App process match), shortcut:<id> (runs a PhoneBox shortcut), or deck:<target> (runs media/OBS/Control Deck task).'));
         return card;
       }));
   };

@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace PhoneBox.Agent;
@@ -5,6 +6,7 @@ namespace PhoneBox.Agent;
 /// <summary>Application-aware Console configuration: profiles, key sub-pages, and rotary/roller axes.</summary>
 public sealed class AppConsoleConfig
 {
+    public bool Enabled { get; set; } = false;
     public bool AutoFollow { get; set; } = true;
     public bool FocusBeforeKeys { get; set; } = true;
     public List<ConsoleProfile>? Profiles { get; set; }
@@ -61,12 +63,15 @@ public sealed class ConsoleAxis
     public string Sensitivity { get; set; } = "normal";
 }
 
-public sealed record ConsoleWindowInfo(string Process, string Title);
+public sealed record ConsoleWindowInfo(
+    string Process,
+    string Title,
+    [property: JsonIgnore] nint Handle = 0,
+    [property: JsonIgnore] int Pid = 0,
+    [property: JsonIgnore] long StartTicks = 0);
 
 public sealed record ConsoleSnapshot(
     bool AutoFollow,
-    string? ActiveProcess,
-    string? ActiveTitle,
     string? MatchedProfileId,
     string? PinnedProfileId,
     string? EffectiveProfileId,
@@ -86,9 +91,18 @@ public static partial class AppConsole
 {
     private const string DefaultColor = "#38bdf8";
 
+    public static readonly HashSet<string> WidgetTypes = ["app-keypad", "app-dial", "app-roller"];
     public static readonly HashSet<string> SlotKinds = ["empty", "keys", "macro", "text", "shortcut", "deck"];
     public static readonly HashSet<string> AxisKinds = ["keys", "system-volume", "app-volume", "mic-gain", "media-seek", "brightness"];
     public static readonly HashSet<string> Sensitivities = ["fine", "normal", "coarse"];
+
+    public static bool IsWidget(string? type) => type is not null && WidgetTypes.Contains(type);
+
+    public static bool HasWidget(AgentConfig cfg, string? deviceId) =>
+        cfg.WidgetsFor(deviceId, enabledPagesOnly: true).Any(w => IsWidget(w.Type));
+
+    public static bool ControlAllowed(AgentConfig cfg, string? deviceId) =>
+        cfg.WidgetsFor(deviceId, enabledPagesOnly: true).Any(w => IsWidget(w.Type) && w.Bool("control") == true);
 
     [GeneratedRegex("^#[0-9a-fA-F]{6}$")]
     private static partial Regex HexColorRe();
@@ -124,7 +138,7 @@ public static partial class AppConsole
     public static AppConsoleConfig Normalize(AppConsoleConfig? cfg)
     {
         cfg ??= new();
-        var list = cfg.Profiles ?? DefaultProfiles();
+        var list = cfg.Profiles ?? [];
         var usedIds = new HashSet<string>(StringComparer.Ordinal);
         var defaultSeen = false;
         var normalized = new List<ConsoleProfile>();
@@ -235,175 +249,47 @@ public static partial class AppConsole
         var c = cfg ?? new();
         return new
         {
+            enabled = c.Enabled,
             autoFollow = c.AutoFollow,
-            profiles = (c.Profiles ?? []).Select(p => new
-            {
-                p.Id,
-                p.Name,
-                p.Icon,
-                p.Color,
-                p.IsDefault,
-                p.Enabled,
-                p.Columns,
-                p.Rows,
-                subPages = (p.SubPages ?? []).Select(sp => new
+            profiles = c.Enabled
+                ? (c.Profiles ?? []).Select(p => (object)new
                 {
-                    sp.Id,
-                    sp.Name,
-                    slots = (sp.Slots ?? []).Select(s => new
+                    p.Id,
+                    p.Name,
+                    p.Icon,
+                    p.Color,
+                    p.IsDefault,
+                    p.Enabled,
+                    p.Columns,
+                    p.Rows,
+                    subPages = (p.SubPages ?? []).Select(sp => new
                     {
-                        s.Kind,
-                        s.Label,
-                        s.Icon,
-                        hint = s.Kind == "keys" && !string.IsNullOrWhiteSpace(s.Hint)
-                            ? (s.Hint.Length > 20 ? s.Hint[..20] : s.Hint)
-                            : null,
-                        s.Color,
-                        s.Toggle,
-                        stateKey = s.Toggle ? s.StateKey : null,
+                        sp.Id,
+                        sp.Name,
+                        slots = (sp.Slots ?? []).Select(s => new
+                        {
+                            s.Kind,
+                            s.Label,
+                            s.Icon,
+                            hint = s.Kind == "keys" && !string.IsNullOrWhiteSpace(s.Hint)
+                                ? (s.Hint.Length > 20 ? s.Hint[..20] : s.Hint)
+                                : null,
+                            s.Color,
+                            s.Toggle,
+                            stateKey = s.Toggle ? s.StateKey : null,
+                        }),
                     }),
-                }),
-                axes = (p.Axes ?? []).Select(a => new
-                {
-                    a.Index,
-                    a.Name,
-                    a.Icon,
-                    a.Kind,
-                    a.Sensitivity,
-                    hasTap = !string.IsNullOrWhiteSpace(a.TapAction),
-                }),
-            }),
+                    axes = (p.Axes ?? []).Select(a => new
+                    {
+                        a.Index,
+                        a.Name,
+                        a.Icon,
+                        a.Kind,
+                        a.Sensitivity,
+                        hasTap = !string.IsNullOrWhiteSpace(a.TapAction),
+                    }),
+                })
+                : [],
         };
-    }
-
-    public static List<ConsoleProfile> DefaultProfiles()
-    {
-        var mod = OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl";
-        var switchApp = OperatingSystem.IsMacOS() ? "Cmd+Tab" : "Alt+Tab";
-        return
-        [
-            new ConsoleProfile
-            {
-                Id = "desktop",
-                Name = "Desktop",
-                Icon = "🖥️",
-                Color = "#38bdf8",
-                IsDefault = true,
-                Enabled = true,
-                Columns = 4,
-                Rows = 2,
-                SubPages =
-                [
-                    new ConsoleSubPage
-                    {
-                        Id = "media",
-                        Name = "Media & Essentials",
-                        Slots =
-                        [
-                            new() { Kind = "deck", Label = "Prev", Icon = "⏮️", Target = "media:prev" },
-                            new() { Kind = "deck", Label = "Play / Pause", Icon = "⏯️", Target = "media:playpause", Toggle = true, StateKey = "media:playing" },
-                            new() { Kind = "deck", Label = "Next", Icon = "⏭️", Target = "media:next" },
-                            new() { Kind = "deck", Label = "Mute", Icon = "🔇", Target = "audio:mute", Toggle = true, StateKey = "audio:muted" },
-                            new() { Kind = "keys", Label = "Copy", Icon = "📋", Hint = $"{mod}+C", Keys = $"{mod}+C" },
-                            new() { Kind = "keys", Label = "Paste", Icon = "📥", Hint = $"{mod}+V", Keys = $"{mod}+V" },
-                            new() { Kind = "keys", Label = "Undo", Icon = "↩️", Hint = $"{mod}+Z", Keys = $"{mod}+Z" },
-                            new() { Kind = "keys", Label = "Switch App", Icon = "🪟", Hint = switchApp, Keys = switchApp },
-                        ],
-                    },
-                ],
-                Axes =
-                [
-                    new() { Index = 1, Name = "Volume", Icon = "🔊", Kind = "system-volume", TapAction = "deck:audio:mute", Sensitivity = "normal" },
-                    new() { Index = 2, Name = "Seek", Icon = "⏩", Kind = "media-seek", TapAction = "deck:media:playpause", Sensitivity = "normal" },
-                ],
-            },
-            new ConsoleProfile
-            {
-                Id = "vscode",
-                Name = "VS Code",
-                Icon = "💻",
-                Color = "#3b82f6",
-                AppMatch = "code|code - insiders|cursor|windsurf",
-                Enabled = true,
-                Columns = 4,
-                Rows = 2,
-                SubPages =
-                [
-                    new ConsoleSubPage
-                    {
-                        Id = "edit",
-                        Name = "Code & Edit",
-                        Slots =
-                        [
-                            new() { Kind = "keys", Label = "Palette", Icon = "⌘", Hint = $"{mod}+Shift+P", Keys = $"{mod}+Shift+P" },
-                            new() { Kind = "keys", Label = "Quick Open", Icon = "🔍", Hint = $"{mod}+P", Keys = $"{mod}+P" },
-                            new() { Kind = "keys", Label = "Find", Icon = "🔎", Hint = $"{mod}+F", Keys = $"{mod}+F" },
-                            new() { Kind = "keys", Label = "Sidebar", Icon = "◧", Hint = $"{mod}+B", Keys = $"{mod}+B" },
-                            new() { Kind = "keys", Label = "Comment", Icon = "💬", Hint = $"{mod}+/", Keys = $"{mod}+/" },
-                            new() { Kind = "keys", Label = "Terminal", Icon = "⬛", Hint = $"{mod}+`", Keys = $"{mod}+`" },
-                            new() { Kind = "keys", Label = "Format", Icon = "✨", Hint = OperatingSystem.IsMacOS() ? "Shift+Alt+F" : "Shift+Alt+F", Keys = "Shift+Alt+F" },
-                            new() { Kind = "keys", Label = "Save", Icon = "💾", Hint = $"{mod}+S", Keys = $"{mod}+S" },
-                        ],
-                    },
-                    new ConsoleSubPage
-                    {
-                        Id = "debug",
-                        Name = "Run & Debug",
-                        Slots =
-                        [
-                            new() { Kind = "keys", Label = "Run / Cont", Icon = "▶️", Hint = "F5", Keys = "F5" },
-                            new() { Kind = "keys", Label = "Step Over", Icon = "⤵️", Hint = "F10", Keys = "F10" },
-                            new() { Kind = "keys", Label = "Step Into", Icon = "⬇️", Hint = "F11", Keys = "F11" },
-                            new() { Kind = "keys", Label = "Stop", Icon = "⏹️", Hint = "Shift+F5", Keys = "Shift+F5" },
-                            new() { Kind = "keys", Label = "Breakpoint", Icon = "🔴", Hint = "F9", Keys = "F9" },
-                            new() { Kind = "keys", Label = "Go Def", Icon = "🎯", Hint = "F12", Keys = "F12" },
-                            new() { Kind = "keys", Label = "Rename", Icon = "✏️", Hint = "F2", Keys = "F2" },
-                            new() { Kind = "keys", Label = "Close Tab", Icon = "✖️", Hint = $"{mod}+W", Keys = $"{mod}+W" },
-                        ],
-                    },
-                ],
-                Axes =
-                [
-                    new() { Index = 1, Name = "Undo / Redo", Icon = "↩️", Kind = "keys", PrevKeys = $"{mod}+Z", NextKeys = OperatingSystem.IsMacOS() ? "Cmd+Shift+Z" : "Ctrl+Y", TapAction = $"{mod}+S", Sensitivity = "normal" },
-                    new() { Index = 2, Name = "Zoom", Icon = "🔎", Kind = "keys", PrevKeys = $"{mod}+-", NextKeys = $"{mod}+=", TapAction = $"{mod}+0", Sensitivity = "normal" },
-                ],
-            },
-            new ConsoleProfile
-            {
-                Id = "browser",
-                Name = "Browser",
-                Icon = "🌐",
-                Color = "#f59e0b",
-                AppMatch = "chrome|msedge|firefox|safari|brave|arc|opera|vivaldi",
-                Enabled = true,
-                Columns = 4,
-                Rows = 2,
-                SubPages =
-                [
-                    new ConsoleSubPage
-                    {
-                        Id = "tabs",
-                        Name = "Browse",
-                        Slots =
-                        [
-                            new() { Kind = "keys", Label = "Back", Icon = "⬅️", Hint = OperatingSystem.IsMacOS() ? "Cmd+Left" : "Alt+Left", Keys = OperatingSystem.IsMacOS() ? "Cmd+Left" : "Alt+Left" },
-                            new() { Kind = "keys", Label = "Forward", Icon = "➡️", Hint = OperatingSystem.IsMacOS() ? "Cmd+Right" : "Alt+Right", Keys = OperatingSystem.IsMacOS() ? "Cmd+Right" : "Alt+Right" },
-                            new() { Kind = "keys", Label = "Reload", Icon = "🔄", Hint = $"{mod}+R", Keys = $"{mod}+R" },
-                            new() { Kind = "keys", Label = "New Tab", Icon = "➕", Hint = $"{mod}+T", Keys = $"{mod}+T" },
-                            new() { Kind = "keys", Label = "Reopen Tab", Icon = "♻️", Hint = $"{mod}+Shift+T", Keys = $"{mod}+Shift+T" },
-                            new() { Kind = "keys", Label = "Find", Icon = "🔎", Hint = $"{mod}+F", Keys = $"{mod}+F" },
-                            new() { Kind = "keys", Label = "Bookmark", Icon = "⭐", Hint = $"{mod}+D", Keys = $"{mod}+D" },
-                            new() { Kind = "keys", Label = "Close Tab", Icon = "✖️", Hint = $"{mod}+W", Keys = $"{mod}+W" },
-                        ],
-                    },
-                ],
-                Axes =
-                [
-                    new() { Index = 1, Name = "Scroll", Icon = "📜", Kind = "keys", PrevKeys = "Up", NextKeys = "Down", TapAction = "Space", Sensitivity = "normal" },
-                    new() { Index = 2, Name = "Tabs", Icon = "🗂️", Kind = "keys", PrevKeys = "Ctrl+Shift+Tab", NextKeys = "Ctrl+Tab", TapAction = $"{mod}+T", Sensitivity = "normal" },
-                    new() { Index = 3, Name = "Volume", Icon = "🔊", Kind = "system-volume", TapAction = "deck:audio:mute", Sensitivity = "normal" },
-                ],
-            },
-        ];
     }
 }

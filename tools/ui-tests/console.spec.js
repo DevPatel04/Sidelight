@@ -20,11 +20,11 @@ async function seedConsolePanel(page) {
           id: 'console-main',
           title: 'Console',
           widgets: [
-            { id: 'pad-follow', type: 'app-keypad', x: 0, y: 0, w: 4, h: 4, options: { mode: 'follow', showHeader: true, showHints: true, unmatched: 'default' } },
-            { id: 'dial-follow', type: 'app-dial', x: 4, y: 0, w: 2, h: 4, options: { mode: 'follow', axis: 1, showPills: true } },
-            { id: 'pad-pinned', type: 'app-keypad', x: 6, y: 0, w: 4, h: 4, options: { mode: 'pinned', profileId: 'desktop', showHeader: true, showHints: true } },
-            { id: 'roll-horiz', type: 'app-roller', x: 0, y: 4, w: 6, h: 2, options: { mode: 'follow', axis: 1, orientation: 'auto', showReset: true } },
-            { id: 'roll-vert', type: 'app-roller', x: 10, y: 0, w: 2, h: 6, options: { mode: 'follow', axis: 1, orientation: 'auto', showReset: false } },
+            { id: 'pad-follow', type: 'app-keypad', x: 0, y: 0, w: 4, h: 4, options: { control: true, mode: 'follow', showHeader: true, showHints: true, unmatched: 'default' } },
+            { id: 'dial-follow', type: 'app-dial', x: 4, y: 0, w: 2, h: 4, options: { control: true, mode: 'follow', axis: 1, showPills: true } },
+            { id: 'pad-pinned', type: 'app-keypad', x: 6, y: 0, w: 4, h: 4, options: { control: true, mode: 'pinned', profileId: 'media', showHeader: true, showHints: true } },
+            { id: 'roll-horiz', type: 'app-roller', x: 0, y: 4, w: 6, h: 2, options: { control: true, mode: 'follow', axis: 1, orientation: 'auto', showReset: true } },
+            { id: 'roll-vert', type: 'app-roller', x: 10, y: 0, w: 2, h: 6, options: { control: true, mode: 'follow', axis: 1, orientation: 'auto', showReset: false } },
           ],
         },
         {
@@ -61,7 +61,7 @@ test('console keypad, dial, and horizontal/vertical rollers render, switch conte
   await expect(followPad.locator('.ck-name')).toHaveText('VS Code');
   await expect(followPad.locator('.ck-sub')).toHaveText('Code & Edit');
   await expect(dial.locator('.cd-prof')).toContainText('VS Code');
-  await expect(pinnedPad.locator('.ck-name')).toHaveText('Desktop');
+  await expect(pinnedPad.locator('.ck-name')).toHaveText('Media');
 
   await followPad.locator('.ck-title').click();
   await expect(followPad.locator('.ck-picker')).toBeVisible();
@@ -71,7 +71,7 @@ test('console keypad, dial, and horizontal/vertical rollers render, switch conte
   await expect(followPad.locator('.ck-name')).toHaveText('OBS Studio');
   await expect(dial.locator('.cd-prof')).toContainText('OBS Studio');
   await expect(horizRoller.locator('.cr-prof')).toHaveText('OBS Studio');
-  await expect(pinnedPad.locator('.ck-name')).toHaveText('Desktop');
+  await expect(pinnedPad.locator('.ck-name')).toHaveText('Media');
 
   await followPad.locator('.ck-pin').click();
   await expect(followPad.locator('.ck-pin')).toHaveText('⚡ Auto');

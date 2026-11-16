@@ -47,7 +47,7 @@ their own layouts, or switch one phone between paired computers.
 |---|---|
 | **PC monitoring** | CPU, GPU, RAM, disks, network and ping; charts, GPU details and process controls |
 | **AI coding** | Claude, Codex and Antigravity quotas, reset times and burn-rate forecasts; local Claude Code and Codex sessions; GitHub reviews and CI status |
-| **Touch controls** | App and URL shortcuts, key combinations and macros; application audio, microphone, media, OBS and system controls through [Control Deck](docs/CONTROL-DECK.md) |
+| **Touch controls** | App and URL shortcuts, key combinations and macros; context-aware **App Console** (`app-keypad`, `app-dial`, `app-roller`); application audio, microphone, media, OBS and system controls through [Control Deck](docs/CONTROL-DECK.md) |
 | **Everyday use** | Now Playing, internet radio, clocks, weather, calendars, notes, checklists, pomodoro and timers |
 | **Automation** | Webhook values and notifications, Home Assistant controls and rules that react to activity on the computer |
 
@@ -171,6 +171,12 @@ The [UMIDIGI BISON extras](extras/umidigi-bison) contain the reversible, no-root
 The desktop settings server listens on `127.0.0.1:8765`; USB reaches it through `adb reverse`.
 Optional Wi-Fi uses HTTPS on port 8766 with a pinned certificate and a paired key. Settings and pairing endpoints
 stay local. The phone requests configured actions by ID; commands and integration credentials stay on the computer.
+
+**App Console** (`app-keypad`, `app-dial`, `app-roller`) is off by default (`console.enabled = false` and
+per-widget `control = false`), requires a process match (`appMatch`) before sending keystrokes or text, and re-verifies
+foreground focus before every step. Console slots, macro steps, and dial tap actions using `shortcut:` or `deck:`
+trigger configured PhoneBox shortcuts and Control Deck tasks (including commands, OBS, media, and audio controls) on
+this computer.
 
 PhoneBox has no telemetry, analytics or accounts of its own. Optional widgets and integrations contact external
 services for weather, quotas, GitHub and other data, and the agent checks GitHub for updates.

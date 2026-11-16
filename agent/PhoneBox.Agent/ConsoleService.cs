@@ -1,5 +1,7 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace PhoneBox.Agent;
@@ -9,9 +11,14 @@ public interface IWindowPlatform
     ConsoleWindowInfo? GetForeground(bool readTitle);
     IReadOnlyList<ConsoleWindowInfo> ListWindows();
     bool FocusWindow(string processMatch, string? titleMatch);
+    bool IsForeground(ConsoleWindowInfo target);
 }
 
-public sealed record ConsoleActResult(bool Ok, string? Error = null, ConsoleSnapshot? State = null);
+public sealed record ConsoleActResult(
+    bool Ok,
+    string? Error = null,
+    ConsoleSnapshot? State = null,
+    [property: JsonIgnore] int StatusCode = StatusCodes.Status200OK);
 
 /// <summary>
 /// Tracks the active desktop application on demand and executes profile key, macro, deck, and rotary axis actions.
@@ -22,6 +29,10 @@ public sealed class ConsoleService : BackgroundService
     private const int ActivePollMs = 350;
     private const int IdlePollMs = 1_000;
     internal const long DebounceMs = 450;
+
+    internal const int MaxRateBuckets = 256;
+    internal const int RateLimitMaxRequests = 30;
+    internal const long RateLimitWindowMs = 1_000;
 
     private readonly ConfigStore _config;
     private readonly ILogger<ConsoleService> _log;
@@ -36,13 +47,15 @@ public sealed class ConsoleService : BackgroundService
     private readonly Action<string> _typeText;
 
     private readonly Lock _gate = new();
+    private readonly Lock _rateGate = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
+    private readonly SemaphoreSlim _actGate = new(1, 1);
     private readonly Dictionary<string, bool> _toggles = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, int> _brightnessCache = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, int> _brightnessCache = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (long WindowStartMs, int Count, long LastSeenMs)> _rateBuckets = new(StringComparer.Ordinal);
 
     private long _lastTouchMs = -PollWindowMs;
     private string? _activeProcess;
-    private string? _activeTitle;
     private string? _matchedProfileId;
     private string? _pinnedProfileId;
     private long? _unmatchedSince;
@@ -86,8 +99,56 @@ public sealed class ConsoleService : BackgroundService
         _typeText = typeText ?? KeySender.TypeText;
     }
 
+    internal static bool CanPoll(AgentConfig rootCfg) =>
+        rootCfg.Console.Enabled && rootCfg.Console.AutoFollow && AppConsole.HasWidget(rootCfg, null);
+
+    internal int RateBucketCount
+    {
+        get { lock (_rateGate) return _rateBuckets.Count; }
+    }
+
+    internal bool AllowRate(string? clientKey)
+    {
+        var key = string.IsNullOrWhiteSpace(clientKey) ? "local" : clientKey.Trim();
+        if (key.Length > 128) key = key[..128];
+        var now = _now();
+        lock (_rateGate)
+        {
+            if (_rateBuckets.TryGetValue(key, out var b))
+            {
+                if (now - b.WindowStartMs >= RateLimitWindowMs)
+                {
+                    _rateBuckets[key] = (now, 1, now);
+                    return true;
+                }
+                if (b.Count >= RateLimitMaxRequests)
+                {
+                    _rateBuckets[key] = b with { LastSeenMs = now };
+                    return false;
+                }
+                _rateBuckets[key] = (b.WindowStartMs, b.Count + 1, now);
+                return true;
+            }
+
+            if (_rateBuckets.Count >= MaxRateBuckets)
+            {
+                var expired = _rateBuckets.Where(kv => now - kv.Value.WindowStartMs >= RateLimitWindowMs).Select(kv => kv.Key).ToList();
+                foreach (var k in expired) _rateBuckets.Remove(k);
+                if (_rateBuckets.Count >= MaxRateBuckets)
+                {
+                    var oldest = _rateBuckets.MinBy(kv => kv.Value.LastSeenMs).Key;
+                    _rateBuckets.Remove(oldest);
+                }
+            }
+
+            _rateBuckets[key] = (now, 1, now);
+            return true;
+        }
+    }
+
     public void Touch()
     {
+        if (!CanPoll(_config.Get())) return;
         var wasIdle = _now() - Interlocked.Read(ref _lastTouchMs) >= PollWindowMs;
         Interlocked.Exchange(ref _lastTouchMs, _now());
         if (wasIdle && _wake.CurrentCount == 0)
@@ -108,13 +169,11 @@ public sealed class ConsoleService : BackgroundService
     private ConsoleSnapshot BuildSnapshot(AppConsoleConfig cfg)
     {
         var profiles = (cfg.Profiles ?? []).Where(p => p.Enabled).ToList();
-        string? proc, title, matched, pinned;
+        string? matched, pinned;
         long updatedAt;
         Dictionary<string, bool> states;
         lock (_gate)
         {
-            proc = cfg.AutoFollow ? _activeProcess : null;
-            title = cfg.AutoFollow ? _activeTitle : null;
             matched = cfg.AutoFollow && _matchedProfileId is { } m && profiles.Any(p => p.Id == m) ? m : null;
             pinned = _pinnedProfileId is { } pin && profiles.Any(p => p.Id == pin) ? pin : null;
             updatedAt = _updatedAt;
@@ -127,7 +186,7 @@ public sealed class ConsoleService : BackgroundService
             ?? profiles.FirstOrDefault(p => p.IsDefault)?.Id
             ?? profiles.FirstOrDefault()?.Id;
 
-        return new ConsoleSnapshot(cfg.AutoFollow, proc, title, matched, pinned, effective, states, updatedAt);
+        return new ConsoleSnapshot(cfg.AutoFollow, matched, pinned, effective, states, updatedAt);
     }
 
     private void MergeLiveStates(Dictionary<string, bool> states, List<ConsoleProfile> profiles)
@@ -168,7 +227,7 @@ public sealed class ConsoleService : BackgroundService
             try
             {
                 var active = _now() - Interlocked.Read(ref _lastTouchMs) < PollWindowMs;
-                if (active && _config.Get().Console.AutoFollow)
+                if (active && CanPoll(_config.Get()))
                 {
                     StepPoll();
                     await Task.Delay(ActivePollMs, ct);
@@ -185,8 +244,9 @@ public sealed class ConsoleService : BackgroundService
 
     internal void StepPoll()
     {
-        var cfg = _config.Get().Console;
-        if (!cfg.AutoFollow) return;
+        var rootCfg = _config.Get();
+        if (!CanPoll(rootCfg)) return;
+        var cfg = rootCfg.Console;
 
         var profiles = cfg.Profiles ?? [];
         var needTitle = profiles.Any(p => p.Enabled && !p.IsDefault && !string.IsNullOrWhiteSpace(p.TitleMatch));
@@ -195,7 +255,6 @@ public sealed class ConsoleService : BackgroundService
         lock (_gate)
         {
             _activeProcess = win?.Process;
-            _activeTitle = needTitle ? win?.Title : null;
             _updatedAt = _now();
 
             var match = MatchProfile(profiles, win);
@@ -216,105 +275,166 @@ public sealed class ConsoleService : BackgroundService
         }
     }
 
-    public async Task<ConsoleActResult> ActAsync(ConsoleActRequest req, CancellationToken ct)
+    public Task<ConsoleActResult> ActAsync(ConsoleActRequest req, CancellationToken ct) =>
+        ActAsync(req, ct, deviceId: null, clientKey: null);
+
+    public async Task<ConsoleActResult> ActAsync(ConsoleActRequest req, CancellationToken ct, string? deviceId, string? clientKey)
     {
+        var preCfg = _config.Get();
+        if (!preCfg.Console.Enabled)
+            return new(false, "App Console is disabled", null, StatusCodes.Status404NotFound);
+        if (!AppConsole.ControlAllowed(preCfg, deviceId))
+            return new(false, "Phone control is disabled in widget settings", null, StatusCodes.Status403Forbidden);
+        if (!string.IsNullOrEmpty(clientKey) && !AllowRate(clientKey))
+            return new(false, "Too many console requests; slow down", null, StatusCodes.Status429TooManyRequests);
+
         Touch();
-        var rootCfg = _config.Get();
-        var cfg = rootCfg.Console;
-        var profiles = (cfg.Profiles ?? []).Where(p => p.Enabled).ToList();
-
-        switch (req.Kind)
+        await _actGate.WaitAsync(ct);
+        try
         {
-            case "pin":
-                if (!string.IsNullOrWhiteSpace(req.Pinned) && !profiles.Any(p => p.Id == req.Pinned))
-                    return new(false, "Selected profile was not found");
-                lock (_gate) _pinnedProfileId = string.IsNullOrWhiteSpace(req.Pinned) ? null : req.Pinned;
-                return new(true, null, BuildSnapshot(cfg));
+            var rootCfg = _config.Get();
+            if (!rootCfg.Console.Enabled)
+                return new(false, "App Console is disabled", null, StatusCodes.Status404NotFound);
+            if (!AppConsole.ControlAllowed(rootCfg, deviceId))
+                return new(false, "Phone control is disabled in widget settings", null, StatusCodes.Status403Forbidden);
 
-            case "slot":
+            var cfg = rootCfg.Console;
+            var profiles = (cfg.Profiles ?? []).Where(p => p.Enabled).ToList();
+
+            switch (req.Kind)
             {
-                var profile = ResolveProfile(cfg, profiles, req.ProfileId);
-                if (profile is null) return new(false, "No active console profile");
-                var sub = (profile.SubPages ?? []).FirstOrDefault(sp => sp.Id == req.SubPageId)
-                    ?? (profile.SubPages ?? []).FirstOrDefault();
-                var slots = sub?.Slots ?? [];
-                if (req.Slot is null || req.Slot < 0 || req.Slot >= slots.Count)
-                    return new(false, "Slot out of range");
+                case "pin":
+                    if (!string.IsNullOrWhiteSpace(req.Pinned) && !profiles.Any(p => p.Id == req.Pinned))
+                        return new(false, "Selected profile was not found", BuildSnapshot(cfg), StatusCodes.Status404NotFound);
+                    lock (_gate) _pinnedProfileId = string.IsNullOrWhiteSpace(req.Pinned) ? null : req.Pinned;
+                    return new(true, null, BuildSnapshot(cfg));
 
-                var slot = slots[req.Slot.Value];
-                if (slot.Kind == "empty") return new(true, null, BuildSnapshot(cfg));
-
-                var err = await ExecuteSlotAsync(rootCfg, cfg, profile, slot, ct);
-                if (err is not null) return new(false, err, BuildSnapshot(cfg));
-
-                if (slot.Toggle && sub is not null)
+                case "slot":
                 {
-                    var isLiveKey = slot.StateKey is { } sk
-                        && (sk == "audio:muted" || sk == "media:playing" || sk.StartsWith("obs:", StringComparison.Ordinal));
-                    if (!isLiveKey)
+                    var (profile, profErr, profStatus) = ResolveExplicitProfile(profiles, req.ProfileId);
+                    if (profile is null) return new(false, profErr, BuildSnapshot(cfg), profStatus);
+
+                    if (string.IsNullOrWhiteSpace(req.SubPageId))
+                        return new(false, "SubPageId is required", BuildSnapshot(cfg), StatusCodes.Status400BadRequest);
+                    var sub = (profile.SubPages ?? []).FirstOrDefault(sp => sp.Id == req.SubPageId);
+                    if (sub is null)
+                        return new(false, "Console sub-page was not found", BuildSnapshot(cfg), StatusCodes.Status404NotFound);
+
+                    var slots = sub.Slots ?? [];
+                    if (req.Slot is null || req.Slot < 0 || req.Slot >= slots.Count)
+                        return new(false, "Slot out of range", BuildSnapshot(cfg), StatusCodes.Status400BadRequest);
+
+                    var slot = slots[req.Slot.Value];
+                    if (slot.Kind == "empty") return new(true, null, BuildSnapshot(cfg));
+
+                    var (err, status) = await ExecuteSlotAsync(rootCfg, cfg, profile, slot, ct);
+                    if (err is not null) return new(false, err, BuildSnapshot(cfg), status);
+
+                    if (slot.Toggle)
                     {
-                        var key = slot.StateKey ?? $"{profile.Id}:{sub.Id}:{req.Slot.Value}";
-                        lock (_gate) _toggles[key] = !_toggles.GetValueOrDefault(key);
+                        var isLiveKey = slot.StateKey is { } sk
+                            && (sk == "audio:muted" || sk == "media:playing" || sk.StartsWith("obs:", StringComparison.Ordinal));
+                        if (!isLiveKey)
+                        {
+                            var key = slot.StateKey ?? $"{profile.Id}:{sub.Id}:{req.Slot.Value}";
+                            lock (_gate) _toggles[key] = !_toggles.GetValueOrDefault(key);
+                        }
                     }
+                    return new(true, null, BuildSnapshot(cfg));
                 }
-                return new(true, null, BuildSnapshot(cfg));
-            }
 
-            case "axis-tap":
-            {
-                var profile = ResolveProfile(cfg, profiles, req.ProfileId);
-                var axis = (profile?.Axes ?? []).FirstOrDefault(a => a.Index == (req.Axis ?? 1));
-                if (profile is null || axis is null) return new(false, "Axis is not configured for this profile");
-                if (string.IsNullOrWhiteSpace(axis.TapAction)) return new(false, "No tap action configured for this axis");
-                var err = await ExecuteTapAsync(rootCfg, cfg, profile, axis.TapAction, ct);
-                return new(err is null, err, BuildSnapshot(cfg));
-            }
+                case "axis-tap":
+                {
+                    var (profile, profErr, profStatus) = ResolveExplicitProfile(profiles, req.ProfileId);
+                    if (profile is null) return new(false, profErr, BuildSnapshot(cfg), profStatus);
 
-            case "axis":
-            {
-                var profile = ResolveProfile(cfg, profiles, req.ProfileId);
-                var axis = (profile?.Axes ?? []).FirstOrDefault(a => a.Index == (req.Axis ?? 1));
-                if (profile is null || axis is null) return new(false, "Axis is not configured for this profile");
-                var delta = Math.Clamp(req.Delta ?? 0, -10, 10);
-                if (delta == 0) return new(true, null, BuildSnapshot(cfg));
-                var err = await ExecuteAxisAsync(cfg, profile, axis, delta, ct);
-                return new(err is null, err, BuildSnapshot(cfg));
-            }
+                    if (req.Axis is null or < 1 or > 8)
+                        return new(false, "Axis is required", BuildSnapshot(cfg), StatusCodes.Status400BadRequest);
+                    var axis = (profile.Axes ?? []).FirstOrDefault(a => a.Index == req.Axis.Value);
+                    if (axis is null)
+                        return new(false, "Axis is not configured for this profile", BuildSnapshot(cfg), StatusCodes.Status404NotFound);
+                    if (string.IsNullOrWhiteSpace(axis.TapAction))
+                        return new(false, "No tap action configured for this axis", BuildSnapshot(cfg), StatusCodes.Status400BadRequest);
 
-            default:
-                return new(false, "Unknown console action");
+                    var (err, status) = await ExecuteTapAsync(rootCfg, cfg, profile, axis.TapAction, ct);
+                    return new(err is null, err, BuildSnapshot(cfg), err is null ? StatusCodes.Status200OK : status);
+                }
+
+                case "axis":
+                {
+                    var (profile, profErr, profStatus) = ResolveExplicitProfile(profiles, req.ProfileId);
+                    if (profile is null) return new(false, profErr, BuildSnapshot(cfg), profStatus);
+
+                    if (req.Axis is null or < 1 or > 8)
+                        return new(false, "Axis is required", BuildSnapshot(cfg), StatusCodes.Status400BadRequest);
+                    var axis = (profile.Axes ?? []).FirstOrDefault(a => a.Index == req.Axis.Value);
+                    if (axis is null)
+                        return new(false, "Axis is not configured for this profile", BuildSnapshot(cfg), StatusCodes.Status404NotFound);
+
+                    var delta = Math.Clamp(req.Delta ?? 0, -5, 5);
+                    if (delta == 0) return new(true, null, BuildSnapshot(cfg));
+
+                    var (err, status) = await ExecuteAxisAsync(cfg, profile, axis, delta, ct);
+                    return new(err is null, err, BuildSnapshot(cfg), err is null ? StatusCodes.Status200OK : status);
+                }
+
+                default:
+                    return new(false, "Unknown console action", BuildSnapshot(cfg), StatusCodes.Status400BadRequest);
+            }
+        }
+        finally
+        {
+            _actGate.Release();
         }
     }
 
-    private ConsoleProfile? ResolveProfile(AppConsoleConfig cfg, List<ConsoleProfile> profiles, string? requestedId)
+    private static (ConsoleProfile? Profile, string? Error, int Status) ResolveExplicitProfile(List<ConsoleProfile> profiles, string? requestedId)
     {
-        if (!string.IsNullOrWhiteSpace(requestedId) && profiles.FirstOrDefault(p => p.Id == requestedId) is { } explicitProfile)
-            return explicitProfile;
-        string? pinned, matched;
-        lock (_gate) { pinned = _pinnedProfileId; matched = cfg.AutoFollow ? _matchedProfileId : null; }
-        return profiles.FirstOrDefault(p => p.Id == pinned)
-            ?? profiles.FirstOrDefault(p => p.Id == matched)
-            ?? profiles.FirstOrDefault(p => p.IsDefault)
-            ?? profiles.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(requestedId))
+            return (null, "ProfileId is required", StatusCodes.Status400BadRequest);
+        var profile = profiles.FirstOrDefault(p => p.Id == requestedId);
+        return profile is not null
+            ? (profile, null, StatusCodes.Status200OK)
+            : (null, "Console profile was not found", StatusCodes.Status404NotFound);
     }
 
-    private async Task<string?> EnsureFocusAsync(AppConsoleConfig cfg, ConsoleProfile profile, CancellationToken ct)
+    private async Task<(ConsoleWindowInfo? Target, string? Error, int Status)> EnsureFocusAsync(AppConsoleConfig cfg, ConsoleProfile profile, CancellationToken ct)
     {
-        if (!cfg.FocusBeforeKeys || profile.IsDefault || string.IsNullOrWhiteSpace(profile.AppMatch))
-            return null;
+        if (string.IsNullOrWhiteSpace(profile.AppMatch))
+            return (null, "App process match is required to send keys or text", StatusCodes.Status409Conflict);
 
         var needTitle = !string.IsNullOrWhiteSpace(profile.TitleMatch);
         var fg = _platform.GetForeground(needTitle);
-        if (MatchesProfile(profile, fg)) return null;
+        if (MatchesProfile(profile, fg))
+            return (fg, null, StatusCodes.Status200OK);
 
-        if (!_platform.FocusWindow(profile.AppMatch, profile.TitleMatch))
-            return $"Start {profile.Name} on the computer first";
+        if (!cfg.FocusBeforeKeys)
+            return (null, $"Focus {profile.Name} on the computer first", StatusCodes.Status409Conflict);
+
+        if (!_platform.FocusWindow(profile.AppMatch!, profile.TitleMatch))
+            return (null, $"Start {profile.Name} on the computer first", StatusCodes.Status409Conflict);
 
         await Task.Delay(80, ct);
-        return null;
+
+        fg = _platform.GetForeground(needTitle);
+        if (fg is null || !MatchesProfile(profile, fg))
+            return (null, $"Target window {profile.Name} did not stay in focus", StatusCodes.Status409Conflict);
+
+        return (fg, null, StatusCodes.Status200OK);
     }
 
-    private async Task<string?> ExecuteSlotAsync(AgentConfig rootCfg, AppConsoleConfig cfg, ConsoleProfile profile, ConsoleSlot slot, CancellationToken ct)
+    private bool VerifyForeground(ConsoleWindowInfo target, ConsoleProfile profile)
+    {
+        if (!_platform.IsForeground(target)) return false;
+        if (!string.IsNullOrWhiteSpace(profile.TitleMatch))
+        {
+            var fg = _platform.GetForeground(readTitle: true);
+            if (fg is null || !MatchesTitle(fg.Title, profile.TitleMatch)) return false;
+        }
+        return true;
+    }
+
+    private async Task<(string? Error, int Status)> ExecuteSlotAsync(AgentConfig rootCfg, AppConsoleConfig cfg, ConsoleProfile profile, ConsoleSlot slot, CancellationToken ct)
     {
         try
         {
@@ -322,22 +442,28 @@ public sealed class ConsoleService : BackgroundService
             {
                 case "keys":
                 {
-                    if (string.IsNullOrWhiteSpace(slot.Keys)) return "No shortcut keys assigned";
-                    if (await EnsureFocusAsync(cfg, profile, ct) is { } focusErr) return focusErr;
+                    if (string.IsNullOrWhiteSpace(slot.Keys)) return ("No shortcut keys assigned", StatusCodes.Status400BadRequest);
+                    var (target, focusErr, focusStatus) = await EnsureFocusAsync(cfg, profile, ct);
+                    if (target is null) return (focusErr, focusStatus);
+                    if (!VerifyForeground(target, profile)) return ("Foreground window changed; aborted", StatusCodes.Status409Conflict);
                     _sendKeys(slot.Keys);
-                    return null;
+                    return (null, StatusCodes.Status200OK);
                 }
                 case "text":
                 {
-                    if (string.IsNullOrEmpty(slot.Text)) return "No text configured";
-                    if (await EnsureFocusAsync(cfg, profile, ct) is { } focusErr) return focusErr;
+                    if (string.IsNullOrEmpty(slot.Text)) return ("No text configured", StatusCodes.Status400BadRequest);
+                    var (target, focusErr, focusStatus) = await EnsureFocusAsync(cfg, profile, ct);
+                    if (target is null) return (focusErr, focusStatus);
+                    if (!VerifyForeground(target, profile)) return ("Foreground window changed; aborted", StatusCodes.Status409Conflict);
                     _typeText(slot.Text);
-                    return null;
+                    return (null, StatusCodes.Status200OK);
                 }
                 case "macro":
                 {
-                    if (slot.Steps is not { Count: > 0 }) return "No macro steps configured";
-                    if (await EnsureFocusAsync(cfg, profile, ct) is { } focusErr) return focusErr;
+                    if (slot.Steps is not { Count: > 0 }) return ("No macro steps configured", StatusCodes.Status400BadRequest);
+                    var (target, focusErr, focusStatus) = await EnsureFocusAsync(cfg, profile, ct);
+                    if (target is null) return (focusErr, focusStatus);
+
                     foreach (var step in slot.Steps)
                     {
                         var i = step.IndexOf(':');
@@ -347,81 +473,137 @@ public sealed class ConsoleService : BackgroundService
                             var arg = step[(i + 1)..].Trim();
                             switch (op)
                             {
-                                case "keys": _sendKeys(arg); break;
-                                case "text": _typeText(arg); break;
-                                case "wait": await Task.Delay(Math.Clamp(int.TryParse(arg, out var ms) ? ms : 50, 0, 5000), ct); break;
-                                case "shortcut":
-                                    if (Shortcuts.Run(rootCfg, arg, _log, _push, _audio) is { } sErr) return sErr;
+                                case "keys":
+                                    if (!VerifyForeground(target, profile)) return ("Foreground window changed; aborted", StatusCodes.Status409Conflict);
+                                    _sendKeys(arg);
                                     break;
-                                default: _sendKeys(step); break;
+                                case "text":
+                                    if (!VerifyForeground(target, profile)) return ("Foreground window changed; aborted", StatusCodes.Status409Conflict);
+                                    _typeText(arg);
+                                    break;
+                                case "wait":
+                                    await Task.Delay(Math.Clamp(int.TryParse(arg, out var ms) ? ms : 50, 0, 5000), ct);
+                                    break;
+                                case "shortcut":
+                                    if (!VerifyForeground(target, profile)) return ("Foreground window changed; aborted", StatusCodes.Status409Conflict);
+                                    if (Shortcuts.Run(rootCfg, arg, _log, _push, _audio) is { } sErr)
+                                        return (sErr, StatusCodes.Status409Conflict);
+                                    break;
+                                case "deck":
+                                    var (dErr, dStatus) = await ExecuteDeckAsync(arg, ct);
+                                    if (dErr is not null) return (dErr, dStatus);
+                                    break;
+                                default:
+                                    return ("Unsupported macro step", StatusCodes.Status400BadRequest);
                             }
                         }
                         else
                         {
+                            if (!VerifyForeground(target, profile)) return ("Foreground window changed; aborted", StatusCodes.Status409Conflict);
                             _sendKeys(step);
                         }
                         await Task.Delay(35, ct);
                     }
-                    return null;
+                    return (null, StatusCodes.Status200OK);
                 }
                 case "shortcut":
-                    return string.IsNullOrWhiteSpace(slot.Target)
-                        ? "No shortcut selected"
-                        : Shortcuts.Run(rootCfg, slot.Target, _log, _push, _audio);
+                {
+                    if (string.IsNullOrWhiteSpace(slot.Target))
+                        return ("No shortcut selected", StatusCodes.Status400BadRequest);
+                    var sErr = Shortcuts.Run(rootCfg, slot.Target, _log, _push, _audio);
+                    return sErr is null ? (null, StatusCodes.Status200OK) : (sErr, StatusCodes.Status409Conflict);
+                }
                 case "deck":
                     return await ExecuteDeckAsync(slot.Target ?? "", ct);
                 default:
-                    return "Unsupported slot kind";
+                    return ("Unsupported slot kind", StatusCodes.Status400BadRequest);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        catch (Exception ex) { return ex.Message; }
+        catch (InvalidOperationException ex) { return (ex.Message, StatusCodes.Status409Conflict); }
+        catch (ArgumentException ex) { return (ex.Message, StatusCodes.Status400BadRequest); }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Console slot action failed");
+            return ("Console action failed", StatusCodes.Status500InternalServerError);
+        }
     }
 
-    private async Task<string?> ExecuteTapAsync(AgentConfig rootCfg, AppConsoleConfig cfg, ConsoleProfile profile, string tap, CancellationToken ct)
+    private async Task<(string? Error, int Status)> ExecuteTapAsync(AgentConfig rootCfg, AppConsoleConfig cfg, ConsoleProfile profile, string tap, CancellationToken ct)
     {
         if (tap.StartsWith("deck:", StringComparison.OrdinalIgnoreCase))
             return await ExecuteDeckAsync(tap[5..], ct);
         if (tap.StartsWith("shortcut:", StringComparison.OrdinalIgnoreCase))
-            return Shortcuts.Run(rootCfg, tap[9..], _log, _push, _audio);
-        if (await EnsureFocusAsync(cfg, profile, ct) is { } focusErr) return focusErr;
-        try { _sendKeys(tap); return null; }
-        catch (Exception ex) { return ex.Message; }
-    }
-
-    private async Task<string?> ExecuteDeckAsync(string target, CancellationToken ct)
-    {
-        if (string.IsNullOrWhiteSpace(target)) return "No deck target configured";
-        switch (target)
         {
-            case "audio:mute":
-                return _audio.ToggleMute() ? null : "Audio backend is unavailable";
-            case "media:playpause":
-                return await _media.Control("playpause", null) ? null : "No active media player";
-            case "media:next":
-                return await _media.Control("next", null) ? null : "No active media player";
-            case "media:prev":
-                return await _media.Control("prev", null) ? null : "No active media player";
-            case "obs:record":
-                return await _obs.ActAsync("record", null);
-            case "obs:pause":
-                return await _obs.ActAsync("pause", null);
-            case "obs:stream":
-                return await _obs.ActAsync("stream", null);
-            case "obs:mic":
-                return await _obs.ActAsync("mic", null);
-            default:
-                if (target.StartsWith("obs:scene:", StringComparison.Ordinal))
-                    return await _obs.ActAsync("scene", target["obs:scene:".Length..]);
-                var actionId = target.StartsWith("action:", StringComparison.Ordinal) ? target[7..] : target;
-                var res = await _deck.Act("action", actionId, null, null, null, null, ct);
-                return res.Ok ? null : (res.Error ?? "Control action failed");
+            var sErr = Shortcuts.Run(rootCfg, tap[9..], _log, _push, _audio);
+            return sErr is null ? (null, StatusCodes.Status200OK) : (sErr, StatusCodes.Status409Conflict);
+        }
+
+        var (target, focusErr, focusStatus) = await EnsureFocusAsync(cfg, profile, ct);
+        if (target is null) return (focusErr, focusStatus);
+        try
+        {
+            if (!VerifyForeground(target, profile)) return ("Foreground window changed; aborted", StatusCodes.Status409Conflict);
+            _sendKeys(tap);
+            return (null, StatusCodes.Status200OK);
+        }
+        catch (InvalidOperationException ex) { return (ex.Message, StatusCodes.Status409Conflict); }
+        catch (ArgumentException ex) { return (ex.Message, StatusCodes.Status400BadRequest); }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Console tap action failed");
+            return ("Console action failed", StatusCodes.Status500InternalServerError);
         }
     }
 
-    private async Task<string?> ExecuteAxisAsync(AppConsoleConfig cfg, ConsoleProfile profile, ConsoleAxis axis, int delta, CancellationToken ct)
+    private async Task<(string? Error, int Status)> ExecuteDeckAsync(string target, CancellationToken ct)
     {
-        var steps = Math.Max(1, Math.Abs(delta));
+        if (string.IsNullOrWhiteSpace(target)) return ("No deck target configured", StatusCodes.Status400BadRequest);
+        switch (target)
+        {
+            case "audio:mute":
+                return _audio.ToggleMute() ? (null, StatusCodes.Status200OK) : ("Audio backend is unavailable", StatusCodes.Status409Conflict);
+            case "media:playpause":
+                return await _media.Control("playpause", null) ? (null, StatusCodes.Status200OK) : ("No active media player", StatusCodes.Status409Conflict);
+            case "media:next":
+                return await _media.Control("next", null) ? (null, StatusCodes.Status200OK) : ("No active media player", StatusCodes.Status409Conflict);
+            case "media:prev":
+                return await _media.Control("prev", null) ? (null, StatusCodes.Status200OK) : ("No active media player", StatusCodes.Status409Conflict);
+            case "obs:record":
+            {
+                var err = await _obs.ActAsync("record", null);
+                return err is null ? (null, StatusCodes.Status200OK) : (err, StatusCodes.Status409Conflict);
+            }
+            case "obs:pause":
+            {
+                var err = await _obs.ActAsync("pause", null);
+                return err is null ? (null, StatusCodes.Status200OK) : (err, StatusCodes.Status409Conflict);
+            }
+            case "obs:stream":
+            {
+                var err = await _obs.ActAsync("stream", null);
+                return err is null ? (null, StatusCodes.Status200OK) : (err, StatusCodes.Status409Conflict);
+            }
+            case "obs:mic":
+            {
+                var err = await _obs.ActAsync("mic", null);
+                return err is null ? (null, StatusCodes.Status200OK) : (err, StatusCodes.Status409Conflict);
+            }
+            default:
+                if (target.StartsWith("obs:scene:", StringComparison.Ordinal))
+                {
+                    var err = await _obs.ActAsync("scene", target["obs:scene:".Length..]);
+                    return err is null ? (null, StatusCodes.Status200OK) : (err, StatusCodes.Status409Conflict);
+                }
+                var actionId = target.StartsWith("action:", StringComparison.Ordinal) ? target[7..] : target;
+                var res = await _deck.Act("action", actionId, null, null, null, null, ct);
+                return res.Ok ? (null, StatusCodes.Status200OK) : (res.Error ?? "Control action failed", StatusCodes.Status409Conflict);
+        }
+    }
+
+    private async Task<(string? Error, int Status)> ExecuteAxisAsync(AppConsoleConfig cfg, ConsoleProfile profile, ConsoleAxis axis, int delta, CancellationToken ct)
+    {
+        var steps = Math.Clamp(Math.Abs(delta), 1, 5);
         var dir = Math.Sign(delta);
         var volStep = axis.Sensitivity switch { "fine" => 1, "coarse" => 6, _ => 3 };
         var seekMs = axis.Sensitivity switch { "fine" => 2_000L, "coarse" => 15_000L, _ => 5_000L };
@@ -433,62 +615,75 @@ public sealed class ConsoleService : BackgroundService
                 case "keys":
                 {
                     var spec = dir < 0 ? axis.PrevKeys : axis.NextKeys;
-                    if (string.IsNullOrWhiteSpace(spec)) return "No key binding configured for this dial direction";
-                    if (await EnsureFocusAsync(cfg, profile, ct) is { } focusErr) return focusErr;
-                    for (var i = 0; i < Math.Min(steps, 5); i++) _sendKeys(spec);
-                    return null;
+                    if (string.IsNullOrWhiteSpace(spec)) return ("No key binding configured for this dial direction", StatusCodes.Status400BadRequest);
+                    var (target, focusErr, focusStatus) = await EnsureFocusAsync(cfg, profile, ct);
+                    if (target is null) return (focusErr, focusStatus);
+                    for (var i = 0; i < steps; i++)
+                    {
+                        if (!VerifyForeground(target, profile)) return ("Foreground window changed; aborted", StatusCodes.Status409Conflict);
+                        _sendKeys(spec);
+                    }
+                    return (null, StatusCodes.Status200OK);
                 }
                 case "system-volume":
-                    return _audio.Step(dir * steps * volStep) ? null : "System volume control is unavailable";
+                    return _audio.Step(dir * steps * volStep) ? (null, StatusCodes.Status200OK) : ("System volume control is unavailable", StatusCodes.Status409Conflict);
                 case "app-volume":
                 {
+                    string? activeProc;
+                    lock (_gate) activeProc = _activeProcess;
                     var sessions = _deck.CurrentAudio().Sessions;
                     var session = !string.IsNullOrWhiteSpace(axis.AppTarget)
-                        ? sessions.FirstOrDefault(s => MatchesPattern(s.Name, axis.AppTarget))
-                        : sessions.FirstOrDefault(s => _activeProcess is not null && MatchesPattern(s.Name, _activeProcess));
-                    if (session is null) return "Start the target application and play audio";
+                        ? sessions.FirstOrDefault(s => MatchesProcess(s.Name, axis.AppTarget))
+                        : sessions.FirstOrDefault(s => activeProc is not null && MatchesProcess(s.Name, activeProc));
+                    if (session is null) return ("Start the target application and play audio", StatusCodes.Status409Conflict);
                     var next = Math.Clamp(session.Volume + dir * steps * volStep, 0, 100);
                     var res = await _deck.Act("session", session.Id, null, next, null, null, ct);
-                    return res.Ok ? null : (res.Error ?? "App volume control is unavailable");
+                    return res.Ok ? (null, StatusCodes.Status200OK) : (res.Error ?? "App volume control is unavailable", StatusCodes.Status409Conflict);
                 }
                 case "mic-gain":
                 {
                     var inputs = _deck.CurrentAudio().Devices.Where(d => d.Direction == "input" && d.CanControl).ToList();
                     var mic = !string.IsNullOrWhiteSpace(axis.AppTarget)
-                        ? inputs.FirstOrDefault(d => MatchesPattern(d.Name, axis.AppTarget) || d.Id == axis.AppTarget)
+                        ? inputs.FirstOrDefault(d => d.Id == axis.AppTarget || MatchesTitle(d.Name, axis.AppTarget))
                         : inputs.FirstOrDefault(d => d.Default) ?? inputs.FirstOrDefault();
-                    if (mic is null) return "Microphone input is unavailable on this computer";
+                    if (mic is null) return ("Microphone input is unavailable on this computer", StatusCodes.Status409Conflict);
                     var next = Math.Clamp(mic.Volume + dir * steps * volStep, 0, 100);
                     var res = await _deck.Act("device", mic.Id, null, next, null, null, ct);
-                    return res.Ok ? null : (res.Error ?? "Microphone gain control failed");
+                    return res.Ok ? (null, StatusCodes.Status200OK) : (res.Error ?? "Microphone gain control failed", StatusCodes.Status409Conflict);
                 }
                 case "media-seek":
                 {
                     var snap = _media.Snapshot();
-                    if (snap is null || !snap.CanSeek) return "Current media player does not support seeking";
+                    if (snap is null || !snap.CanSeek) return ("Current media player does not support seeking", StatusCodes.Status409Conflict);
                     var max = snap.DurMs > 0 ? snap.DurMs : long.MaxValue;
                     var target = Math.Clamp(snap.PosMs + dir * steps * seekMs, 0, max);
-                    return await _media.Control("seek", target) ? null : "Media seek failed";
+                    return await _media.Control("seek", target) ? (null, StatusCodes.Status200OK) : ("Media seek failed", StatusCodes.Status409Conflict);
                 }
                 case "brightness":
                 {
                     var monitors = _deck.CurrentMonitors();
                     var mon = !string.IsNullOrWhiteSpace(axis.AppTarget)
-                        ? monitors.FirstOrDefault(m => m.Id == axis.AppTarget || MatchesPattern(m.Name, axis.AppTarget))
+                        ? monitors.FirstOrDefault(m => m.Id == axis.AppTarget || MatchesTitle(m.Name, axis.AppTarget))
                         : monitors.FirstOrDefault();
-                    if (mon is null) return "Monitor brightness control is unavailable on this computer";
-                    var current = mon.Brightness ?? _brightnessCache.GetValueOrDefault(mon.Id, 50);
+                    if (mon is null) return ("Monitor brightness control is unavailable on this computer", StatusCodes.Status409Conflict);
+                    var current = mon.Brightness ?? (_brightnessCache.TryGetValue(mon.Id, out var cached) ? cached : 50);
                     var next = Math.Clamp(current + dir * steps * volStep, 0, 100);
                     var res = await _deck.Act("brightness", mon.Id, null, next, null, null, ct);
                     if (res.Ok) _brightnessCache[mon.Id] = next;
-                    return res.Ok ? null : (res.Error ?? "Brightness control failed");
+                    return res.Ok ? (null, StatusCodes.Status200OK) : (res.Error ?? "Brightness control failed", StatusCodes.Status409Conflict);
                 }
                 default:
-                    return "Unsupported axis kind";
+                    return ("Unsupported axis kind", StatusCodes.Status400BadRequest);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        catch (Exception ex) { return ex.Message; }
+        catch (InvalidOperationException ex) { return (ex.Message, StatusCodes.Status409Conflict); }
+        catch (ArgumentException ex) { return (ex.Message, StatusCodes.Status400BadRequest); }
+        catch (Exception ex)
+        {
+            _log.LogWarning(ex, "Console axis action failed");
+            return ("Console action failed", StatusCodes.Status500InternalServerError);
+        }
     }
 
     internal static ConsoleProfile? MatchProfile(IReadOnlyList<ConsoleProfile> profiles, ConsoleWindowInfo? win)
@@ -496,11 +691,11 @@ public sealed class ConsoleService : BackgroundService
         if (win is null) return null;
         var active = profiles.Where(p => p.Enabled && !p.IsDefault).ToList();
         return active.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.AppMatch) && !string.IsNullOrWhiteSpace(p.TitleMatch)
-                && MatchesPattern(win.Process, p.AppMatch) && MatchesPattern(win.Title, p.TitleMatch))
+                && MatchesProcess(win.Process, p.AppMatch) && MatchesTitle(win.Title, p.TitleMatch))
             ?? active.FirstOrDefault(p => string.IsNullOrWhiteSpace(p.AppMatch) && !string.IsNullOrWhiteSpace(p.TitleMatch)
-                && MatchesPattern(win.Title, p.TitleMatch))
+                && MatchesTitle(win.Title, p.TitleMatch))
             ?? active.FirstOrDefault(p => !string.IsNullOrWhiteSpace(p.AppMatch) && string.IsNullOrWhiteSpace(p.TitleMatch)
-                && MatchesPattern(win.Process, p.AppMatch));
+                && MatchesProcess(win.Process, p.AppMatch));
     }
 
     private static bool MatchesProfile(ConsoleProfile profile, ConsoleWindowInfo? win)
@@ -509,19 +704,33 @@ public sealed class ConsoleService : BackgroundService
         var hasApp = !string.IsNullOrWhiteSpace(profile.AppMatch);
         var hasTitle = !string.IsNullOrWhiteSpace(profile.TitleMatch);
         if (!hasApp && !hasTitle) return false;
-        if (hasApp && !MatchesPattern(win.Process, profile.AppMatch)) return false;
-        if (hasTitle && !MatchesPattern(win.Title, profile.TitleMatch)) return false;
+        if (hasApp && !MatchesProcess(win.Process, profile.AppMatch)) return false;
+        if (hasTitle && !MatchesTitle(win.Title, profile.TitleMatch)) return false;
         return true;
     }
 
-    internal static bool MatchesPattern(string haystack, string? pattern)
+    /// <summary>Matches exact process name (case-insensitive, ignoring .exe) against comma/pipe-separated exact names.</summary>
+    internal static bool MatchesProcess(string? processName, string? pattern)
     {
-        if (string.IsNullOrWhiteSpace(haystack) || string.IsNullOrWhiteSpace(pattern)) return false;
-        var normalized = StripExe(haystack.Trim());
+        if (string.IsNullOrWhiteSpace(processName) || string.IsNullOrWhiteSpace(pattern)) return false;
+        var normalized = StripExe(processName.Trim());
         foreach (var raw in pattern.Split(['|', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var token = StripExe(raw);
-            if (token.Length > 0 && normalized.Contains(token, StringComparison.OrdinalIgnoreCase))
+            if (token.Length > 0 && string.Equals(normalized, token, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Matches window title or device friendly name substrings against comma/pipe-separated patterns.</summary>
+    internal static bool MatchesTitle(string? haystack, string? pattern)
+    {
+        if (string.IsNullOrWhiteSpace(haystack) || string.IsNullOrWhiteSpace(pattern)) return false;
+        var text = haystack.Trim();
+        foreach (var raw in pattern.Split(['|', ','], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (raw.Length > 0 && text.Contains(raw, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
         return false;
@@ -529,19 +738,47 @@ public sealed class ConsoleService : BackgroundService
 
     private static string StripExe(string value) =>
         value.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? value[..^4] : value;
+
+    public override void Dispose()
+    {
+        _actGate.Dispose();
+        _wake.Dispose();
+        base.Dispose();
+    }
 }
 
 internal sealed partial class NativeWindowPlatform : IWindowPlatform
 {
+    private static long ProcessStartTicks(int pid)
+    {
+        if (pid <= 0) return 0;
+        try { using var p = Process.GetProcessById(pid); return p.StartTime.ToUniversalTime().Ticks; }
+        catch { return 0; }
+    }
+
 #if WINDOWS
     public ConsoleWindowInfo? GetForeground(bool readTitle)
     {
         var hwnd = GetForegroundWindow();
         if (hwnd == 0) return null;
         _ = GetWindowThreadProcessId(hwnd, out var pid);
-        var proc = ProcessName((int)pid);
+        var (proc, startTicks) = ProcessMeta((int)pid);
         var title = readTitle ? WindowTitle(hwnd) : "";
-        return string.IsNullOrEmpty(proc) ? null : new ConsoleWindowInfo(proc, title);
+        return string.IsNullOrEmpty(proc) ? null : new ConsoleWindowInfo(proc, title, hwnd, (int)pid, startTicks);
+    }
+
+    public bool IsForeground(ConsoleWindowInfo target)
+    {
+        if (target.Handle == 0) return false;
+        var hwnd = GetForegroundWindow();
+        if (hwnd == 0 || hwnd != target.Handle) return false;
+        if (target.Pid > 0)
+        {
+            _ = GetWindowThreadProcessId(hwnd, out var pid);
+            if ((int)pid != target.Pid) return false;
+            if (target.StartTicks != 0 && ProcessStartTicks((int)pid) != target.StartTicks) return false;
+        }
+        return true;
     }
 
     public IReadOnlyList<ConsoleWindowInfo> ListWindows()
@@ -552,7 +789,7 @@ internal sealed partial class NativeWindowPlatform : IWindowPlatform
         {
             if (!IsWindowVisible(hwnd) || GetWindowTextLength(hwnd) == 0) return true;
             _ = GetWindowThreadProcessId(hwnd, out var pid);
-            var proc = ProcessName((int)pid);
+            var (proc, _) = ProcessMeta((int)pid);
             var title = WindowTitle(hwnd);
             if (!string.IsNullOrWhiteSpace(proc) && !string.IsNullOrWhiteSpace(title)
                 && seen.Add($"{proc}\n{title}"))
@@ -571,10 +808,10 @@ internal sealed partial class NativeWindowPlatform : IWindowPlatform
         {
             if (!IsWindowVisible(hwnd)) return true;
             _ = GetWindowThreadProcessId(hwnd, out var pid);
-            var proc = ProcessName((int)pid);
-            if (!ConsoleService.MatchesPattern(proc, processMatch)) return true;
+            var (proc, _) = ProcessMeta((int)pid);
+            if (!ConsoleService.MatchesProcess(proc, processMatch)) return true;
             var title = WindowTitle(hwnd);
-            if (!string.IsNullOrWhiteSpace(titleMatch) && !ConsoleService.MatchesPattern(title, titleMatch)) return true;
+            if (!string.IsNullOrWhiteSpace(titleMatch) && !ConsoleService.MatchesTitle(title, titleMatch)) return true;
             target = hwnd;
             return false;
         }, 0);
@@ -585,7 +822,7 @@ internal sealed partial class NativeWindowPlatform : IWindowPlatform
             {
                 try
                 {
-                    if (p.MainWindowHandle != 0 && ConsoleService.MatchesPattern(p.ProcessName, processMatch))
+                    if (p.MainWindowHandle != 0 && ConsoleService.MatchesProcess(p.ProcessName, processMatch))
                     { target = p.MainWindowHandle; break; }
                 }
                 catch { }
@@ -598,11 +835,17 @@ internal sealed partial class NativeWindowPlatform : IWindowPlatform
         return SetForegroundWindow(target) || GetForegroundWindow() == target;
     }
 
-    private static string ProcessName(int pid)
+    private static (string Name, long StartTicks) ProcessMeta(int pid)
     {
-        if (pid <= 0) return "";
-        try { using var p = Process.GetProcessById(pid); return p.ProcessName; }
-        catch { return ""; }
+        if (pid <= 0) return ("", 0);
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            long ticks = 0;
+            try { ticks = p.StartTime.ToUniversalTime().Ticks; } catch { }
+            return (p.ProcessName, ticks);
+        }
+        catch { return ("", 0); }
     }
 
     private static string WindowTitle(nint hwnd)
@@ -626,6 +869,9 @@ internal sealed partial class NativeWindowPlatform : IWindowPlatform
     [GeneratedRegex("^\"([^\"]+)\"")]
     private static partial Regex MacNameRe();
 
+    [GeneratedRegex(@"\bpid\s*=\s*(\d+)")]
+    private static partial Regex MacPidRe();
+
     [GeneratedRegex("ASN:[^\\s\"]+-(?:\"([^\"]+)\"|([^:\\s]+))")]
     private static partial Regex MacVisibleRe();
 
@@ -635,24 +881,37 @@ internal sealed partial class NativeWindowPlatform : IWindowPlatform
         {
             var front = Sh.RunWithTimeout(600, "lsappinfo", "front")?.Trim();
             if (string.IsNullOrWhiteSpace(front)) return null;
-            var info = Sh.RunWithTimeout(600, "lsappinfo", "info", "-only", "name", front);
+            var info = Sh.RunWithTimeout(600, "lsappinfo", "info", "-only", "pid", "-only", "name", front);
             var proc = info is not null && MacNameRe().Match(info) is { Success: true } m ? m.Groups[1].Value : "";
             if (string.IsNullOrWhiteSpace(proc)) return null;
+            var pid = info is not null && MacPidRe().Match(info) is { Success: true } pm && int.TryParse(pm.Groups[1].Value, out var parsedPid) ? parsedPid : 0;
             var title = "";
             if (readTitle)
             {
                 title = Sh.RunWithTimeout(600, "osascript", "-e",
                     "tell application \"System Events\" to get name of front window of first application process whose frontmost is true")?.Trim() ?? "";
             }
-            return new ConsoleWindowInfo(proc, title);
+            return new ConsoleWindowInfo(proc, title, pid > 0 ? (nint)pid : 0, pid, ProcessStartTicks(pid));
         }
 
+        var winText = Sh.RunWithTimeout(500, "xdotool", "getactivewindow")?.Trim();
+        long.TryParse(winText, out var winId);
         var pidText = Sh.RunWithTimeout(500, "xdotool", "getactivewindow", "getwindowpid")?.Trim();
-        if (!int.TryParse(pidText, out var pid) || pid <= 0) return null;
-        var linuxProc = Sh.ReadFile($"/proc/{pid}/comm")?.Trim() ?? "";
+        if (!int.TryParse(pidText, out var lpid) || lpid <= 0) return null;
+        var linuxProc = Sh.ReadFile($"/proc/{lpid}/comm")?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(linuxProc)) return null;
         var linuxTitle = readTitle ? (Sh.RunWithTimeout(500, "xdotool", "getactivewindow", "getwindowname")?.Trim() ?? "") : "";
-        return new ConsoleWindowInfo(linuxProc, linuxTitle);
+        return new ConsoleWindowInfo(linuxProc, linuxTitle, (nint)winId, lpid, ProcessStartTicks(lpid));
+    }
+
+    public bool IsForeground(ConsoleWindowInfo target)
+    {
+        var fg = GetForeground(readTitle: false);
+        if (fg is null) return false;
+        if (target.Handle != 0 && fg.Handle != target.Handle) return false;
+        if (target.Pid > 0 && fg.Pid != target.Pid) return false;
+        if (target.StartTicks != 0 && fg.StartTicks != target.StartTicks) return false;
+        return string.Equals(fg.Process, target.Process, StringComparison.OrdinalIgnoreCase);
     }
 
     public IReadOnlyList<ConsoleWindowInfo> ListWindows()
@@ -691,7 +950,7 @@ internal sealed partial class NativeWindowPlatform : IWindowPlatform
     {
         if (OperatingSystem.IsMacOS())
         {
-            var running = ListWindows().FirstOrDefault(w => ConsoleService.MatchesPattern(w.Process, processMatch));
+            var running = ListWindows().FirstOrDefault(w => ConsoleService.MatchesProcess(w.Process, processMatch));
             if (running is null) return false;
             var res = Sh.RunWithTimeout(1200, "osascript",
                 "-e", "on run argv",
@@ -710,8 +969,8 @@ internal sealed partial class NativeWindowPlatform : IWindowPlatform
                 if (parts.Length < 5 || !int.TryParse(parts[2], out var pid) || pid <= 0) continue;
                 var proc = Sh.ReadFile($"/proc/{pid}/comm")?.Trim() ?? "";
                 var title = parts[4].Trim();
-                if (!ConsoleService.MatchesPattern(proc, processMatch)) continue;
-                if (!string.IsNullOrWhiteSpace(titleMatch) && !ConsoleService.MatchesPattern(title, titleMatch)) continue;
+                if (!ConsoleService.MatchesProcess(proc, processMatch)) continue;
+                if (!string.IsNullOrWhiteSpace(titleMatch) && !ConsoleService.MatchesTitle(title, titleMatch)) continue;
                 if (Sh.RunWithTimeout(800, "wmctrl", "-ia", parts[0]) is not null) return true;
             }
         }

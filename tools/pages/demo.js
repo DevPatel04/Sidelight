@@ -23,21 +23,18 @@
     'codexbar', 'devops', 'audio-deck', 'stream-deck', 'meeting-deck', 'development-deck', 'music-deck', 'system-deck'];
 
   const DEFAULT_CONSOLE = {
+    enabled: true,
     autoFollow: true,
     focusBeforeKeys: true,
     profiles: [
       {
-        id: 'desktop', name: 'Desktop', icon: '🖥️', color: '#38bdf8', isDefault: true, enabled: true, columns: 4, rows: 2, appMatch: null, titleMatch: null,
+        id: 'media', name: 'Media', icon: '🎵', color: '#38bdf8', isDefault: true, enabled: true, columns: 4, rows: 2, appMatch: null, titleMatch: null,
         subPages: [{
-          id: 'media', name: 'Media & Essentials', slots: [
+          id: 'media', name: 'Media & Audio', slots: [
             { kind: 'deck', label: 'Prev', icon: '⏮️', target: 'media:prev' },
             { kind: 'deck', label: 'Play / Pause', icon: '⏯️', target: 'media:playpause', toggle: true, stateKey: 'media:playing' },
             { kind: 'deck', label: 'Next', icon: '⏭️', target: 'media:next' },
             { kind: 'deck', label: 'Mute', icon: '🔇', target: 'audio:mute', toggle: true, stateKey: 'audio:muted' },
-            { kind: 'keys', label: 'Copy', icon: '📋', hint: 'Ctrl+C', keys: 'Ctrl+C' },
-            { kind: 'keys', label: 'Paste', icon: '📥', hint: 'Ctrl+V', keys: 'Ctrl+V' },
-            { kind: 'keys', label: 'Undo', icon: '↩️', hint: 'Ctrl+Z', keys: 'Ctrl+Z' },
-            { kind: 'keys', label: 'Switch App', icon: '🪟', hint: 'Alt+Tab', keys: 'Alt+Tab' },
           ],
         }],
         axes: [
@@ -179,9 +176,28 @@
   const allows = (c, test) => widgets(c).some((w) => test(w.type) && w.options?.control === true);
   const isObs = (type) => type === 'obs' || type.startsWith('obs-');
 
+  const isConsole = (type) => type === 'app-keypad' || type === 'app-dial' || type === 'app-roller';
+  const enabledWidgets = (c) => (c.pages || []).filter((p) => p.enabled !== false).flatMap((p) => p.widgets || []).flatMap((w) => [w, ...(w.type === 'stack' ? (w.options?.widgets || []).filter((x) => x.enabled !== false) : [])]);
+
   // What the agent sends to a phone (AgentConfig.ToPublic): no commands, keys, tokens or what a rule matches on.
   function publicConfig(c) {
-    const options = (w) => w.type === 'command' ? Object.fromEntries(Object.entries(w.options || {}).filter(([k]) => k === 'title' || k === 'interval')) : w.options ?? null;
+    const consoleKeys = {
+      'app-keypad': new Set(['mode', 'profileId', 'unmatched', 'showHeader', 'showHints', 'control']),
+      'app-dial': new Set(['mode', 'profileId', 'unmatched', 'axis', 'showPills', 'control']),
+      'app-roller': new Set(['mode', 'profileId', 'unmatched', 'axis', 'orientation', 'showReset', 'control']),
+    };
+    const filterOpts = (type, opts) => {
+      if (type === 'command') return Object.fromEntries(Object.entries(opts || {}).filter(([k]) => k === 'title' || k === 'interval'));
+      if (consoleKeys[type]) return Object.fromEntries(Object.entries(opts || {}).filter(([k]) => consoleKeys[type].has(k)));
+      return opts ?? null;
+    };
+    const options = (w) => {
+      if (w.type === 'stack' && w.options && Array.isArray(w.options.widgets)) {
+        return { ...w.options, widgets: w.options.widgets.map((ch) => ({ ...ch, options: filterOpts(ch.type, ch.options) })) };
+      }
+      return filterOpts(w.type, w.options);
+    };
+    const conOn = c.console?.enabled === true;
     return {
       weather: c.weather, codexBar: c.codexBar, night: c.night, display: c.display,
       pages: (c.pages || []).map((p) => ({ id: p.id, title: p.title, icon: p.icon, enabled: p.enabled !== false, idleSec: p.idleSec ?? null, appearance: p.appearance ?? null,
@@ -190,8 +206,9 @@
       rules: (c.rules || []).map(({ id, name, enabled, when }) => ({ id, name, enabled: enabled !== false, when })),
       charge: { enabled: !!c.charge?.enabled, min: c.charge?.min ?? 50, max: c.charge?.max ?? 80 },
       console: {
+        enabled: conOn,
         autoFollow: c.console?.autoFollow !== false,
-        profiles: (c.console?.profiles || []).map((p) => ({
+        profiles: conOn ? (c.console?.profiles || []).map((p) => ({
           id: p.id, name: p.name, icon: p.icon, color: p.color, isDefault: !!p.isDefault, enabled: p.enabled !== false,
           columns: p.columns || 4, rows: p.rows || 2,
           subPages: (p.subPages || []).map((sp) => ({
@@ -206,7 +223,7 @@
             index: a.index, name: a.name, icon: a.icon, kind: a.kind, sensitivity: a.sensitivity || 'normal',
             hasTap: !!a.tapAction,
           })),
-        })),
+        })) : [],
       },
     };
   }
@@ -305,17 +322,22 @@
 
   // made-up App Console tracking & execution
   const demoConsole = { activeProcess: 'firefox', activeTitle: 'Mozilla Firefox', pinnedProfileId: null, slotStates: {}, lastAction: null };
-  const matchPattern = (haystack, pattern) => {
-    if (!haystack || !pattern) return false;
-    const h = String(haystack).trim().replace(/\.exe$/i, '').toLowerCase();
-    return String(pattern).split(/[|,]/).map((s) => s.trim().replace(/\.exe$/i, '').toLowerCase()).some((t) => t && h.includes(t));
+  const matchProcess = (proc, pattern) => {
+    if (!proc || !pattern) return false;
+    const h = String(proc).trim().replace(/\.exe$/i, '').toLowerCase();
+    return String(pattern).split(/[|,]/).map((s) => s.trim().replace(/\.exe$/i, '').toLowerCase()).some((t) => t && h === t);
+  };
+  const matchTitle = (title, pattern) => {
+    if (!title || !pattern) return false;
+    const h = String(title).trim().toLowerCase();
+    return String(pattern).split(/[|,]/).map((s) => s.trim().toLowerCase()).some((t) => t && h.includes(t));
   };
   const matchConsoleProfile = (c) => {
     if (c.console?.autoFollow === false) return null;
     const list = (c.console?.profiles || []).filter((p) => p && p.enabled !== false && !p.isDefault);
-    return list.find((p) => p.appMatch && p.titleMatch && matchPattern(demoConsole.activeProcess, p.appMatch) && matchPattern(demoConsole.activeTitle, p.titleMatch))
-      || list.find((p) => !p.appMatch && p.titleMatch && matchPattern(demoConsole.activeTitle, p.titleMatch))
-      || list.find((p) => p.appMatch && !p.titleMatch && matchPattern(demoConsole.activeProcess, p.appMatch))
+    return list.find((p) => p.appMatch && p.titleMatch && matchProcess(demoConsole.activeProcess, p.appMatch) && matchTitle(demoConsole.activeTitle, p.titleMatch))
+      || list.find((p) => !p.appMatch && p.titleMatch && matchTitle(demoConsole.activeTitle, p.titleMatch))
+      || list.find((p) => p.appMatch && !p.titleMatch && matchProcess(demoConsole.activeProcess, p.appMatch))
       || null;
   };
   async function consoleSnapshot() {
@@ -326,24 +348,29 @@
     const effective = pinned || matched || list.find((p) => p.isDefault)?.id || list[0]?.id || null;
     const slotStates = { ...demoConsole.slotStates, 'audio:muted': audio.muted, 'media:playing': player.playing,
       'obs:recording': !!obs.recordingSince && !obs.paused, 'obs:paused': obs.paused, 'obs:streaming': !!obs.streamingSince, 'obs:mic': obs.mic };
-    return { autoFollow: c.console?.autoFollow !== false, activeProcess: demoConsole.activeProcess, activeTitle: demoConsole.activeTitle,
-      matchedProfileId: matched, pinnedProfileId: pinned, effectiveProfileId: effective, slotStates, updatedAt: now() };
+    return { autoFollow: c.console?.autoFollow !== false, matchedProfileId: matched, pinnedProfileId: pinned, effectiveProfileId: effective, slotStates, updatedAt: now() };
   }
   async function consoleAct(req) {
     const c = await config();
+    if (c.console?.enabled !== true) return { status: 404, body: { ok: false, error: 'App Console is disabled' } };
+    if (!enabledWidgets(c).some((w) => isConsole(w.type) && w.options?.control === true))
+      return { status: 403, body: { ok: false, error: 'Phone control is disabled in widget settings' } };
     const list = (c.console?.profiles || []).filter((p) => p && p.enabled !== false);
     if (req.kind === 'pin') {
-      if (req.pinned && !list.some((p) => p.id === req.pinned)) return { ok: false, error: 'Selected profile was not found', state: await consoleSnapshot() };
+      if (req.pinned && !list.some((p) => p.id === req.pinned)) return { status: 404, body: { ok: false, error: 'Selected profile was not found', state: await consoleSnapshot() } };
       demoConsole.pinnedProfileId = req.pinned || null;
       demoConsole.lastAction = { ...req };
-      return { ok: true, error: null, state: await consoleSnapshot() };
+      return { status: 200, body: { ok: true, error: null, state: await consoleSnapshot() } };
     }
-    const profile = list.find((p) => p.id === req.profileId) || list.find((p) => p.isDefault) || list[0];
-    if (!profile) return { ok: false, error: 'No active console profile', state: await consoleSnapshot() };
+    if (!req.profileId) return { status: 400, body: { ok: false, error: 'ProfileId is required', state: await consoleSnapshot() } };
+    const profile = list.find((p) => p.id === req.profileId);
+    if (!profile) return { status: 404, body: { ok: false, error: 'Console profile was not found', state: await consoleSnapshot() } };
     if (req.kind === 'slot') {
-      const sub = (profile.subPages || []).find((s) => s.id === req.subPageId) || profile.subPages?.[0];
+      if (!req.subPageId) return { status: 400, body: { ok: false, error: 'SubPageId is required', state: await consoleSnapshot() } };
+      const sub = (profile.subPages || []).find((s) => s.id === req.subPageId);
+      if (!sub) return { status: 404, body: { ok: false, error: 'Console sub-page was not found', state: await consoleSnapshot() } };
       const slot = sub?.slots?.[req.slot ?? -1];
-      if (!slot) return { ok: false, error: 'Slot out of range', state: await consoleSnapshot() };
+      if (!slot) return { status: 400, body: { ok: false, error: 'Slot out of range', state: await consoleSnapshot() } };
       if (slot.kind === 'deck') {
         if (slot.target === 'audio:mute') audio.muted = !audio.muted;
         else if (slot.target?.startsWith('media:')) mediaAction(slot.target.slice(6));
@@ -353,16 +380,18 @@
         demoConsole.slotStates[k] = !demoConsole.slotStates[k];
       }
       demoConsole.lastAction = { ...req, profileId: profile.id, label: slot.label };
-      return { ok: true, error: null, state: await consoleSnapshot() };
+      return { status: 200, body: { ok: true, error: null, state: await consoleSnapshot() } };
     }
     if (req.kind === 'axis' || req.kind === 'axis-tap') {
-      const axis = (profile.axes || []).find((a) => a.index === (req.axis ?? 1));
-      if (!axis) return { ok: false, error: 'Axis is not configured', state: await consoleSnapshot() };
-      if (req.kind === 'axis' && axis.kind === 'system-volume') audio.volume = Math.max(0, Math.min(100, audio.volume + (req.delta || 0) * 3));
-      demoConsole.lastAction = { ...req, profileId: profile.id, axisKind: axis.kind };
-      return { ok: true, error: null, state: await consoleSnapshot() };
+      if (req.axis == null) return { status: 400, body: { ok: false, error: 'Axis is required', state: await consoleSnapshot() } };
+      const axis = (profile.axes || []).find((a) => a.index === req.axis);
+      if (!axis) return { status: 404, body: { ok: false, error: 'Axis is not configured', state: await consoleSnapshot() } };
+      const delta = Math.max(-5, Math.min(5, req.delta || 0));
+      if (req.kind === 'axis' && axis.kind === 'system-volume') audio.volume = Math.max(0, Math.min(100, audio.volume + delta * 3));
+      demoConsole.lastAction = { ...req, delta, profileId: profile.id, axisKind: axis.kind };
+      return { status: 200, body: { ok: true, error: null, state: await consoleSnapshot() } };
     }
-    return { ok: false, error: 'Unknown console action', state: await consoleSnapshot() };
+    return { status: 400, body: { ok: false, error: 'Unknown console action', state: await consoleSnapshot() } };
   }
 
   // made-up OBS: streaming for a while, buttons and scenes work
@@ -638,14 +667,22 @@
     if (path.startsWith('/api/controls/task-output/')) return new Response(actionState[decodeURIComponent(path.split('/').pop())] ? '> made-up output: the demo runs no commands\n' : '', { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     if (path === '/api/controls/state') return json(await deckState());
     if (path.startsWith('/api/controls/command/') && method === 'POST') return json(await controlCommand(path.split('/').pop(), q));
-    if (path === '/api/console/state') return json(await consoleSnapshot());
+    if (path === '/api/console/state') {
+      const c = await config();
+      if (c.console?.enabled !== true) return json({ error: 'App Console is disabled' }, 404);
+      if (!enabledWidgets(c).some((w) => isConsole(w.type))) return json({ error: 'No enabled console widget' }, 403);
+      return json(await consoleSnapshot());
+    }
     if (path === '/api/console/windows') return json([
       { process: 'Code', title: 'main.js - phonebox - Visual Studio Code' },
       { process: 'obs64', title: 'OBS 30.2 - Profile: Stream' },
       { process: 'firefox', title: 'Mozilla Firefox' },
       { process: 'Spotify', title: 'Spotify Premium' },
     ]);
-    if (path === '/api/console/act' && method === 'POST') return json(await consoleAct(parse(body) || {}));
+    if (path === '/api/console/act' && method === 'POST') {
+      const r = await consoleAct(parse(body) || {});
+      return json(r.body, r.status);
+    }
     if (path === '/api/state') return json(state(q.has('ev') ? +q.get('ev') : null));
     if (path === '/api/config') return json({ version: cfgVersion(), config: publicConfig(await config()) });
     if (path === '/api/volume' && method === 'POST') {

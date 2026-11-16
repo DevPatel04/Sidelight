@@ -69,9 +69,13 @@ public sealed class AgentConfig
     };
 
     /// <summary>Ending processes is allowed when an enabled page has a processes widget that allows it.</summary>
-    public IEnumerable<WidgetConfig> Widgets(bool enabledPagesOnly = false) => Pages.Where(p => !enabledPagesOnly || p.Enabled)
-        .SelectMany(p => p.Widgets ?? []).SelectMany(w => new[] { w }.Concat(StackWidgets.Children(w).Where(c => c.Enabled)
-            .Select(c => new WidgetConfig { Type = c.Type, Options = c.Options })));
+    public IEnumerable<WidgetConfig> Widgets(bool enabledPagesOnly = false) => WidgetsFor(null, enabledPagesOnly);
+
+    /// <summary>Widgets visible on the pages assigned to <paramref name="deviceId"/> (or all pages when none).</summary>
+    public IEnumerable<WidgetConfig> WidgetsFor(string? deviceId, bool enabledPagesOnly = false) =>
+        PagesFor(deviceId).Where(p => !enabledPagesOnly || p.Enabled)
+            .SelectMany(p => p.Widgets ?? []).SelectMany(w => new[] { w }.Concat(StackWidgets.Children(w).Where(c => c.Enabled)
+                .Select(c => new WidgetConfig { Type = c.Type, Options = c.Options })));
 
     public bool AllowKill() => Widgets(enabledPagesOnly: true)
         .Any(w => w.Type == "processes" && w.Bool("allowKill") != false);

@@ -26,13 +26,22 @@ internal static class StackWidgets
         catch (JsonException) { return []; }
     }
 
-    public static Dictionary<string, JsonElement>? PublicOptions(WidgetConfig w)
+    private static readonly HashSet<string> ConsoleKeypadOptions = ["mode", "profileId", "unmatched", "showHeader", "showHints", "control"];
+    private static readonly HashSet<string> ConsoleDialOptions = ["mode", "profileId", "unmatched", "axis", "showPills", "control"];
+    private static readonly HashSet<string> ConsoleRollerOptions = ["mode", "profileId", "unmatched", "axis", "orientation", "showReset", "control"];
+
+    public static Dictionary<string, JsonElement>? PublicOptions(WidgetConfig w) => PublicOptions(w.Type, w.Options);
+
+    private static Dictionary<string, JsonElement>? PublicOptions(string? type, Dictionary<string, JsonElement>? source)
     {
-        if (w.Type == "command") return w.Options?.Where(o => o.Key is "title" or "interval").ToDictionary();
-        if (w.Type != "stack" || w.Options is null) return w.Options;
-        var options = w.Options.ToDictionary();
-        if (options.ContainsKey("widgets")) options["widgets"] = JsonSerializer.SerializeToElement(Children(w)
-            .Select(child => new { id = child.Id, type = child.Type, enabled = child.Enabled, options = child.Options }));
+        if (type == "command") return source?.Where(o => o.Key is "title" or "interval").ToDictionary();
+        if (type == "app-keypad") return source?.Where(o => ConsoleKeypadOptions.Contains(o.Key)).ToDictionary();
+        if (type == "app-dial") return source?.Where(o => ConsoleDialOptions.Contains(o.Key)).ToDictionary();
+        if (type == "app-roller") return source?.Where(o => ConsoleRollerOptions.Contains(o.Key)).ToDictionary();
+        if (type != "stack" || source is null) return source;
+        var options = source.ToDictionary();
+        if (options.ContainsKey("widgets")) options["widgets"] = JsonSerializer.SerializeToElement(Children(new WidgetConfig { Type = "stack", Options = source })
+            .Select(child => new { id = child.Id, type = child.Type, enabled = child.Enabled, options = PublicOptions(child.Type, child.Options) }));
         return options;
     }
 }
