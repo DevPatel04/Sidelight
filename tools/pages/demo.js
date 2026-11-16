@@ -326,6 +326,7 @@
     Array.from({ length: 13 }, (_, i) => `<line x1="150" y1="170" x2="${-300 + i * 75}" y2="300"/>`).join('') + '</g></svg>');
 
   // ---- router
+  const DEMO_PHOTOS = [['ph1', '#f97316', '#7c3aed'], ['ph2', '#0ea5e9', '#22c55e'], ['ph3', '#ec4899', '#facc15'], ['ph4', '#14b8a6', '#1e3a8a']];
   // headlines as the agent sends them: no links, the phone opens one by its id
   const DEMO_FEEDS = () => [
     ['f1', 'A tiny e-ink weather station that runs for a year on one charge', 'Hackaday', 18],
@@ -551,6 +552,14 @@
       { name: 'MX Keys', level: 18, kind: 'keyboard', charging: null },
       { name: 'Xbox Wireless Controller', level: 40, kind: 'controller', charging: null },
     ] });
+    // photo frame: like the agent, ids from an enabled page's widget, then one image by id (generated pictures here)
+    if (path === '/api/photos') { const c = await config(); return json(shownWidgets(c).some((w) => w.type === 'photos') ? { ids: DEMO_PHOTOS.map((p) => p[0]), error: null, scanning: false } : { ids: [], error: 'Add a Photo frame widget to a page to show photos', scanning: false }); }
+    if (path.startsWith('/api/photos/')) {
+      const p = DEMO_PHOTOS.find((x) => x[0] === decodeURIComponent(path.slice(12)));
+      if (!p || !shownWidgets(await config()).some((w) => w.type === 'photos')) return json({ error: 'Unknown photo' }, 404);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000"><defs><linearGradient id="g" x2="1" y2="1"><stop offset="0" stop-color="${p[1]}"/><stop offset="1" stop-color="${p[2]}"/></linearGradient></defs><rect width="1600" height="1000" fill="url(#g)"/><circle cx="1220" cy="260" r="120" fill="#fff8" /><path d="M0 820 L420 520 L760 760 L1100 480 L1600 860 V1000 H0Z" fill="#0006"/></svg>`;
+      return new Response(svg, { status: 200, headers: { 'Content-Type': 'image/svg+xml' } });
+    }
     if (path === '/api/feeds') { const c = await config(); return json({ items: DEMO_FEEDS(), updated: now(), errors: [], canOpen: feedsCanOpen(c) }); }
     if (path === '/api/feeds/open' && method === 'POST') {
       if (!feedsCanOpen(await config())) return json({ error: 'Opening articles is off: turn on "Open articles on the PC" in the News feeds widget\'s settings' }, 400);

@@ -1,0 +1,84 @@
+import { API, PANEL_HEADERS, api, h, t } from '../main.js';
+import { W } from '../registry.js';
+
+// ---------------------------------------------------------------- photo frame
+// The agent lists photo ids from a folder on the PC and sends one (scaled-down) photo at a time. Photos are fetched as
+// blobs rather than <img src>, so every request carries the panel's headers, at most one is in flight, and each image's
+// memory is released after the crossfade. The slideshow only advances while its page is showing and the night screen is off.
+W.photos = {
+  needs: ['tick'],
+  create(box, { o }) {
+    const every = Math.max(5, Math.min(3600, +o.interval || 30)) * 1000;
+    const fit = o.fit === 'contain' ? 'contain' : 'cover';
+    box.classList.add('pf');
+    const layers = [h('img', 'pf-img'), h('img', 'pf-img')];
+    for (const img of layers) { img.alt = ''; img.decoding = 'async'; img.style.objectFit = fit; }
+    const note = h('div', 'empty pf-note', t('w.loading'));
+    box.append(...layers, note);
+
+    let ids = [], order = [], pos = 0, listAt = 0, nextAt = 0, front = 0, alive = true;
+    let inflight = null, shown = null;
+    const urls = new Set();
+
+    const say = (text) => { note.textContent = text || ''; note.hidden = !text; };
+    const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+    const reorder = () => { order = o.shuffle === false ? [...ids] : shuffle([...ids]); pos = 0; };
+
+    const loadList = async () => {
+      listAt = Date.now();
+      try {
+        const r = await api('/photos', 'GET', 10_000);
+        if (!alive) return;
+        if (r.scanning) { listAt = Date.now() - 9 * 60_000; say(t('w.loading')); return; } // ask again in a minute
+        const same = r.ids.length === ids.length && r.ids.every((id, i) => id === ids[i]);
+        ids = r.ids || [];
+        if (!same) reorder();
+        if (!ids.length) say(r.error || t('w.photos.setUp'));
+      } catch (_) { if (!shown) say(t('w.offline')); }
+    };
+
+    const showNext = async () => {
+      if (inflight || !order.length) return;
+      const id = order[pos];
+      pos = (pos + 1) % order.length;
+      if (pos === 0 && o.shuffle !== false) reorder();
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 20_000);
+      inflight = ctl;
+      try {
+        const r = await fetch(`${API}/photos/${encodeURIComponent(id)}`, { cache: 'no-store', headers: PANEL_HEADERS, signal: ctl.signal });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const url = URL.createObjectURL(await r.blob());
+        if (!alive) { URL.revokeObjectURL(url); return; }
+        urls.add(url);
+        const next = layers[1 - front], prev = layers[front];
+        next.onload = () => {
+          next.classList.add('on'); prev.classList.remove('on');
+          front = 1 - front; say('');
+          const old = shown; shown = url;
+          // the old image is released once the crossfade is over
+          if (old) setTimeout(() => { URL.revokeObjectURL(old); urls.delete(old); }, 1200);
+        };
+        next.onerror = () => { URL.revokeObjectURL(url); urls.delete(url); };
+        next.src = url;
+      } catch (_) {
+        nextAt = Date.now() + 5000; // a missing or slow photo: try the next one soon
+      } finally { clearTimeout(timer); inflight = null; }
+    };
+
+    return {
+      update() {
+        if (!alive || document.body.classList.contains('night')) return;
+        const now = Date.now();
+        if (!listAt || now - listAt > 10 * 60_000) loadList();
+        if (order.length && now >= nextAt) { nextAt = now + every; showNext(); }
+      },
+      destroy() {
+        alive = false;
+        if (inflight) inflight.abort();
+        for (const u of urls) URL.revokeObjectURL(u);
+        urls.clear();
+      },
+    };
+  },
+};

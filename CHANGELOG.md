@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**New widget**
+- **Photo frame**: a slideshow of the photos in a folder on the PC; a synced OneDrive, Dropbox or iCloud folder works too
+  (photos only in the cloud are skipped). Choose the folder in Settings › General. The agent scales large photos down
+  before they go to the phone, the phone fetches one photo at a time by id, and the slideshow only runs while its page
+  is showing. First version in #47 by [blx10](https://github.com/blx10).
+
 **Agent**
 - Windows: the CPU temperature also works on older Intel processors that LibreHardwareMonitor reports only per core
   ("CPU Core #1"…): the hottest core of the CPU is shown when there is no package reading (idea and first version in

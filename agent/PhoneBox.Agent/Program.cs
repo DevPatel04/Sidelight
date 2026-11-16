@@ -67,6 +67,7 @@ AddMonitor<QuotaMonitor>(builder.Services);
 AddMonitor<ProcessMonitor>(builder.Services);
 AddMonitor<SessionMonitor>(builder.Services);
 AddMonitor<FeedMonitor>(builder.Services);
+builder.Services.AddSingleton<PhotoFrame>();
 AddMonitor<GitHubMonitor>(builder.Services);
 AddMonitor<PingMonitor>(builder.Services);
 AddMonitor<AdbReverse>(builder.Services);
@@ -453,6 +454,19 @@ app.MapGet("/api/feeds", (FeedMonitor feeds) =>
 {
     var s = feeds.Snapshot();
     return Results.Json(new { s.Items, s.Updated, s.Errors, canOpen = feeds.OpenAllowed() });
+});
+// Photo frame: ids of the photos in the chosen folder, then one (scaled-down) photo at a time by id.
+app.MapGet("/api/photos", (PhotoFrame photos) =>
+{
+    var (ids, error, scanning) = photos.List();
+    return Results.Json(new { ids, error, scanning });
+});
+app.MapGet("/api/photos/{id}", async (string id, PhotoFrame photos, HttpResponse res, CancellationToken ct) =>
+{
+    var (bytes, type, error) = await photos.Get(id, ct);
+    if (bytes is null) return Results.Json(new { error }, statusCode: 404);
+    res.Headers.CacheControl = "private, max-age=86400";
+    return Results.File(bytes, type!);
 });
 app.MapPost("/api/feeds/open", (string? id, FeedMonitor feeds) =>
     feeds.Open(id) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true }));

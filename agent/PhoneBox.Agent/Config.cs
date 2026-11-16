@@ -28,6 +28,8 @@ public sealed class AgentConfig
     public List<CalendarSource> Calendars { get; set; } = [];
     /// <summary>RSS and Atom feeds for the Feeds widget; like the calendars, the addresses never go to the phone.</summary>
     public List<FeedSource> Feeds { get; set; } = [];
+    /// <summary>The Photo frame widget's folder; like the feeds, it never goes to the phone.</summary>
+    public PhotoFrameConfig Photos { get; set; } = new();
     /// <summary>Home Assistant address and long-lived access token (the token never goes to the phone).</summary>
     public HomeAssistantConfig HomeAssistant { get; set; } = new();
     /// <summary>OBS Studio's WebSocket server (obs-websocket 5).</summary>
@@ -515,6 +517,8 @@ public sealed partial class ConfigStore(string path)
         c.Calendars = (c.Calendars ?? []).Where(x => x is not null).Take(20).ToList();
         foreach (var cal in c.Calendars) { cal.Name = cal.Name?.Trim() ?? ""; cal.Url = cal.Url?.Trim() ?? ""; }
         c.Feeds = (c.Feeds ?? []).Where(x => x is not null).Take(30).ToList();
+        c.Photos ??= new();
+        c.Photos.Folder = (c.Photos.Folder ?? "").Trim() is { Length: > 1024 } longFolder ? longFolder[..1024] : (c.Photos.Folder ?? "").Trim();
         foreach (var f in c.Feeds) { var n = f.Name?.Trim() ?? ""; f.Name = n.Length > 60 ? n[..60] : n; f.Url = f.Url?.Trim() ?? ""; }
 
         c.Charge ??= new();
