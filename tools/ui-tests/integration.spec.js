@@ -304,7 +304,7 @@ test('Apply JSON fills defaults for a partial config instead of breaking the edi
   await expect(page.locator('#pageTabs button', { hasText: 'New page' })).toBeVisible();
   // and the form keeps answering: the night screen slider read its (defaulted) section without throwing
   await page.locator('a[href="#general"]').click();
-  await expect(page.locator('#nbv')).not.toBeEmpty();
+  await expect(page.locator('#nbv')).toHaveText('2%'); // the agent's NightConfig default, not NaN%
 });
 
 // PRIVACY.md: the phone sends the weather location to Open-Meteo only while a page has a widget that uses the weather.
