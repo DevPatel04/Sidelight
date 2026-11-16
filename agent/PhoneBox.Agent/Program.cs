@@ -23,7 +23,9 @@ if (!firstInstance)
 }
 
 if (!args.Contains("--config")) AppPaths.EnsureConfig();
-var configPath = args.SkipWhile(a => a != "--config").Skip(1).FirstOrDefault() ?? AppPaths.ConfigPath;
+// absolute from here on: a bare file name ("--config profile.json") has no folder, and the files kept next to the
+// config (the Spotify login, backups) need one
+var configPath = Path.GetFullPath(args.SkipWhile(a => a != "--config").Skip(1).FirstOrDefault() ?? AppPaths.ConfigPath);
 AppPaths.RestrictConfig(configPath);
 var configStore = new ConfigStore(configPath);
 configStore.PersistGenerated(); // keep the Wi-Fi token stable across restarts
