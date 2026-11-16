@@ -39,7 +39,8 @@ W['app-console'] = {
 
     const render = (state) => {
       // turns counted for one app never go to the next one's profile
-      if ((state && state.profile && state.profile.id) !== (profile && profile.id)) { pending = 0; turned = 0; }
+      // and a touch that started on one app's dial never presses the next one's
+      if ((state && state.profile && state.profile.id) !== (profile && profile.id)) { pending = 0; turned = 0; start = null; onKnob = false; }
       profile = state && state.profile;
       const s = JSON.stringify(state || null);
       if (s === sig) return;
@@ -81,6 +82,8 @@ W['app-console'] = {
 
     // turns are sent one request at a time; what piles up meanwhile goes in the next one (at most 5 clicks each)
     const flush = () => {
+      // nothing queued goes out once the widget is gone or out of sight
+      if (!alive || !visible()) pending = 0;
       if (sending || !pending || !profile) return;
       const n = Math.max(-5, Math.min(5, pending));
       pending -= n;
@@ -91,11 +94,12 @@ W['app-console'] = {
     };
 
     let start = null, onKnob = false;
+    const visible = () => !document.body.classList.contains('night') && pages[curPage] === page && !box.closest('.stack-item:not(.active)');
     const at = (e) => { const r = dial.getBoundingClientRect(); return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI; };
     dial.onpointerdown = (e) => {
       const r = dial.getBoundingClientRect();
       onKnob = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2)) < r.width * 0.32;
-      start = at(e); turned = 0; moved = 0; pending = 0; try { dial.setPointerCapture(e.pointerId); } catch (_) {} };
+      start = at(e); turned = 0; moved = 0; try { dial.setPointerCapture(e.pointerId); } catch (_) {} };
     dial.onpointermove = (e) => {
       if (start === null) return;
       const now = at(e);
@@ -124,10 +128,10 @@ W['app-console'] = {
       update() {
         // neighbouring pages and hidden Smart Stack cards get ticks too; the focused app is asked about only while
         // this widget is actually showing
-        if (!alive || document.body.classList.contains('night') || pages[curPage] !== page || box.closest('.stack-item:not(.active)')) return;
+        if (!alive || !visible()) return;
         if (Date.now() - lastPoll > 1500) poll();
       },
-      destroy() { alive = false; },
+      destroy() { alive = false; pending = 0; },
     };
   },
 };

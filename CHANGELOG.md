@@ -10,8 +10,10 @@
   showing. First version in #47 by [blx10](https://github.com/blx10).
 - **App console** (Windows): keys and a dial that follow the app in front. Add an app in Settings › General › App
   console with its process name and keys (Undo = ctrl+z; the dial turns and presses too), and the widget shows that
-  app's keys while it is focused. Keys go only to that app: the agent checks the focused app again before every key,
-  and doesn't send to an app running as administrator. Off until the widget's "Send keys to the computer" option is on,
+  app's keys while it is focused. Before every key the agent checks that the app in front still matches the profile
+  and stops if it doesn't; a focus change in the instant between that check and the key press can't be ruled out.
+  An agent that isn't running as administrator doesn't send to an app that is. Off until the widget's "Send keys to
+  the computer" option is on,
   and the phone only ever sends which key was tapped. macOS and Linux show that it needs Windows. Idea and first
   version in #48 by [blx10](https://github.com/blx10).
 

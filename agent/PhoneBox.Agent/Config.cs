@@ -424,6 +424,7 @@ public sealed partial class ConfigStore(string path)
         cfg = Normalize(cfg);
         foreach (var s in cfg.Shortcuts)
             if (string.IsNullOrWhiteSpace(s.Cmd)) return $"Shortcut '{s.Label}' has no command";
+        if (cfg.Console.Profiles.Count > AppConsole.MaxProfiles) return $"The app console has more than {AppConsole.MaxProfiles} apps";
         foreach (var p in cfg.Console.Profiles)
             if (AppConsole.Validate(p) is { } consoleError) return consoleError;
         if (cfg.Weather.Lat is < -90 or > 90 || cfg.Weather.Lon is < -180 or > 180) return "Invalid weather location";
@@ -519,7 +520,7 @@ public sealed partial class ConfigStore(string path)
         c.HomeAssistant.Url = string.IsNullOrWhiteSpace(c.HomeAssistant.Url) ? null : c.HomeAssistant.Url.Trim().TrimEnd('/');
         c.HomeAssistant.Token = string.IsNullOrWhiteSpace(c.HomeAssistant.Token) ? null : c.HomeAssistant.Token.Trim();
         c.Console ??= new();
-        c.Console.Profiles = (c.Console.Profiles ?? []).Where(p => p is not null).Take(30).ToList();
+        c.Console.Profiles = (c.Console.Profiles ?? []).Where(p => p is not null).Take(200).ToList(); // more than 30 is refused on save
         var consoleIds = new HashSet<string>();
         foreach (var p in c.Console.Profiles)
         {

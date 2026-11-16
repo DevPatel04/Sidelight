@@ -92,6 +92,22 @@ public sealed class AppConsoleTests : IDisposable
     }
 
     [Fact]
+    public async Task TurningTheSwitchOffMidMacroStopsTheRest()
+    {
+        var console = Make();
+        console.SendCombo = combo =>
+        {
+            _sent.Add(string.Join("+", combo));
+            // the user turns "Send keys" off right after the first combo went out
+            File.WriteAllText(_path, File.ReadAllText(_path).Replace("\"control\": true", "\"control\": false"));
+            File.SetLastWriteTimeUtc(_path, DateTime.UtcNow.AddMinutes(1));
+            return true;
+        };
+        Assert.Equal(403, (await console.Act(null, "p/c", "ps", "k1", 1, default)).Status);
+        Assert.Equal(["ctrl+s"], _sent);
+    }
+
+    [Fact]
     public async Task AWindowChangeRightBeforeSendingStopsIt()
     {
         var console = Make();
@@ -184,6 +200,7 @@ public sealed class AppConsoleTests : IDisposable
         Assert.Contains("longer than", store.Save($$"""{ "console": { "profiles": [{ "label": "X", "apps": "x", "keys": [{ "keys": "{{string.Join(", ", Enumerable.Repeat("ctrl+shift+f12", 20))}}" }] }] } }"""));
         Assert.Contains("longer than", store.Save($$"""{ "console": { "profiles": [{ "label": "X", "apps": "{{new string('a', 301)}}", "keys": [{ "keys": "f5" }] }] } }"""));
         Assert.Contains("more than 12 keys", store.Save($$"""{ "console": { "profiles": [{ "label": "X", "apps": "x", "keys": [{{string.Join(",", Enumerable.Repeat("""{ "keys": "f5" }""", 13))}}] }] } }"""));
+        Assert.Contains("more than 30 apps", store.Save($$"""{ "console": { "profiles": [{{string.Join(",", Enumerable.Range(0, 31).Select(i => $$"""{ "label": "A{{i}}", "apps": "a{{i}}" }"""))}}] } }"""));
         Assert.Null(store.Save("""{ "console": { "profiles": [{ "label": "Edit Pro", "apps": "edit", "keys": [{ "keys": "f5" }], "dialLeft": " " }, { "label": "Edit Pro", "apps": "e2" }] } }"""));
         var saved = store.Get().Console.Profiles;
         Assert.Equal(["edit-pro", "edit-pro-2"], saved.Select(p => p.Id));

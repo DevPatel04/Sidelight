@@ -29,12 +29,13 @@ test('app console shows the focused app\'s keys and sends ids, not keys', async 
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect.poll(() => page.evaluate(() => window.__posts)).toEqual(['photoshop/k2?widget=test%2Fac']);
 
-  // a turn of the dial: 21 moves make 5 clicks, sent at most one request per click (fewer while one is in flight)
+  // a turn of the dial: 23 moves make 5 clicks, sent at most one request per click (fewer while one is in flight)
   const box = await page.locator('.ac-dial').boundingBox();
   const cx = box.x + box.width / 2, cy = box.y + box.height / 2, r = box.width / 2 - 6;
   await page.mouse.move(cx + r, cy);
   await page.mouse.down();
-  for (let deg = 0; deg <= 120; deg += 6) await page.mouse.move(cx + r * Math.cos(deg * Math.PI / 180), cy + r * Math.sin(deg * Math.PI / 180));
+  // 5 clicks of 24°, with room for rounding before a 6th
+  for (let deg = 0; deg <= 132; deg += 6) await page.mouse.move(cx + r * Math.cos(deg * Math.PI / 180), cy + r * Math.sin(deg * Math.PI / 180));
   await page.mouse.up();
   await expect.poll(() => page.evaluate(() => window.__posts.slice(1).reduce((n, p) => n + +(p.match(/times=(\d+)/) || [0, 0])[1], 0))).toBe(5);
   const turns = await page.evaluate(() => window.__posts.slice(1));

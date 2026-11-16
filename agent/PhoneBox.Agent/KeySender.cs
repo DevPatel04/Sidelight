@@ -45,6 +45,8 @@ public static class KeySender
         "next" => "nexttrack",
         "prev" or "previous" => "prevtrack",
         "volup" => "volumeup",
+        "[" or "openbracket" => "bracketleft",
+        "]" or "closebracket" => "bracketright",
         "voldown" => "volumedown",
         var x => x,
     };
@@ -61,6 +63,7 @@ public static class KeySender
         ["up"] = (0x26, "Up", 126), ["down"] = (0x28, "Down", 125), ["left"] = (0x25, "Left", 123), ["right"] = (0x27, "Right", 124),
         ["printscreen"] = (0x2C, "Print", 105), ["minus"] = (0xBD, "minus", 27), ["equals"] = (0xBB, "equal", 24),
         ["comma"] = (0xBC, "comma", 43), ["period"] = (0xBE, "period", 47), ["slash"] = (0xBF, "slash", 44), ["semicolon"] = (0xBA, "semicolon", 41),
+        ["bracketleft"] = (0xDB, "bracketleft", 33), ["bracketright"] = (0xDD, "bracketright", 30),
         ["playpause"] = (0xB3, "XF86AudioPlay", -1), ["nexttrack"] = (0xB0, "XF86AudioNext", -1), ["prevtrack"] = (0xB1, "XF86AudioPrev", -1),
         ["mute"] = (0xAD, "XF86AudioMute", -1), ["volumeup"] = (0xAF, "XF86AudioRaiseVolume", -1), ["volumedown"] = (0xAE, "XF86AudioLowerVolume", -1),
     };

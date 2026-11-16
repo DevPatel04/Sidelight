@@ -122,6 +122,8 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
             for (var t = 0; t < times; t++)
                 foreach (var combo in combos)
                 {
+                    // the switch can be turned off (or the widget removed) while this waits or runs
+                    if (WidgetFor(config.Get(), deviceId, widget)?.Bool("control") != true) return (403, "sending keys was turned off");
                     // checked again before every combo: a click elsewhere mid-macro must not send the rest there
                     var app = Focused();
                     if (app is null || !profile.Matches(app.Process)) return (409, "the focused app changed");
@@ -141,7 +143,7 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
         finally { _sending.Release(); }
     }
 
-    internal const int MaxApps = 300, MaxSpec = 200;
+    internal const int MaxApps = 300, MaxSpec = 200, MaxProfiles = 30;
 
     /// <summary>Checks a profile's key specs; null when they are all valid.</summary>
     public static string? Validate(ConsoleProfile p)
