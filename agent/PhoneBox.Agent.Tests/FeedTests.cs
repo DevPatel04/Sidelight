@@ -235,6 +235,55 @@ public sealed class FeedHttpTests
         Assert.True(r.NotModified);
     }
 
+    [Theory]
+    [InlineData("192.168.1.5", true)]
+    [InlineData("nas", true)]
+    [InlineData("nas.local", true)]
+    [InlineData("reader.lan", true)]
+    [InlineData("box.home.arpa", true)]
+    [InlineData("pc.tail1234.ts.net", true)]
+    [InlineData("rss.example.com", false)]
+    [InlineData("local.example.com", false)]
+    [InlineData("evil.com", false)]
+    public void LocalNames(string host, bool local) => Assert.Equal(local, FeedHttp.IsLocalName(host));
+
+    [Theory]
+    [InlineData("https://rss.example.com/feed", false)] // a public name: its DNS must not point into the network
+    [InlineData("http://192.168.1.5/feed", true)]
+    [InlineData("http://nas.local/feed", true)]
+    public async Task PrivateAddressesOnlyForLocalHosts(string url, bool allowPrivate)
+    {
+        bool? seen = null;
+        var handler = new Fake(req => { seen = req.Options.TryGetValue(FeedHttp.AllowPrivate, out var p) && p; return Ok("<rss/>"); });
+        using var http = new HttpClient(handler);
+        await FeedHttp.GetAsync(http, url, null, null, CancellationToken.None);
+        Assert.Equal(allowPrivate, seen);
+    }
+
+    [Fact]
+    public async Task ARedirectFromALocalHostToAnotherHostIsPublicOnly()
+    {
+        var allowed = new List<bool>();
+        var handler = new Fake(req =>
+        {
+            allowed.Add(req.Options.TryGetValue(FeedHttp.AllowPrivate, out var p) && p);
+            return req.RequestUri!.Host == "nas.local" ? Redirect("http://other.local/feed") : Ok("<rss/>");
+        });
+        using var http = new HttpClient(handler);
+        await FeedHttp.GetAsync(http, "http://nas.local/feed", null, null, CancellationToken.None);
+        Assert.Equal([true, false], allowed);
+    }
+
+    [Fact]
+    public void HostileTitlesAreCutBeforeCleaning()
+    {
+        // many '<' without '>' used to make the tag pattern rescan the rest of the text for each one
+        var title = FeedParser.Clean(new string('<', 2_000_000) + "tail");
+        Assert.True(title.Length <= 301);
+        Assert.Equal("a b c", FeedParser.Clean("a<x>b</x>c"));
+        Assert.Equal("1 < 2", FeedParser.Clean("1 &lt; 2"));
+    }
+
     internal static HttpResponseMessage Redirect(string to) => new(HttpStatusCode.Found) { Headers = { Location = new Uri(to) } };
     internal static HttpResponseMessage Ok(string body) => new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "application/rss+xml") };
 

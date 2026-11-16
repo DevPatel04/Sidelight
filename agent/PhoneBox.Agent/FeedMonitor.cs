@@ -159,14 +159,16 @@ public sealed class FeedMonitor(ConfigStore config, ILogger<FeedMonitor> log) : 
 
 /// <summary>
 /// Outbound requests for feeds. Never to this computer (loopback), link-local, multicast or unspecified addresses.
-/// Private and Tailscale addresses are allowed only for the host the user typed in Settings (a self-hosted reader
-/// at home); a redirect to another host must go to a public address. Redirects are followed by hand, at most 5.
+/// Private and Tailscale addresses are allowed only for the host the user typed in Settings, and only when that host
+/// is itself local: an IP address, a name without dots, or a .local / .lan / .home / .internal / .home.arpa / .ts.net
+/// name (a self-hosted reader at home). A public name whose DNS points into the local network is refused, and so is
+/// a redirect from the typed host to any other host that is not public. Redirects are followed by hand, at most 5.
 /// </summary>
 internal static class FeedHttp
 {
     internal const int MaxBytes = 4 * 1024 * 1024;
     private const int MaxRedirects = 5;
-    private static readonly HttpRequestOptionsKey<bool> AllowPrivate = new("PhoneBox.AllowPrivate");
+    internal static readonly HttpRequestOptionsKey<bool> AllowPrivate = new("PhoneBox.AllowPrivate");
 
     internal sealed record Response(byte[]? Body, Uri? FinalUri, bool NotModified, string? ETag, string? LastModified);
 
@@ -187,7 +189,7 @@ internal static class FeedHttp
             var ip = addresses.FirstOrDefault(a => Allowed(a, allowPrivate))
                 ?? throw new HttpRequestException(allowPrivate
                     ? "refused: the address is this computer or not routable"
-                    : "refused: a redirect pointed to a local or private address");
+                    : $"refused: {ctx.DnsEndPoint.Host} is not a public address (for a feed on your network, use its IP address or local name)");
             var socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
             try
             {
@@ -219,6 +221,16 @@ internal static class FeedHttp
         return ip.AddressFamily == AddressFamily.InterNetworkV6 && (b[0] & 0xFE) == 0xFC;
     }
 
+    private static readonly string[] LocalSuffixes = [".local", ".lan", ".home", ".internal", ".home.arpa", ".ts.net"];
+
+    /// <summary>A host that names the local network itself: an IP address, a single label, or a local-only suffix.</summary>
+    internal static bool IsLocalName(string host)
+    {
+        host = host.TrimEnd('.');
+        return IPAddress.TryParse(host, out _) || !host.Contains('.')
+            || LocalSuffixes.Any(s => host.EndsWith(s, StringComparison.OrdinalIgnoreCase));
+    }
+
     /// <summary>An http(s) address without user info, or null.</summary>
     internal static Uri? ParseTarget(string? raw)
     {
@@ -236,12 +248,12 @@ internal static class FeedHttp
         var uri = first;
         for (var hop = 0; ; hop++)
         {
-            var sameHost = string.Equals(uri.Host, first.Host, StringComparison.OrdinalIgnoreCase);
-            // a redirect to a literal address can be refused before any connection
-            if (!sameHost && IPAddress.TryParse(uri.Host, out var lit) && !Allowed(lit, allowPrivate: false))
-                throw new HttpRequestException("refused: a redirect pointed to a local or private address");
+            var allowPrivate = string.Equals(uri.Host, first.Host, StringComparison.OrdinalIgnoreCase) && IsLocalName(first.Host);
+            // a literal address that is not allowed can be refused before any connection
+            if (IPAddress.TryParse(uri.Host, out var lit) && !Allowed(lit, allowPrivate))
+                throw new HttpRequestException($"refused: {uri.Host} is not a public address");
             using var req = new HttpRequestMessage(HttpMethod.Get, uri);
-            req.Options.Set(AllowPrivate, sameHost);
+            req.Options.Set(AllowPrivate, allowPrivate);
             req.Headers.UserAgent.ParseAdd($"PhoneBox/{AppPaths.Version}");
             req.Headers.Accept.ParseAdd("application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1");
             if (hop == 0 && etag is not null) req.Headers.TryAddWithoutValidation("If-None-Match", etag);
@@ -358,7 +370,9 @@ internal static partial class FeedParser
     internal static string Clean(string? s, bool decodeEntities = true)
     {
         if (string.IsNullOrEmpty(s)) return "";
-        if (decodeEntities) s = WebUtility.HtmlDecode(Tags().Replace(s, " "));
+        // a title is short: cut the raw text first so nothing below works on megabytes
+        if (s.Length > MaxRaw) s = s[..MaxRaw];
+        if (decodeEntities) s = WebUtility.HtmlDecode(StripTags(s));
         var sb = new StringBuilder(Math.Min(s.Length, MaxTitle + 1));
         var space = false;
         foreach (var r in s.EnumerateRunes())
@@ -373,8 +387,25 @@ internal static partial class FeedParser
         return sb.ToString();
     }
 
-    [GeneratedRegex("<[^>]*>")]
-    private static partial Regex Tags();
+    private const int MaxRaw = 8 * MaxTitle;
+
+    /// <summary>Removes &lt;…&gt; tags in one pass; a '&lt;' with no '&gt;' after it is kept as text.</summary>
+    private static string StripTags(string s)
+    {
+        var lt = s.IndexOf('<');
+        if (lt < 0) return s;
+        var sb = new StringBuilder(s.Length);
+        var i = 0;
+        while (lt >= 0)
+        {
+            var gt = s.IndexOf('>', lt + 1);
+            if (gt < 0) break;
+            sb.Append(s, i, lt - i).Append(' ');
+            i = gt + 1;
+            lt = s.IndexOf('<', i);
+        }
+        return sb.Append(s, i, s.Length - i).ToString();
+    }
 
     [GeneratedRegex(@"^(?:[A-Za-z]+,?\s*)?(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\.?\s+(\d{2,4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(.*)$")]
     private static partial Regex Rfc822();
@@ -392,6 +423,7 @@ internal static partial class FeedParser
     {
         if (string.IsNullOrWhiteSpace(s)) return 0;
         s = s.Trim();
+        if (s.Length > 64) return 0; // no real date is longer; keeps the patterns below cheap
         var m = Rfc822().Match(s);
         if (m.Success)
         {
