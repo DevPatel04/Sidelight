@@ -133,5 +133,497 @@ public sealed class SessionDetailsTests : IDisposable
         Assert.Equal(ignored ? 0 : 1, sessions.Count);
     }
 
+    [Fact]
+    public void Antigravity_NeverParsesDbWalAndReadsDocumentedDaemonWorkspaceSafely()
+    {
+        var agyDir = Path.Combine(_root, ".gemini", "antigravity");
+        var daemonDir = Path.Combine(agyDir, "daemon");
+        var convDir = Path.Combine(agyDir, "conversations");
+        Directory.CreateDirectory(daemonDir);
+        Directory.CreateDirectory(convDir);
+
+        // Even if conversations/conversation_summaries.db-wal was just written and contains file:/// URIs, it must never be parsed or mark the session busy.
+        var wal = Path.Combine(convDir, "conversation_summaries.db-wal");
+        File.WriteAllText(wal, "file:///Users/test/Projects/wal-secret\u0001\u0002 ");
+        File.SetLastWriteTimeUtc(wal, DateTime.UtcNow);
+
+        var daemonPath = Path.Combine(daemonDir, "daemon.json");
+        var daemonTime = DateTime.UtcNow.AddMinutes(-15);
+        File.WriteAllText(daemonPath, """{"pid":4455}""");
+        File.SetLastWriteTimeUtc(daemonPath, daemonTime);
+        bool Match4455(int pid, long _) => pid == 4455;
+
+        Assert.Empty(_monitor.ReadAntigravity(_root, scanProcesses: () => [], isAlive: pid => pid == 9999, sameStart: Match4455));
+
+        var session = Assert.Single(_monitor.ReadAntigravity(_root, scanProcesses: () => [], isAlive: pid => pid == 4455, sameStart: Match4455, getProcessStartMs: _ => null));
+        Assert.Equal("antigravity", session.Tool);
+        Assert.Equal("Antigravity", session.Project);
+        Assert.Equal("idle", session.Status);
+        Assert.Equal(4455, session.Pid);
+        Assert.Equal(session.StartedAt, session.Since);
+
+        // Percent-encoded documented workspace field is decoded cleanly.
+        File.WriteAllText(daemonPath, """{"pid":4455,"workspace":"file:///Users/test/Projects/my%20phonebox"}""");
+        File.SetLastWriteTimeUtc(daemonPath, daemonTime.AddSeconds(1));
+        var withWorkspace = Assert.Single(_monitor.ReadAntigravity(_root, scanProcesses: () => [], isAlive: pid => pid == 4455, sameStart: Match4455, getProcessStartMs: _ => null));
+        Assert.Equal("my phonebox", withWorkspace.Project);
+
+        // Control characters (raw or percent-encoded) are rejected back to neutral fallback.
+        File.WriteAllText(daemonPath, """{"pid":4455,"cwd":"/Users/test/bad%01proj"}""");
+        File.SetLastWriteTimeUtc(daemonPath, daemonTime.AddSeconds(2));
+        var withBadWorkspace = Assert.Single(_monitor.ReadAntigravity(_root, scanProcesses: () => [], isAlive: pid => pid == 4455, sameStart: Match4455, getProcessStartMs: _ => null));
+        Assert.Equal("Antigravity", withBadWorkspace.Project);
+    }
+
+    [Fact]
+    public void Antigravity_DaemonFallbackRejectsStaleRecycledPidViaSameStart()
+    {
+        var agyDir = Path.Combine(_root, ".gemini", "antigravity");
+        var daemonDir = Path.Combine(agyDir, "daemon");
+        Directory.CreateDirectory(daemonDir);
+        using var proc = System.Diagnostics.Process.GetCurrentProcess();
+        var pid = proc.Id;
+        var daemonPath = Path.Combine(daemonDir, "hub_stale.json");
+        File.WriteAllText(daemonPath, JsonSerializer.Serialize(new { pid }));
+        // Stale daemon file from 10 minutes before the current process started -> PID reuse rejected.
+        File.SetLastWriteTimeUtc(daemonPath, proc.StartTime.ToUniversalTime().AddMinutes(-10));
+        Assert.Empty(_monitor.ReadAntigravity(_root, scanProcesses: () => []));
+
+        // When the file timestamp matches the live process's start time, it is accepted.
+        File.SetLastWriteTimeUtc(daemonPath, proc.StartTime.ToUniversalTime());
+        var session = Assert.Single(_monitor.ReadAntigravity(_root, scanProcesses: () => []));
+        Assert.Equal(pid, session.Pid);
+    }
+
+    [Fact]
+    public void Antigravity_DaemonRewrittenLaterWithMatchingProcStartKeepsProject()
+    {
+        var agyDir = Path.Combine(_root, ".gemini", "antigravity");
+        var daemonDir = Path.Combine(agyDir, "daemon");
+        Directory.CreateDirectory(daemonDir);
+        var startedUtc = DateTime.UtcNow.AddHours(-3);
+        var startedFt = startedUtc.ToFileTimeUtc();
+        var startedUnixSec = new DateTimeOffset(startedUtc).ToUnixTimeSeconds();
+        var expectedSecFt = DateTimeOffset.FromUnixTimeSeconds(startedUnixSec).UtcDateTime.ToFileTimeUtc();
+        var startedUnixMs = new DateTimeOffset(startedUtc).ToUnixTimeMilliseconds();
+        var expectedMsFt = DateTimeOffset.FromUnixTimeMilliseconds(startedUnixMs).UtcDateTime.ToFileTimeUtc();
+
+        var daemonPath = Path.Combine(daemonDir, "hub_rewrite.json");
+
+        // 1) procStart as Unix seconds number, file rewritten 3 hours after process start -> still accepted!
+        File.WriteAllText(daemonPath, JsonSerializer.Serialize(new { pid = 4455, procStart = startedUnixSec, workspace = "file:///Users/test/phonebox" }));
+        File.SetLastWriteTimeUtc(daemonPath, DateTime.UtcNow);
+        var sNum = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [],
+            isAlive: pid => pid == 4455,
+            sameStart: (pid, ft) => pid == 4455 && ft == expectedSecFt,
+            getProcessStartMs: _ => startedUnixMs));
+        Assert.Equal("phonebox", sNum.Project);
+
+        // 2) procStart as string (Unix milliseconds), file rewritten later -> accepted!
+        File.WriteAllText(daemonPath, JsonSerializer.Serialize(new { pid = 4455, procStart = startedUnixMs.ToString(), folder = "/Users/test/phonebox-str" }));
+        File.SetLastWriteTimeUtc(daemonPath, DateTime.UtcNow.AddSeconds(1));
+        var sStr = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [],
+            isAlive: pid => pid == 4455,
+            sameStart: (pid, ft) => pid == 4455 && ft == expectedMsFt,
+            getProcessStartMs: _ => startedUnixMs));
+        Assert.Equal("phonebox-str", sStr.Project);
+
+        // 3) procStart as explicit FILETIME matching startedFt -> accepted; mismatched procStart -> rejected.
+        File.WriteAllText(daemonPath, JsonSerializer.Serialize(new { pid = 4455, procStart = startedFt, cwd = "/Users/test/phonebox-ft" }));
+        File.SetLastWriteTimeUtc(daemonPath, DateTime.UtcNow.AddSeconds(2));
+        var sFt = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [],
+            isAlive: pid => pid == 4455,
+            sameStart: (pid, ft) => pid == 4455 && ft == startedFt,
+            getProcessStartMs: _ => startedUnixMs));
+        Assert.Equal("phonebox-ft", sFt.Project);
+
+        Assert.Empty(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [],
+            isAlive: pid => pid == 4455,
+            sameStart: (_, _) => false));
+    }
+
+    [Fact]
+    public void Antigravity_DaemonFailuresAndOversizedJsonAreCachedAndSkipped()
+    {
+        var agyDir = Path.Combine(_root, ".gemini", "antigravity");
+        var daemonDir = Path.Combine(agyDir, "daemon");
+        Directory.CreateDirectory(daemonDir);
+        var badPath = Path.Combine(daemonDir, "bad.json");
+        var bigPath = Path.Combine(daemonDir, "big.json");
+
+        File.WriteAllText(badPath, """{"pid":"123"}""");
+        File.WriteAllText(bigPath, new string(' ', 70 * 1024));
+        var badTime = DateTime.UtcNow.AddMinutes(-1);
+        File.SetLastWriteTimeUtc(badPath, badTime);
+        File.SetLastWriteTimeUtc(bigPath, badTime);
+
+        Assert.Empty(_monitor.ReadAntigravity(_root, scanProcesses: () => [], isAlive: _ => true, sameStart: (_, _) => true));
+        Assert.Equal(2, _monitor.AgyDaemonParseCount);
+
+        // Second poll with unchanged mtime and length uses cached failure/skip entries without re-parsing.
+        Assert.Empty(_monitor.ReadAntigravity(_root, scanProcesses: () => [], isAlive: _ => true, sameStart: (_, _) => true));
+        Assert.Equal(2, _monitor.AgyDaemonParseCount);
+
+        // Invalid JSON syntax is also cached by (mtime, length).
+        File.WriteAllText(badPath, "{not-valid-json");
+        File.SetLastWriteTimeUtc(badPath, badTime.AddSeconds(1));
+        Assert.Empty(_monitor.ReadAntigravity(_root, scanProcesses: () => [], isAlive: _ => true, sameStart: (_, _) => true));
+        Assert.Equal(3, _monitor.AgyDaemonParseCount);
+        Assert.Empty(_monitor.ReadAntigravity(_root, scanProcesses: () => [], isAlive: _ => true, sameStart: (_, _) => true));
+        Assert.Equal(3, _monitor.AgyDaemonParseCount);
+    }
+
+    [Fact]
+    public void Antigravity_DoesNotCopyProjectFromNonSelectedDaemon()
+    {
+        var agyDir = Path.Combine(_root, ".gemini", "antigravity");
+        var daemonDir = Path.Combine(agyDir, "daemon");
+        Directory.CreateDirectory(daemonDir);
+        var ft = DateTime.UtcNow.AddMinutes(-5).ToFileTimeUtc();
+        File.WriteAllText(Path.Combine(daemonDir, "a_other.json"), """{"pid":100,"workspace":"/Users/test/other-proj"}""");
+        File.WriteAllText(Path.Combine(daemonDir, "b_selected.json"), """{"pid":200}""");
+
+        var session = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(200, "Antigravity", ft, 1_700_000_000_000, null)],
+            isAlive: pid => pid is 100 or 200,
+            sameStart: (_, _) => true));
+        Assert.Equal(200, session.Pid);
+        Assert.Equal("Antigravity", session.Project);
+    }
+
+    [Theory]
+    [InlineData("file:///Users/test/my%2520proj", "my%20proj")]
+    [InlineData("file:///Users/test/my%20phonebox", "my phonebox")]
+    [InlineData("/Users/test/bidi\u202Eproj", null)]
+    [InlineData("file:///Users/test/bidi%E2%80%AEproj", null)]
+    [InlineData("/Users/test/bad%01proj", null)]
+    public void ProjectNameFromPathOrUri_HandlesSingleDecodeBidiAndLengthCap(string input, string? expected)
+    {
+        Assert.Equal(expected, SessionMonitor.ProjectNameFromPathOrUri(input));
+        Assert.Null(SessionMonitor.ProjectNameFromPathOrUri("/Users/test/" + new string('a', 101)));
+        Assert.Equal(new string('a', 100), SessionMonitor.ProjectNameFromPathOrUri("/Users/test/" + new string('a', 100)));
+    }
+
+    [Fact]
+    public void Antigravity_CachesBrainAndConversationsScanFor30Seconds()
+    {
+        var agyDir = Path.Combine(_root, ".gemini", "antigravity");
+        var brain1 = Path.Combine(agyDir, "brain", "conv-1", ".system_generated", "logs");
+        Directory.CreateDirectory(brain1);
+        var t1 = Path.Combine(brain1, "transcript.jsonl");
+        File.WriteAllText(t1, "{}\n");
+        File.SetLastWriteTimeUtc(t1, DateTime.UtcNow.AddMinutes(-5));
+
+        var startUtc = DateTime.UtcNow.AddHours(-1);
+        var startFt = startUtc.ToFileTimeUtc();
+        var startMs = new DateTimeOffset(startUtc).ToUnixTimeMilliseconds();
+        long ticks = 100_000;
+        var s1 = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(4455, "agy", startFt, startMs, null)],
+            isAlive: pid => pid == 4455,
+            sameStart: (pid, _) => pid == 4455,
+            getTicks: () => ticks));
+        Assert.Equal("idle", s1.Status);
+
+        // New conversation created within 30s does not trigger full re-enumeration yet.
+        var brain2 = Path.Combine(agyDir, "brain", "conv-2", ".system_generated", "logs");
+        Directory.CreateDirectory(brain2);
+        var t2 = Path.Combine(brain2, "transcript.jsonl");
+        File.WriteAllText(t2, "{}\n");
+        File.SetLastWriteTimeUtc(t2, DateTime.UtcNow);
+
+        ticks += 5_000;
+        var s2 = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(4455, "agy", startFt, startMs, null)],
+            isAlive: pid => pid == 4455,
+            sameStart: (pid, _) => pid == 4455,
+            getTicks: () => ticks));
+        Assert.Equal("idle", s2.Status);
+
+        // Updating an already-discovered candidate file is reflected immediately without rescanning.
+        File.SetLastWriteTimeUtc(t1, DateTime.UtcNow);
+        ticks += 1_000;
+        var s2b = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(4455, "agy", startFt, startMs, null)],
+            isAlive: pid => pid == 4455,
+            sameStart: (pid, _) => pid == 4455,
+            getTicks: () => ticks));
+        Assert.Equal("busy", s2b.Status);
+
+        // After 30s, rescan discovers the newer conv-2 file.
+        File.SetLastWriteTimeUtc(t1, DateTime.UtcNow.AddMinutes(-5));
+        ticks += 30_000;
+        var s3 = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(4455, "agy", startFt, startMs, null)],
+            isAlive: pid => pid == 4455,
+            sameStart: (pid, _) => pid == 4455,
+            getTicks: () => ticks));
+        Assert.Equal("busy", s3.Status);
+    }
+
+    [Fact]
+    public void Antigravity_StartedAtIsStableWithoutConversationFilesAndClampsOldSince()
+    {
+        var agyDir = Path.Combine(_root, ".gemini", "antigravity");
+        var daemonDir = Path.Combine(agyDir, "daemon");
+        var convDir = Path.Combine(agyDir, "conversations");
+        Directory.CreateDirectory(daemonDir);
+        Directory.CreateDirectory(convDir);
+        var daemonPath = Path.Combine(daemonDir, "hub_1.json");
+        File.WriteAllText(daemonPath, """{"pid":4455}""");
+        var daemonTime = DateTime.UtcNow.AddMinutes(-15);
+        File.SetLastWriteTimeUtc(daemonPath, daemonTime);
+
+        // Old .pb file from before daemon started -> Since is clamped to StartedAt.
+        var oldPb = Path.Combine(convDir, "old.pb");
+        File.WriteAllText(oldPb, "pb");
+        File.SetLastWriteTimeUtc(oldPb, daemonTime.AddHours(-4));
+
+        // Without process StartTime, falls back to daemon file timestamp — never drifts to UtcNow.
+        var s1 = Assert.Single(_monitor.ReadAntigravity(_root, scanProcesses: () => [], isAlive: pid => pid == 4455, sameStart: (_, _) => true, getProcessStartMs: _ => null));
+        var s2 = Assert.Single(_monitor.ReadAntigravity(_root, scanProcesses: () => [], isAlive: pid => pid == 4455, sameStart: (_, _) => true, getProcessStartMs: _ => null));
+        Assert.Equal(new DateTimeOffset(daemonTime).ToUnixTimeMilliseconds(), s1.StartedAt);
+        Assert.Equal(s1.StartedAt, s2.StartedAt);
+        Assert.Equal(s1.StartedAt, s1.Since);
+
+        // Process StartTime is cached per (pid, startKey) and never drifts to UtcNow.
+        var procMonitor = new SessionMonitor(NullLogger<SessionMonitor>.Instance);
+        var fixedStart = DateTimeOffset.UtcNow.AddHours(-2);
+        var fixedStartMs = fixedStart.ToUnixTimeMilliseconds();
+        var fixedStartFt = fixedStart.UtcDateTime.ToFileTimeUtc();
+        var calls = 0;
+        var s3 = Assert.Single(procMonitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(7788, "agy", fixedStartFt, fixedStartMs, null)],
+            isAlive: pid => pid == 7788,
+            sameStart: (_, _) => true,
+            getProcessStartMs: _ => { calls++; return fixedStartMs; }));
+        var s4 = Assert.Single(procMonitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(7788, "agy", fixedStartFt, fixedStartMs, null)],
+            isAlive: pid => pid == 7788,
+            sameStart: (_, _) => true,
+            getProcessStartMs: _ => { calls++; return fixedStartMs; }));
+        Assert.Equal(1, calls);
+        Assert.Equal(fixedStartMs, s3.StartedAt);
+        Assert.Equal(fixedStartMs, s4.StartedAt);
+    }
+
+    [Fact]
+    public void Antigravity_RejectsOtherEditorsSelectsEarliestMainProcessAndThrottlesScans()
+    {
+        var agyDir = Path.Combine(_root, ".gemini", "antigravity");
+        Directory.CreateDirectory(agyDir);
+
+        var t0 = DateTimeOffset.UtcNow.AddMinutes(-30);
+        var tLater = t0.AddSeconds(10);
+        long ticks = 10_000;
+        var scanCount = 0;
+
+        // 1) Unrelated language_server_macos (no antigravity cmdline marker and no daemon) must NEVER become a session.
+        Assert.Empty(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () =>
+            {
+                scanCount++;
+                return
+                [
+                    new AntigravityProcessCandidate(9001, "language_server_macos", t0.UtcDateTime.ToFileTimeUtc(), t0.ToUnixTimeMilliseconds(), "language_server_macos --app_data_dir=windsurf"),
+                    new AntigravityProcessCandidate(9002, "language_server", t0.UtcDateTime.ToFileTimeUtc(), t0.ToUnixTimeMilliseconds(), null),
+                ];
+            },
+            isAlive: _ => true,
+            sameStart: (_, _) => true,
+            getTicks: () => ticks));
+        Assert.Equal(1, scanCount);
+
+        // 2) Throttles closed-process scan to once per 30 seconds.
+        ticks += 29_999;
+        Assert.Empty(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => { scanCount++; return []; },
+            isAlive: _ => false,
+            getTicks: () => ticks));
+        Assert.Equal(1, scanCount);
+
+        // 3) After 30 seconds, scans again and accepts Antigravity-marked language_server_macos.
+        ticks += 1;
+        var cmdReadCount = 0;
+        var langServerSession = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () =>
+            {
+                scanCount++;
+                return [new AntigravityProcessCandidate(9003, "language_server_macos", t0.UtcDateTime.ToFileTimeUtc(), t0.ToUnixTimeMilliseconds(), null)];
+            },
+            getCommandLine: pid => { cmdReadCount++; return pid == 9003 ? "language_server_macos --app_data_dir=antigravity --extension_server_port=18765" : null; },
+            isAlive: pid => pid == 9003,
+            sameStart: (pid, _) => pid == 9003,
+            getTicks: () => ticks));
+        Assert.Equal(2, scanCount);
+        Assert.Equal(1, cmdReadCount);
+        Assert.Equal(9003, langServerSession.Pid);
+
+        // Subsequent poll while alive uses cached process without scanning again.
+        ticks += 2_000;
+        var cachedSession = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => { scanCount++; return []; },
+            isAlive: pid => pid == 9003,
+            sameStart: (pid, _) => pid == 9003,
+            getTicks: () => ticks));
+        Assert.Equal(2, scanCount);
+        Assert.Equal(9003, cachedSession.Pid);
+
+        // If cached process exits and same (Pid, FileTimeUtc) is rescanned later, cmdline lookup is served from _agyCmdMatchCache.
+        ticks += 30_000;
+        var exitedFirst = true;
+        Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(9003, "language_server_macos", t0.UtcDateTime.ToFileTimeUtc(), t0.ToUnixTimeMilliseconds(), null)],
+            getCommandLine: _ => { cmdReadCount++; return "should-not-be-called"; },
+            isAlive: pid => { if (exitedFirst) { exitedFirst = false; return false; } return pid == 9003; },
+            sameStart: (pid, _) => pid == 9003,
+            getTicks: () => ticks));
+        Assert.Equal(1, cmdReadCount);
+
+        // 4) Priority and earliest-start selection: Antigravity main process (earliest start) beats later Electron helper, agy, and language_server.
+        var multiMonitor = new SessionMonitor(NullLogger<SessionMonitor>.Instance);
+        var mainSession = Assert.Single(multiMonitor.ReadAntigravity(
+            _root,
+            scanProcesses: () =>
+            [
+                new AntigravityProcessCandidate(300, "language_server_macos", t0.AddMinutes(-5).UtcDateTime.ToFileTimeUtc(), t0.AddMinutes(-5).ToUnixTimeMilliseconds(), "--app_data_dir=antigravity"),
+                new AntigravityProcessCandidate(200, "agy", t0.AddMinutes(-2).UtcDateTime.ToFileTimeUtc(), t0.AddMinutes(-2).ToUnixTimeMilliseconds(), null),
+                new AntigravityProcessCandidate(101, "Antigravity", tLater.UtcDateTime.ToFileTimeUtc(), tLater.ToUnixTimeMilliseconds(), null),
+                new AntigravityProcessCandidate(102, "Antigravity", 0, 0, null),
+                new AntigravityProcessCandidate(103, "Antigravity IDE", t0.UtcDateTime.ToFileTimeUtc(), t0.ToUnixTimeMilliseconds(), null),
+            ],
+            isAlive: _ => true,
+            sameStart: (_, _) => true));
+        Assert.Equal(103, mainSession.Pid);
+
+        // 5) Generic language_server without cmdline is accepted when a validated daemon matches its PID.
+        var daemonMonitor = new SessionMonitor(NullLogger<SessionMonitor>.Instance);
+        var daemonDir = Path.Combine(agyDir, "daemon");
+        Directory.CreateDirectory(daemonDir);
+        File.WriteAllText(Path.Combine(daemonDir, "hub_ls.json"), JsonSerializer.Serialize(new { pid = 9004, procStart = t0.ToUnixTimeMilliseconds(), workspace = "/Users/test/ls-proj" }));
+        var daemonSession = Assert.Single(daemonMonitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(9004, "language_server_macos", t0.UtcDateTime.ToFileTimeUtc(), t0.ToUnixTimeMilliseconds(), null)],
+            isAlive: pid => pid == 9004,
+            sameStart: (pid, _) => pid == 9004));
+        Assert.Equal(9004, daemonSession.Pid);
+        Assert.Equal("ls-proj", daemonSession.Project);
+    }
+
+    [Fact]
+    public void Antigravity_TranscriptCompletionTransitionsToIdleWithoutTwoMinuteChurn()
+    {
+        var agyDir = Path.Combine(_root, ".gemini", "antigravity");
+        var convDir = Path.Combine(agyDir, "conversations");
+        var logDir = Path.Combine(agyDir, "brain", "conv-1", ".system_generated", "logs");
+        Directory.CreateDirectory(convDir);
+        Directory.CreateDirectory(logDir);
+        var transcript = Path.Combine(logDir, "transcript.jsonl");
+        var pbPath = Path.Combine(convDir, "conv-1.pb");
+        var startUtc = DateTime.UtcNow.AddMinutes(-10);
+        var startFt = startUtc.ToFileTimeUtc();
+        var startMs = new DateTimeOffset(startUtc).ToUnixTimeMilliseconds();
+        long ticks = 50_000;
+
+        // Recent .pb write without a transcript never marks the session busy.
+        File.WriteAllText(pbPath, "pb");
+        var pbTime = DateTime.UtcNow.AddSeconds(-15);
+        File.SetLastWriteTimeUtc(pbPath, pbTime);
+        var pbOnly = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(5511, "Antigravity", startFt, startMs, null)],
+            isAlive: pid => pid == 5511,
+            sameStart: (_, _) => true,
+            getTicks: () => ticks));
+        Assert.Equal("idle", pbOnly.Status);
+        Assert.Equal(new DateTimeOffset(pbTime).ToUnixTimeMilliseconds(), pbOnly.Since);
+
+        // Turn in flight (USER_INPUT) -> busy (after discovery interval).
+        ticks += 30_000;
+        File.WriteAllText(transcript, JsonSerializer.Serialize(new { type = "USER_INPUT", content = "Check build" }) + "\n");
+        File.SetLastWriteTimeUtc(transcript, DateTime.UtcNow);
+        var busy = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(5511, "Antigravity", startFt, startMs, null)],
+            isAlive: pid => pid == 5511,
+            sameStart: (_, _) => true,
+            getTicks: () => ticks));
+        Assert.Equal("busy", busy.Status);
+        Assert.Null(busy.Outcome);
+
+        // PLANNER_RESPONSE with pending tool_calls -> still busy.
+        ticks += 2_000;
+        File.AppendAllText(transcript, JsonSerializer.Serialize(new { type = "PLANNER_RESPONSE", status = "DONE", tool_calls = new[] { new { name = "read_file" } } }) + "\n");
+        File.SetLastWriteTimeUtc(transcript, DateTime.UtcNow.AddSeconds(1));
+        var toolInFlight = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(5511, "Antigravity", startFt, startMs, null)],
+            isAlive: pid => pid == 5511,
+            sameStart: (_, _) => true,
+            getTicks: () => ticks));
+        Assert.Equal("busy", toolInFlight.Status);
+
+        // Final PLANNER_RESPONSE (DONE, empty tool_calls) written right now -> immediately idle with Outcome = completed.
+        ticks += 2_000;
+        File.AppendAllText(transcript, JsonSerializer.Serialize(new { type = "PLANNER_RESPONSE", status = "DONE", tool_calls = Array.Empty<object>() }) + "\n");
+        File.SetLastWriteTimeUtc(transcript, DateTime.UtcNow.AddSeconds(2));
+        var done = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(5511, "Antigravity", startFt, startMs, null)],
+            isAlive: pid => pid == 5511,
+            sameStart: (_, _) => true,
+            getTicks: () => ticks));
+        Assert.Equal("idle", done.Status);
+        Assert.Equal("completed", done.Outcome);
+
+        // Final PLANNER_RESPONSE (ERROR) -> idle with Outcome = aborted; works even on > 64 KB transcript files.
+        ticks += 2_000;
+        File.WriteAllText(transcript,
+            new string(' ', 70 * 1024) + "\n" +
+            JsonSerializer.Serialize(new { type = "PLANNER_RESPONSE", status = "ERROR" }) + "\n");
+        File.SetLastWriteTimeUtc(transcript, DateTime.UtcNow.AddSeconds(3));
+        var aborted = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(5511, "Antigravity", startFt, startMs, null)],
+            isAlive: pid => pid == 5511,
+            sameStart: (_, _) => true,
+            getTicks: () => ticks));
+        Assert.Equal("idle", aborted.Status);
+        Assert.Equal("aborted", aborted.Outcome);
+    }
+
+    [Fact]
+    public void ProcessMonitorDetail_ToleratesDuplicateSessionPids()
+    {
+        _monitor.SetSessionsForTest(
+        [
+            new AgentSession("claude:1", "claude", "first-session", "proj-a", "busy", null, 1000, 900, Pid: 4455),
+            new AgentSession("antigravity:main", "antigravity", "Antigravity", "Antigravity", "idle", null, 1000, 900, Pid: 4455),
+        ]);
+        var procs = new ProcessMonitor(NullLogger<ProcessMonitor>.Instance, _monitor);
+        var detail = procs.Detail("phonebox-nonexistent-process-name");
+        Assert.Empty(detail.Instances);
+    }
+
     public void Dispose() { if (Directory.Exists(_root)) Directory.Delete(_root, true); }
 }
