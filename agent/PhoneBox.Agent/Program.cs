@@ -68,6 +68,7 @@ AddMonitor<QuotaMonitor>(builder.Services);
 AddMonitor<ProcessMonitor>(builder.Services);
 AddMonitor<SessionMonitor>(builder.Services);
 AddMonitor<FeedMonitor>(builder.Services);
+builder.Services.AddSingleton<PhotoFrame>();
 AddMonitor<GitHubMonitor>(builder.Services);
 AddMonitor<PingMonitor>(builder.Services);
 AddMonitor<AdbReverse>(builder.Services);
@@ -337,7 +338,7 @@ app.MapGet("/api/settings", (ConfigStore cfg, HttpResponse res) =>
     return Results.Text(json, "application/json; charset=utf-8");
 });
 
-app.MapPut("/api/settings", async (HttpRequest req, ConfigStore cfg, ControlDeck deck, ILogger<Program> log) =>
+app.MapPut("/api/settings", async (HttpRequest req, ConfigStore cfg, ControlDeck deck, PhotoFrame photos, ILogger<Program> log) =>
 {
     if (req.ContentType?.StartsWith("application/json") != true) return Results.StatusCode(415);
     using var r = new StreamReader(req.Body);
@@ -346,6 +347,7 @@ app.MapPut("/api/settings", async (HttpRequest req, ConfigStore cfg, ControlDeck
     if (err == ConfigStore.Conflict) return Results.Json(new { error = err }, statusCode: StatusCodes.Status409Conflict);
     if (err is not null) return Results.BadRequest(new { error = err });
     deck.StopDisabledControls();
+    photos.SettingsSaved();
     deck.ReconcileRadios(waitForGate: true);
     log.LogInformation("settings saved");
     return Results.Ok(new { version = cfg.Version });
@@ -454,6 +456,19 @@ app.MapGet("/api/feeds", (FeedMonitor feeds) =>
 {
     var s = feeds.Snapshot();
     return Results.Json(new { s.Items, s.Updated, s.Errors, canOpen = feeds.OpenAllowed() });
+});
+// Photo frame: ids of the photos in the chosen folder, then one (scaled-down) photo at a time by id.
+app.MapGet("/api/photos", (PhotoFrame photos) =>
+{
+    var (ids, error, scanning) = photos.List();
+    return Results.Json(new { ids, error, scanning });
+});
+app.MapGet("/api/photos/{id}", async (string id, PhotoFrame photos, HttpResponse res, CancellationToken ct) =>
+{
+    var (bytes, type, error) = await photos.Get(id, ct);
+    if (bytes is null) return Results.Json(new { error }, statusCode: 404);
+    res.Headers.CacheControl = "private, max-age=86400";
+    return Results.File(bytes, type!);
 });
 app.MapPost("/api/feeds/open", (string? id, FeedMonitor feeds) =>
     feeds.Open(id) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true }));

@@ -78,7 +78,7 @@ keeps the screen on.
 | **Weather & sky** | Weather · Forecast (hourly / 7 days) · Sun & moon (daylight left, UV, moon phase) · **Moon** · Air quality (European AQI, PM2.5, PM10, O₃, NO₂) |
 | **Computer** | **Rules** (which hold, pause) · **Battery care** · On air (microphone / camera / OBS) · OBS Studio (live, recording, scenes) · **App console** (Windows: keys and a dial for the app in front, set per app in Settings › General; Store apps all show up as `ApplicationFrameHost` and terminal tabs as `WindowsTerminal`, so a profile for those names covers all of them) · Device batteries (headphones, mice, keyboards) · Docker / Podman (containers, start / stop) · Metric tile · Gauge · Chart · GPU details · Memory & disks · Top processes · Processes · Now playing · Radio · Volume · Shortcut grid · Big button · **Command** (PowerShell / bash / zsh output, refreshed every N seconds) |
 | **AI & code** | AI quotas · Quota ring · AI sessions · GitHub |
-| **Personal** | **Agenda** (Google / Outlook / iCloud calendars) · Note · Checklist (resets daily) · Counter · Breathe · Quote · Title · Phone battery · **Computers** (switch between paired computers) |
+| **Personal** | **Agenda** (Google / Outlook / iCloud calendars) · Note · Checklist (resets daily) · Counter · Breathe · Quote · Title · Phone battery · **Computers** (switch between paired computers) · **Photo frame** (a slideshow from a photo folder on the PC) |
 | **Web & data** | **Custom HTML** (your own widget, sandboxed) · **Home Assistant** (entities, tap to switch) · **Pushed value** · **Notifications** (both fed by [webhooks](#webhooks)) · **News feeds** (your RSS and Atom feeds; with its "Open articles on the PC" option, a tap opens the article on the PC) · Hacker News · Exchange rates (ECB) · Crypto prices · Image / webcam |
 
 Widgets scale to the size you give them. Weather, air quality, rates, crypto and Hacker News come straight from free
@@ -219,7 +219,8 @@ AI in 3…"*, tap **Stay** to keep the page or **Go now**), waits while you are 
 between two automatic switches and lets the higher-priority rule go first; rules that end before their turn are
 dropped, so a burst of rules never bounces the screen back and forth. Settings › General › Page switching sets the
 countdown, how long to wait after a touch, the minimum time between switches, the home page and how long a rule may
-keep its page. The phone's overview (and the Rules widget) pauses all rules for an hour.
+keep its page (30 minutes by default, so a rule that never ends can't hold the panel for good; 0 keeps it for as long
+as the rule lasts). The phone's overview (and the Rules widget) pauses all rules for an hour.
 
 With **only while it lasts**, the effect ends with the condition: the phone goes back to the page it was on (unless
 you moved on yourself) and stays on the rule's page instead of returning home when idle; a pushed value is removed

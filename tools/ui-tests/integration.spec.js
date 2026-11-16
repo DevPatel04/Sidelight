@@ -30,6 +30,16 @@ for (const viewport of [{ width: 780, height: 360 }, { width: 360, height: 780 }
   });
 }
 
+test('a stack with rotation interval 0 changes only when swiped (#171)', async ({ page }) => {
+  await page.clock.install();
+  await layout(page, [widget('stack', { interval: 0, widgets: [{ type: 'clock' }, { type: 'weather' }] })]);
+  await expect(page.locator('.stack-item.active .w-clock')).toHaveCount(1);
+  await page.clock.runFor(5 * 60_000);
+  await expect(page.locator('.stack-item.active .w-clock')).toHaveCount(1);
+  await page.getByRole('button', { name: 'weather', exact: true }).click();
+  await expect(page.locator('.stack-item.active .w-weather')).toHaveCount(1);
+});
+
 test('stack rotates with the panel clock and an empty stack stays empty', async ({ page }) => {
   await page.clock.install();
   await layout(page, [widget('stack', { interval: 3, widgets: [{ type: 'clock' }, { type: 'weather' }] })]);
@@ -531,4 +541,33 @@ test('news feeds open only from a widget whose own option allows it', async ({ p
   await page.reload();
   const canOpen = await page.evaluate(() => fetch('/agent/api/feeds').then((r) => r.json()).then((j) => j.canOpen));
   expect(canOpen).toBe(false);
+});
+
+// Photo frame: ids from the agent, one photo at a time fetched by id, crossfading; the clock drives the interval.
+test('photo frame shows the folder photos one after another', async ({ page }) => {
+  await page.clock.install();
+  await layout(page, [widget('photos', { interval: 10, shuffle: false, fit: 'contain' })]);
+  const shown = page.locator('.w-photos .pf-img.on');
+  await expect(shown).toHaveCount(1);
+  const first = await shown.getAttribute('src');
+  expect(first).toMatch(/^blob:/);
+  await expect(shown).toHaveCSS('object-fit', 'contain');
+  await page.clock.fastForward(11_000);
+  await expect.poll(() => page.locator('.w-photos .pf-img.on').getAttribute('src')).not.toBe(first);
+  await expect(page.locator('.w-photos .pf-img.on')).toHaveCount(1);
+  await expect(page.locator('.w-photos .pf-note')).toBeHidden();
+});
+
+test('a photo frame on a hidden Smart Stack card fetches nothing', async ({ page }) => {
+  await page.clock.install();
+  await layout(page, [widget('stack', { interval: 120, widgets: [{ type: 'clock' }, { type: 'photos', options: { interval: 5 } }] })]);
+  await page.evaluate(() => {
+    window.__photoFetches = 0;
+    const demo = window.fetch;
+    window.fetch = (url, init) => { if (String(url).includes('/photos')) window.__photoFetches++; return demo(url, init); };
+  });
+  await page.clock.fastForward(30_000);
+  expect(await page.evaluate(() => window.__photoFetches)).toBe(0);
+  await page.getByRole('button', { name: 'photos', exact: true }).click();
+  await expect(page.locator('.stack-item.active .w-photos .pf-img.on')).toHaveCount(1);
 });

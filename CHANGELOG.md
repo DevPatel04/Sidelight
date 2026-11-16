@@ -3,6 +3,11 @@
 ## Unreleased
 
 **New widget**
+- **Photo frame**: a slideshow of the photos in a folder on the PC; a synced OneDrive, Dropbox or iCloud folder works too
+  (photos only in the cloud are skipped). Choose the folder in Settings › General. On Windows and macOS the agent
+  scales large JPEG and PNG photos down before they go to the phone; other photos go as they are up to 6 MB, and
+  bigger ones are skipped. The phone fetches one photo at a time by id, and the slideshow only runs while its page is
+  showing. First version in #47 by [blx10](https://github.com/blx10).
 - **App console** (Windows): keys and a dial that follow the app in front. Add an app in Settings › General › App
   console with its process name and keys (Undo = ctrl+z; the dial turns and presses too), and the widget shows that
   app's keys while it is focused. Keys go only to that app: the agent checks the focused app again before every key,
@@ -19,6 +24,8 @@
   the battery and charging state, and the BlackShark V2 Pro headset only while Synapse isn't running.
 
 **Panel**
+- Smart Stack: a rotation interval of 0 turns automatic rotation off, so the stack changes only when you swipe or tap
+  a dot; the longest interval is now 10 minutes (#171, [MrKatsuragi](https://github.com/MrKatsuragi)).
 - The Spotify queue widget shows what is playing now and what comes next, with covers; tap a track to play it. Covers
   come from Spotify's image server, which the phone contacts only while the widget's "Show covers" option is on
   (idea from #65, [Sawaid-hub](https://github.com/Sawaid-hub)).
