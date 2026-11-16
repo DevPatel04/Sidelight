@@ -117,8 +117,9 @@ W['app-console'] = {
 
     return {
       update() {
-        // neighbouring pages get ticks too; the focused app is asked about only while this page is showing
-        if (!alive || document.body.classList.contains('night') || pages[curPage] !== page) return;
+        // neighbouring pages and hidden Smart Stack cards get ticks too; the focused app is asked about only while
+        // this widget is actually showing
+        if (!alive || document.body.classList.contains('night') || pages[curPage] !== page || box.closest('.stack-item:not(.active)')) return;
         if (Date.now() - lastPoll > 1500) poll();
       },
       destroy() { alive = false; },
