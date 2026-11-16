@@ -364,8 +364,11 @@ public sealed class RuleEngine(ConfigStore config, PushStore push, SessionMonito
     {
         if (FrontProbe is not null) return FrontProbe();
         if (_frontAt != 0 && Environment.TickCount64 - _frontAt < 1500) return _front;
+        // timed from the end of the probe: osascript or xdotool can take up to 2 s, and every app-in-front rule in
+        // the same pass must reuse that answer instead of starting its own probe
+        _front = FrontAppOs();
         _frontAt = Environment.TickCount64;
-        return _front = FrontAppOs();
+        return _front;
     }
 
 #if WINDOWS
