@@ -473,3 +473,26 @@ test('news feeds list headlines and open one on the PC by its id', async ({ page
   await layout(page, [widget('feeds', { title: 'None', feed: 'nothing like this' })]);
   await expect(page.locator('.w-feeds .empty')).toHaveText('No headlines from "nothing like this"');
 });
+
+// Each News feeds widget follows its own "open" option, and the demo, like the agent, ignores disabled pages.
+test('news feeds open only from a widget whose own option allows it', async ({ page }) => {
+  await layout(page, [
+    { ...widget('feeds', { title: 'Open', open: true }), id: 'a', w: 6 },
+    { ...widget('feeds', { title: 'Closed', open: false }), id: 'b', x: 6, w: 6 },
+  ]);
+  await expect(page.locator('.w-feeds').nth(0).locator('.fd-i.link').first()).toBeVisible();
+  await expect(page.locator('.w-feeds').nth(1).locator('.fd-i').first()).toBeVisible();
+  await expect(page.locator('.w-feeds').nth(1).locator('.fd-i.link')).toHaveCount(0);
+
+  // the only widget that allows opening sits on a disabled page: the demo refuses like the agent does
+  await page.goto('/panel/');
+  await page.evaluate(() => {
+    localStorage.setItem('pb-demo-config', JSON.stringify({ night: { enabled: false }, shortcuts: [], pages: [
+      { id: 'on', title: 'On', enabled: true, widgets: [{ id: 'x', type: 'feeds', x: 0, y: 0, w: 12, h: 6, options: { open: false } }] },
+      { id: 'off', title: 'Off', enabled: false, widgets: [{ id: 'y', type: 'feeds', x: 0, y: 0, w: 12, h: 6, options: { open: true } }] },
+    ] }));
+  });
+  await page.reload();
+  const canOpen = await page.evaluate(() => fetch('/agent/api/feeds').then((r) => r.json()).then((j) => j.canOpen));
+  expect(canOpen).toBe(false);
+});

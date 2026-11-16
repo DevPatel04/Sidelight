@@ -50,6 +50,20 @@ public sealed class FeedParserTests
     }
 
     [Fact]
+    public void AtomLinksFollowXmlBase()
+    {
+        var items = Parse("""
+            <feed xmlns="http://www.w3.org/2005/Atom" xml:base="https://publisher.example/blog/">
+              <entry xml:base="posts/"><id>1</id><title>Nested</title><link href="42"/></entry>
+              <entry><id>2</id><title>Feed base</title><link href="7"/></entry>
+              <entry><id>3</id><title>On the link</title><link xml:base="https://cdn.example/a/" href="b"/></entry>
+            </feed>
+            """);
+        Assert.Equal(new string?[] { "https://publisher.example/blog/posts/42", "https://publisher.example/blog/7", "https://cdn.example/a/b" },
+            items.Select(i => i.Link).ToArray());
+    }
+
+    [Fact]
     public void Rss1RdfItemsAreRead()
     {
         var items = Parse("""

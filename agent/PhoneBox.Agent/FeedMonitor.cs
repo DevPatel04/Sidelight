@@ -370,9 +370,18 @@ internal static partial class FeedParser
     private static string? AtomLink(XElement e, Uri baseUri)
     {
         var links = e.Elements().Where(c => c.Name.LocalName == "link").ToList();
-        var href = links.FirstOrDefault(l => (string?)l.Attribute("rel") is null or "alternate")?.Attribute("href")?.Value
-            ?? links.FirstOrDefault()?.Attribute("href")?.Value;
-        return Absolute(href, baseUri);
+        var link = links.FirstOrDefault(l => (string?)l.Attribute("rel") is null or "alternate") ?? links.FirstOrDefault();
+        return link is null ? null : Absolute(link.Attribute("href")?.Value, BaseOf(link, baseUri));
+    }
+
+    /// <summary>The base a relative href resolves against: the feed's address with every xml:base from the root down (RFC 4287 §2).</summary>
+    private static Uri BaseOf(XElement el, Uri feedUri)
+    {
+        var uri = feedUri;
+        foreach (var a in el.AncestorsAndSelf().Reverse())
+            if (a.Attribute(XNamespace.Xml + "base")?.Value is { Length: > 0 and <= 2048 } b && Uri.TryCreate(uri, b.Trim(), out var u))
+                uri = u;
+        return uri;
     }
 
     private static string? RssLink(XElement e, Uri baseUri)

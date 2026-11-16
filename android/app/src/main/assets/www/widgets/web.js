@@ -47,7 +47,8 @@ W.feeds = {
     let data = null, lastKey = '', busy = null;
     const open = async (it) => {
       if (!it.openable || busy) return;
-      if (!data?.canOpen) { toast(t('w.feeds.openOff'), 'err'); return; }
+      // this widget's own option, not just whether some widget allows it (the agent checks the latter)
+      if (o.open !== true || !data?.canOpen) { toast(t('w.feeds.openOff'), 'err'); return; }
       haptic();
       busy = it.id;
       // one deadline for the request and its body, so a stalled answer can't leave the widget refusing taps
@@ -76,7 +77,7 @@ W.feeds = {
       }
       list.replaceChildren(...items.slice(0, rows).map((it) => {
         const meta = [showSource ? it.source : '', showTime && it.published ? ago(it.published) : ''].filter(Boolean).join(' · ');
-        const row = h('div', 'fd-i' + (it.openable && data.canOpen ? ' link' : ''), h('div', 'fd-t', it.title), meta ? h('div', 'fd-m', meta) : null);
+        const row = h('div', 'fd-i' + (it.openable && o.open === true && data.canOpen ? ' link' : ''), h('div', 'fd-t', it.title), meta ? h('div', 'fd-m', meta) : null);
         row.onclick = () => open(it);
         return row;
       }));
