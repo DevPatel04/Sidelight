@@ -279,11 +279,11 @@ W.agenda = {
     const render = () => {
       const cal = D.calendar;
       const now = Date.now();
-      const end = new Date(now);
-      end.setHours(0, 0, 0, 0);
-      // Whole days follow the local calendar even when the clocks change.
+      const today = new Date(now);
+      // Whole days follow the local calendar even when the clocks change, also where a day starts at 01:00 because
+      // its midnight is skipped (Santiago): the end is built from the date, not moved on from today's start.
       const wholeDays = Math.floor(days);
-      const until = end.setDate(end.getDate() + wholeDays) + (days - wholeDays) * 864e5;
+      const until = new Date(today.getFullYear(), today.getMonth(), today.getDate() + wholeDays).getTime() + (days - wholeDays) * 864e5;
       const list = (cal?.events || []).filter((e) => e.end > now && e.start < until && (!only.length || only.includes(e.calendar.toLowerCase())));
       const small = box.clientHeight < 110;
       const key = JSON.stringify([list.map((e) => e.start + e.title), Math.floor(now / 30000), small, box.clientHeight]);
