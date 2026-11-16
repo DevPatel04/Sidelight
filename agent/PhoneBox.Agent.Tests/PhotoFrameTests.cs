@@ -140,6 +140,21 @@ public sealed class PhotoFrameTests : IDisposable
         Assert.False(Directory.Exists(cache));
     }
 
+    [Fact]
+    public void ClearingTheFolderWithoutTheWidgetStillDeletesTheCopies()
+    {
+        var path = Path.Combine(_dir, "config.json");
+        var frame = Frame();
+        var cache = Path.Combine(_dir, "cache");
+        Directory.CreateDirectory(cache);
+        File.WriteAllBytes(Path.Combine(cache, "old.jpg"), Jpeg);
+        // the widget is gone and the folder cleared in the same save: the phone never asks again, the save does it
+        File.WriteAllText(path, """{ "pages": [ { "id": "p", "title": "P", "widgets": [] } ], "photos": { "folder": "" } }""");
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(1));
+        frame.SettingsSaved();
+        Assert.False(Directory.Exists(cache));
+    }
+
     [Theory]
     [InlineData(FileAttributes.Normal, false)]
     [InlineData(FileAttributes.Archive, false)]

@@ -39,6 +39,8 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
     private readonly Lock _gate = new();
     private Library? _library;
     private Task? _scan;
+    // bumped when the folder setting is cleared: a conversion that started before must not write its copy back
+    private int _generation;
     private readonly SemaphoreSlim _convert = new(1, 1);
     private readonly HashSet<string> _failed = []; // cache keys of photos that couldn't be converted
 
@@ -55,9 +57,9 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
     /// <summary>The photo ids, or an error the phone can show (never a local path).</summary>
     public (IReadOnlyList<string> Ids, string? Error, bool Scanning) List()
     {
-        if (!Shown()) return ([], "Add a Photo frame widget to a page to show photos", false);
         var cfg = config.Get().Photos;
         if (string.IsNullOrWhiteSpace(cfg.Folder)) { ForgetCache(); return ([], null, false); }
+        if (!Shown()) return ([], "Add a Photo frame widget to a page to show photos", false);
         var lib = Current(cfg, wait: false);
         if (lib is null) return ([], null, true);
         return (lib.Photos.Select(p => p.Id).ToList(), lib.Error, false);
@@ -186,6 +188,12 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
         return null;
     }
 
+    /// <summary>After the settings are saved: a cleared folder takes its scaled copies with it, widget or not.</summary>
+    public void SettingsSaved()
+    {
+        if (string.IsNullOrWhiteSpace(config.Get().Photos.Folder)) ForgetCache();
+    }
+
     /// <summary>One photo, scaled down when it is large; null with a reason when it can't be served.</summary>
     public async Task<(byte[]? Bytes, string? Type, string? Error)> Get(string? id, CancellationToken ct)
     {
@@ -217,6 +225,8 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
 
     private async Task<(byte[]? Bytes, string? Type, string? Error)> Prepare(Photo photo, CancellationToken ct)
     {
+        int generation;
+        lock (_gate) generation = _generation;
         var head = new byte[(int)Math.Min(HeadBytes, photo.Length)];
         int got;
         await using (var s = new FileStream(photo.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
@@ -251,7 +261,7 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
                 }
                 if (jpeg is not null)
                 {
-                    WriteCache(cached, jpeg);
+                    WriteCache(cached, jpeg, generation);
                     return (jpeg, "image/jpeg", null);
                 }
             }
@@ -261,13 +271,19 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
     }
 
     /// <summary>Writes a scaled copy to a temporary owner-only file first, so a reader never sees half of one.</summary>
-    private void WriteCache(string path, byte[] jpeg)
+    private void WriteCache(string path, byte[] jpeg, int generation)
     {
-        Directory.CreateDirectory(CacheDir);
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(CacheDir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        var tmp = path + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
-        using (var f = AppPaths.CreatePrivate(tmp)) f.Write(jpeg);
-        File.Move(tmp, path, overwrite: true);
+        // under the same lock as ForgetCache: a copy is either written before the folder was cleared (and deleted with
+        // the rest) or not at all
+        lock (_gate)
+        {
+            if (generation != _generation) return;
+            Directory.CreateDirectory(CacheDir);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(CacheDir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var tmp = path + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
+            using (var f = AppPaths.CreatePrivate(tmp)) f.Write(jpeg);
+            File.Move(tmp, path, overwrite: true);
+        }
     }
 
     /// <summary>After a scan: scaled copies of photos that are gone, changed or in another folder are deleted.</summary>
@@ -282,9 +298,13 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
     /// <summary>No folder any more: no scaled copies of its photos either.</summary>
     private void ForgetCache()
     {
-        lock (_gate) _library = null;
-        try { if (Directory.Exists(CacheDir)) Directory.Delete(CacheDir, recursive: true); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        lock (_gate)
+        {
+            _library = null;
+            _generation++;
+            try { if (Directory.Exists(CacheDir)) Directory.Delete(CacheDir, recursive: true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     /// <summary>The image type from its first bytes; a file named .jpg that isn't one is refused.</summary>

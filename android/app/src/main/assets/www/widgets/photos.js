@@ -1,4 +1,4 @@
-import { API, PANEL_HEADERS, api, h, t } from '../main.js';
+import { API, PANEL_HEADERS, api, curPage, h, pages, t } from '../main.js';
 import { W } from '../registry.js';
 
 // ---------------------------------------------------------------- photo frame
@@ -7,7 +7,7 @@ import { W } from '../registry.js';
 // memory is released after the crossfade. The slideshow only advances while its page is showing and the night screen is off.
 W.photos = {
   needs: ['tick'],
-  create(box, { o }) {
+  create(box, { o, page }) {
     const every = Math.max(5, Math.min(3600, +o.interval || 30)) * 1000;
     const fit = o.fit === 'contain' ? 'contain' : 'cover';
     box.classList.add('pf');
@@ -48,11 +48,15 @@ W.photos = {
       if (pos === 0 && o.shuffle !== false) reorder();
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), 20_000);
+      // aborting doesn't always settle a body that stalled half-way, so the read itself has a deadline that rejects
+      let late;
+      const deadline = new Promise((_, fail) => { late = setTimeout(() => fail(new Error('timeout')), 20_000); });
+      deadline.catch(() => {});
       inflight = ctl;
       try {
-        const r = await fetch(`${API}/photos/${encodeURIComponent(id)}`, { cache: 'no-store', headers: PANEL_HEADERS, signal: ctl.signal });
+        const r = await Promise.race([fetch(`${API}/photos/${encodeURIComponent(id)}`, { cache: 'no-store', headers: PANEL_HEADERS, signal: ctl.signal }), deadline]);
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        const url = URL.createObjectURL(await r.blob());
+        const url = URL.createObjectURL(await Promise.race([r.blob(), deadline]));
         if (!alive) { URL.revokeObjectURL(url); return; }
         urls.add(url);
         const next = layers[1 - front], prev = layers[front];
@@ -77,12 +81,13 @@ W.photos = {
         if (old) setTimeout(() => { URL.revokeObjectURL(old); urls.delete(old); }, 1200);
       } catch (_) {
         nextAt = Date.now() + 5000; // a missing or slow photo: try the next one soon
-      } finally { clearTimeout(timer); inflight = null; }
+      } finally { clearTimeout(timer); clearTimeout(late); inflight = null; }
     };
 
     return {
       update() {
-        if (!alive || document.body.classList.contains('night')) return;
+        // the neighbouring pages get ticks too (to be ready when swiped to); the slideshow runs only on its own page
+        if (!alive || document.body.classList.contains('night') || pages[curPage] !== page) return;
         const now = Date.now();
         if (!listAt || now - listAt > 10 * 60_000) loadList();
         if (order.length && now >= nextAt) { nextAt = now + every; showNext(); }
