@@ -149,7 +149,7 @@ public sealed class ProcessMonitor(ILogger<ProcessMonitor> log, SessionMonitor s
     public ProcDetail Detail(string name)
     {
         Touch();
-        var claudeByPid = sessions.Snapshot().Where(s => s.Pid is not null).ToDictionary(s => s.Pid!.Value, s => s.Name);
+        var claudeByPid = sessions.Snapshot().Where(s => s.Pid is not null).GroupBy(s => s.Pid!.Value).ToDictionary(g => g.Key, g => g.First().Name);
         var cpu = _pidCpu;
         var list = new List<ProcInstance>();
         foreach (var p in Process.GetProcessesByName(name))

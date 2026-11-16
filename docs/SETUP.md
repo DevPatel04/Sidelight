@@ -268,7 +268,7 @@ cable, or a port straight on the computer instead of a hub or a front-panel port
 <details><summary><b>Some widgets show "—" or "No data".</b></summary>
 
 GPU values come from Windows itself (the temperature, as in Task Manager, needs Windows 10 2004 or later and a WDDM 2.4 driver), `nvidia-smi` for NVIDIA cards, `amdgpu` sysfs on Linux, or IORegistry on Apple silicon. The GPU hot spot and an AMD or Intel card's watts, fan and clocks need LibreHardwareMonitor. CPU temperature needs LibreHardwareMonitor's web server on port 8085,
-GitHub needs `gh auth login`, quotas and sessions need Claude Code / Codex to have been used on this PC.
+GitHub needs `gh auth login`, quotas and sessions need Claude Code / Codex / Antigravity to have been used on this PC.
 </details>
 
 <details><summary><b>I want the volume keys to change the phone's volume.</b></summary>
