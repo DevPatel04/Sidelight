@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+**New widget**
+- **App console** (Windows): keys and a dial that follow the app in front. Add an app in Settings › General › App
+  console with its process name and keys (Undo = ctrl+z; the dial turns and presses too), and the widget shows that
+  app's keys while it is focused. Keys go only to that app: the agent checks the focused app again before every key,
+  and doesn't send to an app running as administrator. Off until the widget's "Send keys to the computer" option is on,
+  and the phone only ever sends which key was tapped. macOS and Linux show that it needs Windows. Idea and first
+  version in #48 by [blx10](https://github.com/blx10).
+
 **Agent**
 - Windows: the CPU temperature also works on older Intel processors that LibreHardwareMonitor reports only per core
   ("CPU Core #1"…): the hottest core of the CPU is shown when there is no package reading (idea and first version in

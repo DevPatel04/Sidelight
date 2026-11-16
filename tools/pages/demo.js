@@ -335,6 +335,8 @@
     ['f5', 'Ten keyboard shortcuts that save an hour a week', 'Tech news', 240],
     ['f6', 'Inside the factory that still makes film cameras', 'Hackaday', 420],
   ].map(([id, title, source, min]) => ({ id, title, source, published: now() - min * 60_000, openable: true }));
+  const DEMO_CONSOLE = { id: 'photoshop', label: 'Photoshop', keys: ['Brush', 'Eraser', 'Undo', 'Redo', 'Zoom in', 'Zoom out', 'Fit', 'Save'],
+    dial: { left: true, right: true, press: true } };
   const json = (o, status = 200, headers = {}) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers } });
   const parse = (body) => { if (body == null || body === '') return null; try { return JSON.parse(body); } catch (_) { return String(body); } };
 
@@ -560,6 +562,19 @@
     if (path === '/api/apps/open' && method === 'POST') {
       if (!widgets(await config()).some((w) => w.type === 'apps')) return json({ error: 'Add an All apps widget to a page to open apps from the phone' }, 400);
       return DEMO_APPS.some((a) => a.id === q.get('id')) ? json({ ok: true }) : json({ error: 'Unknown app' }, 400);
+    }
+    // App console: the demo PC always has Photoshop in front; like AppConsole, only enabled pages count
+    if (path === '/api/console') {
+      const ws = shownWidgets(await config()).filter((w) => w.type === 'app-console');
+      if (!ws.length) return json({ error: "no app console widget on this phone's pages" }, 404);
+      return json({ supported: true, control: ws.some((w) => w.options?.control === true), profile: DEMO_CONSOLE });
+    }
+    if (path.startsWith('/api/console/') && method === 'POST') {
+      if (!shownWidgets(await config()).some((w) => w.type === 'app-console' && w.options?.control === true))
+        return json({ error: 'sending keys is off: turn on "Send keys to the computer" in the app console widget\'s settings' }, 403);
+      const [, , , profile, slot] = path.split('/');
+      const ok = profile === DEMO_CONSOLE.id && (/^dial-(left|right|press)$/.test(slot) || (/^k(0|[1-9]\d*)$/.test(slot) && +slot.slice(1) < DEMO_CONSOLE.keys.length));
+      return ok ? json({ ok: true }) : json({ error: 'nothing is set for this key' }, 404);
     }
     if (path.startsWith('/api/obs/') && method === 'POST') {
       if (!allows(await config(), isObs)) return json({ error: "controlling OBS is turned off in the widget's settings" }, 400);

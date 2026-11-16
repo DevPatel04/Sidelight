@@ -163,6 +163,10 @@ table.items td.val { font-family: Consolas, monospace; font-size: 12px; max-widt
 .phone-pages { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; }
 .cal-row { display: grid; grid-template-columns: 160px minmax(0, 1fr) 44px auto; gap: 8px; align-items: center; margin-bottom: 8px; }
 .feed-row { grid-template-columns: 160px minmax(0, 1fr) auto; }
+.console-row { display: grid; grid-template-columns: 160px minmax(0, 1fr) auto; gap: 8px; align-items: start; margin-bottom: 14px; }
+.console-row textarea, .console-row .console-dial { grid-column: 1 / 3; }
+.console-row textarea { font-family: ui-monospace, Consolas, monospace; }
+.console-dial { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .cal-row input[type=color] { width: 44px; height: 34px; padding: 2px; }
 @media (max-width: 700px) { .cal-row { grid-template-columns: 1fr 44px auto; } .feed-row { grid-template-columns: 1fr auto; } .cal-row .cal-url { grid-column: 1 / -1; grid-row: 2; } }
 
@@ -428,6 +432,13 @@ dd { margin: 0; word-break: break-all; }
         <p class="hint" style="margin:0 0 12px" data-i18n="s.feeds.hint">RSS or Atom feeds for the News feeds widget. This computer fetches each one at most every 15 minutes, only while a page shows a News feeds widget; the addresses stay here.</p>
         <div id="feedList"></div>
         <button class="btn sm" id="feedAdd" data-i18n="s.feeds.add">＋ Add a feed</button>
+      </div>
+
+      <div class="card">
+        <h3 data-i18n="s.console.title">App console</h3>
+        <p class="hint" style="margin:0 0 12px" data-i18n="s.console.hint">Keys and a dial for the App console widget, per app: the widget shows the keys of the app in front on this computer and sends them only to that app. Apps are process names, as in Task Manager's Details tab (photoshop, gimp-2.10). One key per line, a label then the keys: Undo = ctrl+z. Windows only; the keys stay on this computer.</p>
+        <div id="consoleList"></div>
+        <button class="btn sm" id="consoleAdd" data-i18n="s.console.add">＋ Add an app</button>
       </div>
 
       <div class="card">
@@ -1681,6 +1692,32 @@ $('obsTest').onclick = async () => {
     $('obsState').textContent = r.result;
   } catch (_) { $('obsState').textContent = 'Could not check'; }
 };
+// ---------------------------------------------------------------- app console
+const consoleKeysText = (p) => (p.keys || []).map((k) => (k.label && k.label !== k.keys ? `${k.label} = ${k.keys}` : k.keys)).join('\n');
+const consoleKeysParse = (text) => text.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 12).map((line) => {
+  const at = line.lastIndexOf('=');
+  // "minus" and "equals" name those keys, so a bare "=" is always the label separator
+  return at > 0 ? { label: line.slice(0, at).trim(), keys: line.slice(at + 1).trim() } : { label: '', keys: line };
+});
+function renderConsole() {
+  cfg.console ??= { profiles: [] };
+  cfg.console.profiles ??= [];
+  const field = (p, key, placeholder) => h('input', { type: 'text', value: p[key] || '', placeholder, spellcheck: 'false',
+    oninput: (e) => { p[key] = e.target.value.trim() || null; changed(); } });
+  $('consoleList').replaceChildren(...cfg.console.profiles.map((p, i) => h('div', { class: 'console-row' },
+    h('input', { type: 'text', value: p.label || '', maxlength: '40', placeholder: 'Name, e.g. Photoshop', oninput: (e) => { p.label = e.target.value; changed(); } }),
+    h('input', { type: 'text', value: p.apps || '', placeholder: 'Apps, e.g. photoshop, gimp-2.10', spellcheck: 'false', oninput: (e) => { p.apps = e.target.value; changed(); } }),
+    h('textarea', { rows: '4', spellcheck: 'false', placeholder: 'Undo = ctrl+z\nRedo = ctrl+shift+z\nBrush = b',
+      oninput: (e) => { p.keys = consoleKeysParse(e.target.value); changed(); } }, consoleKeysText(p)),
+    h('div', { class: 'console-dial' },
+      field(p, 'dialLeft', 'Dial left, e.g. ['), field(p, 'dialRight', 'Dial right, e.g. ]'), field(p, 'dialPress', 'Dial press, e.g. ctrl+0')),
+    h('button', { class: 'btn sm danger', onclick: () => { cfg.console.profiles.splice(i, 1); renderConsole(); changed(); } }, 'Remove'))));
+}
+$('consoleAdd').onclick = () => {
+  cfg.console ??= { profiles: [] };
+  cfg.console.profiles.push({ label: '', apps: '', keys: [] });
+  renderConsole(); changed();
+};
 // ---------------------------------------------------------------- news feeds
 function renderFeeds() {
   cfg.feeds ??= [];
@@ -1749,7 +1786,7 @@ const RULE_PRESETS = [
 let activeRules = [];
 
 function renderRules() {
-  cfg.rules ??= []; cfg.calendars ??= []; cfg.feeds ??= []; cfg.phones ??= []; cfg.homeAssistant ??= {}; cfg.obs ??= { enabled: false, url: 'ws://127.0.0.1:4455' }; cfg.discord ??= { enabled: false };
+  cfg.rules ??= []; cfg.calendars ??= []; cfg.feeds ??= []; cfg.console ??= { profiles: [] }; cfg.phones ??= []; cfg.homeAssistant ??= {}; cfg.obs ??= { enabled: false, url: 'ws://127.0.0.1:4455' }; cfg.discord ??= { enabled: false };
   $('rulePresets').replaceChildren(...RULE_PRESETS.map(([label, make]) => h('button', { class: 'btn', onclick: () => {
     cfg.rules.push({ id: '', enabled: true, ...make() });
     renderRules(); changed();
@@ -2563,7 +2600,7 @@ async function load() {
   cfg = await res.json();
   fillDefaults();
   saved = JSON.stringify(cfg);
-  renderPages(); renderDeck(); renderRules(); renderCalendars(); renderFeeds(); renderCharge(); bindForm(); changed(); loadInfo(); loadPhones();
+  renderPages(); renderDeck(); renderRules(); renderCalendars(); renderFeeds(); renderConsole(); renderCharge(); bindForm(); changed(); loadInfo(); loadPhones();
 }
 
 async function save() {
@@ -2578,7 +2615,7 @@ async function save() {
 }
 
 $('save').onclick = save;
-$('revert').onclick = () => { cfg = JSON.parse(saved); renderPages(); renderDeck(); renderRules(); renderCalendars(); renderFeeds(); renderPhones(); renderCharge(); bindForm(); changed(); };
+$('revert').onclick = () => { cfg = JSON.parse(saved); renderPages(); renderDeck(); renderRules(); renderCalendars(); renderFeeds(); renderConsole(); renderPhones(); renderCharge(); bindForm(); changed(); };
 // Over USB this also wakes the phone and brings the panel to the front (adb); over Wi-Fi the phone switches to the
 // page selected in the editor through the live stream.
 $('openPhone').onclick = async () => {
@@ -2663,7 +2700,7 @@ $('applyJson').onclick = () => {
     cfg = c;
     fillDefaults();
     $('jsonErr').textContent = '';
-    renderPages(); renderDeck(); renderRules(); renderCalendars(); renderFeeds(); renderPhones(); renderCharge(); bindForm(); changed(); toast(t('s.jsonLoaded'));
+    renderPages(); renderDeck(); renderRules(); renderCalendars(); renderFeeds(); renderConsole(); renderPhones(); renderCharge(); bindForm(); changed(); toast(t('s.jsonLoaded'));
   }
   catch (e) { $('jsonErr').textContent = e.message; }
 };
