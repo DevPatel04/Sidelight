@@ -33,12 +33,17 @@ test('a small agenda shows relative times in the panel language', async ({ page 
     let inner = window.fetch;
     Object.defineProperty(window, 'fetch', {
       configurable: true,
-      get: () => (input, init) => {
-        const url = typeof input === 'string' ? input : input.url;
-        if (url.includes('/api/calendar')) {
-          return Promise.resolve(new Response(cal, { status: 200, headers: { 'Content-Type': 'application/json' } }));
-        }
-        return inner(input, init);
+      // the fallback is fixed when the wrapper is handed out: demo.js keeps the first one as its "real" fetch, and a
+      // wrapper that looked up the live mock would send the demo's pass-through requests back to the demo forever
+      get: () => {
+        const fallback = inner;
+        return (input, init) => {
+          const url = typeof input === 'string' ? input : input.url;
+          if (url.includes('/api/calendar')) {
+            return Promise.resolve(new Response(cal, { status: 200, headers: { 'Content-Type': 'application/json' } }));
+          }
+          return fallback(input, init);
+        };
       },
       set: (v) => { inner = v; },
     });
