@@ -66,6 +66,33 @@ public sealed class DiscordTests : IDisposable
         Assert.Empty(snap.Notifications);
     }
 
+    private static DiscordSnapshot Polled(bool connected = true) =>
+        new(connected, null, "me", false, false, null, null, null, [], [], []);
+
+    [Fact]
+    public void A_poll_that_started_before_a_button_press_does_not_overwrite_its_state()
+    {
+        var monitor = Monitor(true);
+        monitor.PublishPoll(monitor.VoiceRevision, false, false, Polled());   // connected, unmuted
+        var rev = monitor.VoiceRevision;                                       // a poll reads mute=false here...
+        monitor.ApplyVoice(System.Text.Json.Nodes.JsonNode.Parse("""{"mute":true,"deaf":false}"""));  // ...then a press mutes
+        monitor.PublishPoll(rev, false, false, Polled());                      // ...and the old poll finishes
+        Assert.True(monitor.Snapshot().Muted);
+        monitor.PublishPoll(monitor.VoiceRevision, true, false, Polled());     // the next poll agrees
+        Assert.True(monitor.Snapshot().Muted);
+    }
+
+    [Fact]
+    public void A_poll_started_after_the_press_is_trusted()
+    {
+        var monitor = Monitor(true);
+        monitor.PublishPoll(monitor.VoiceRevision, false, false, Polled());
+        monitor.ApplyVoice(System.Text.Json.Nodes.JsonNode.Parse("""{"mute":true}"""));
+        monitor.PublishPoll(monitor.VoiceRevision, false, true, Polled());     // the user unmuted in the Discord app itself
+        Assert.False(monitor.Snapshot().Muted);
+        Assert.True(monitor.Snapshot().Deafened);
+    }
+
     [Theory]
     [InlineData("bad", "1", "abc")]          // unknown kind
     [InlineData("guild", "../1", "abc")]     // id must be digits only

@@ -84,6 +84,7 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
                     channelsAt = DateTime.UtcNow;
                 }
                 var channels = _guildChannels.Values.SelectMany(v => v).ToList();
+                var rev = Volatile.Read(ref _voiceRev);
                 var vs = await Request("GET_VOICE_SETTINGS", null, null, ct);
                 var sel = await Request("GET_SELECTED_VOICE_CHANNEL", null, null, ct);
                 var members = sel?["voice_states"]?.AsArray().Select(v => new DiscordMember(
@@ -93,9 +94,9 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
                     v?["voice_state"]?["deaf"]?.GetValue<bool>() == true || v?["voice_state"]?["self_deaf"]?.GetValue<bool>() == true,
                     v?["user"]?["avatar"]?.GetValue<string>())).ToList() ?? [];
                 var kind = sel?["type"]?.GetValue<int>() switch { 1 => "call", 3 => "group call", 2 => "voice", 13 => "stage", _ => sel is null ? null : "voice" };
-                lock (_lock)
-                    _snap = new DiscordSnapshot(true, null, user, vs?["mute"]?.GetValue<bool>() == true, vs?["deaf"]?.GetValue<bool>() == true,
-                        sel?["id"]?.GetValue<string>(), sel is null ? null : (sel["name"]?.GetValue<string>() ?? (kind == "call" ? "Direct call" : "Call")), kind, members, channels, []);
+                PublishPoll(rev, vs?["mute"]?.GetValue<bool>() == true, vs?["deaf"]?.GetValue<bool>() == true,
+                    new DiscordSnapshot(true, null, user, false, false,
+                        sel?["id"]?.GetValue<string>(), sel is null ? null : (sel["name"]?.GetValue<string>() ?? (kind == "call" ? "Direct call" : "Call")), kind, members, channels, []));
                 await Task.Delay(2000, ct);
             }
         }
@@ -274,6 +275,19 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
 
     // One button press at a time, so two quick toggles each start from the state the previous one produced.
     private readonly SemaphoreSlim _act = new(1, 1);
+    private int _voiceRev; // bumped each time a button press publishes new mute/deafen state
+
+    /// <summary>Publishes a poll. A button press that finished since the poll read <paramref name="rev"/> is newer than what the poll saw, so it keeps its mute/deafen state.</summary>
+    internal void PublishPoll(int rev, bool muted, bool deafened, DiscordSnapshot snapshot)
+    {
+        lock (_lock)
+        {
+            var stale = rev != _voiceRev;
+            _snap = snapshot with { Muted = stale ? _snap.Muted : muted, Deafened = stale ? _snap.Deafened : deafened };
+        }
+    }
+
+    internal int VoiceRevision => Volatile.Read(ref _voiceRev);
 
     /// <summary>The widget's buttons: mute, deafen, leave, join (a voice channel id from the list the agent already sent).</summary>
     public async Task<string?> ActAsync(string action, string? channel)
@@ -283,6 +297,8 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         await _act.WaitAsync();
         try
         {
+            // Checked again here: the widget's option or page may have been switched off while this press was queued.
+            if (!ControlAllowed(config.Get())) return "controlling Discord is turned off in the widget's settings";
             var s = _snap;
             if (!s.Connected) return "Discord is not connected";
             switch (action)
@@ -306,12 +322,13 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         cfg.Widgets(enabledPagesOnly: true).Any(w => w.Type == "discord" && w.Bool("control") == true);
 
     // Discord answers a settings change with the new settings; take the state from that, not from the next poll.
-    private void ApplyVoice(JsonNode? vs)
+    internal void ApplyVoice(JsonNode? vs)
     {
         if (vs is null) return;
         lock (_lock)
         {
             var s = _snap;
+            _voiceRev++;
             _snap = s with { Muted = vs["mute"]?.GetValue<bool>() ?? s.Muted, Deafened = vs["deaf"]?.GetValue<bool>() ?? s.Deafened };
         }
     }
