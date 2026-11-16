@@ -200,6 +200,26 @@ public sealed class DiscordTests : IDisposable
     }
 
     [Fact]
+    public async Task Turning_notifications_off_hides_their_text_at_once()
+    {
+        var monitor = Monitor(false);
+        var (server, client) = await Pipe();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using (server) await using (client)
+        {
+            var loop = monitor.ReadLoop(client, cts.Token);
+            monitor.NotificationsOn = true;
+            await server.WriteAsync(Frame(1, """{"evt":"NOTIFICATION_CREATE","data":{"title":"Ana","body":"secret DM"}}"""), cts.Token);
+            await Until(() => monitor.Snapshot().Notifications.Count == 1);
+            File.SetLastWriteTimeUtc(_configPath, DateTime.UtcNow.AddSeconds(-5));
+            Monitor(false, notifications: false);  // the widget's notifications are turned off in the settings
+            Assert.Empty(monitor.Snapshot().Notifications);  // not only after the monitor's next pass
+            cts.Cancel();
+            try { await loop; } catch (OperationCanceledException) { }
+        }
+    }
+
+    [Fact]
     public async Task Notification_text_is_dropped_unless_notifications_are_on()
     {
         var monitor = Monitor(false);

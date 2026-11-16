@@ -43,7 +43,17 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
     internal static bool NotificationsWanted(AgentConfig cfg) =>
         cfg.Widgets(enabledPagesOnly: true).Any(w => w.Type == "discord" && w.Bool("notifications") != false);
 
-    public DiscordSnapshot Snapshot() { lock (_lock) return _snap with { Notifications = _notesWanted ? [.. _notes] : [] }; }
+    /// <summary>
+    /// The subscription follows the settings once per pass; this also checks the settings right now, so turning
+    /// notifications, the widget's page or Discord off hides their text at once instead of after the current pass.
+    /// </summary>
+    private bool NotesNow() => _notesWanted && config.Get() is var cfg && cfg.Discord.Enabled && NotificationsWanted(cfg);
+
+    public DiscordSnapshot Snapshot()
+    {
+        var wanted = NotesNow();
+        lock (_lock) return _snap with { Notifications = wanted ? [.. _notes] : [] };
+    }
 
     /// <summary>The user cancelled, the approval timed out or Discord refused the secret: retrying cannot help until the settings change.</summary>
     private sealed class LoginRefusedException(string message) : Exception(message);
@@ -171,9 +181,9 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         try { tokens = await Exchange(cfg, new() { ["grant_type"] = "authorization_code", ["code"] = code, ["redirect_uri"] = Redirect }, ct); }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
         {
-            // approved in Discord, but this computer can't reach discord.com (a firewall): retrying would show the prompt
-            // again every 30 s, so stop like after a refusal
-            throw new LoginRefusedException($"PhoneBox could not reach discord.com to finish the login ({ex.Message})." + retry);
+            // approved in Discord, but the code couldn't be traded (discord.com unreachable, or its token service failing):
+            // the code is single-use, so a retry would show the prompt again every 30 s; stop like after a refusal
+            throw new LoginRefusedException($"PhoneBox could not finish the Discord login ({ex.Message})." + retry);
         }
         tokens = tokens
             ?? throw new LoginRefusedException("Discord refused the client secret or the redirect (add http://127.0.0.1 under OAuth2 › Redirects)." + retry);
@@ -206,7 +216,10 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         form["client_id"] = cfg.ClientId!; form["client_secret"] = cfg.ClientSecret!;
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
         using var res = await http.PostAsync("https://discord.com/api/oauth2/token", new FormUrlEncodedContent(form), ct);
-        if (!res.IsSuccessStatusCode) return null;
+        // 400 and 401 are OAuth2's answers for a rejected code, redirect or client secret (RFC 6749 5.2); anything else
+        // (429, 5xx) is Discord having a moment, so it takes the reconnect back-off instead of counting as a refusal
+        if (res.StatusCode is System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.Unauthorized) return null;
+        if (!res.IsSuccessStatusCode) throw new HttpRequestException($"Discord's token service answered HTTP {(int)res.StatusCode}");
         var j = JsonNode.Parse(await res.Content.ReadAsStringAsync(ct));
         var t = new Tokens(cfg.ClientId!, j?["access_token"]?.GetValue<string>() ?? "", j?["refresh_token"]?.GetValue<string>() ?? "",
             DateTimeOffset.UtcNow.ToUnixTimeSeconds() + (j?["expires_in"]?.GetValue<long>() ?? 3600));
@@ -318,7 +331,7 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
                 var evt = msg["evt"]?.GetValue<string>();
                 if (evt == "NOTIFICATION_CREATE")
                 {
-                    if (!_notesWanted) continue;
+                    if (!NotesNow()) continue;
                     var d = msg["data"];
                     var title = d?["title"]?.GetValue<string>() ?? "";
                     var body = d?["body"]?.GetValue<string>() ?? d?["message"]?["content"]?.GetValue<string>() ?? "";
