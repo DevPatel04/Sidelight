@@ -8,12 +8,12 @@ public sealed record DeviceBattery(string Name, int Level, string Kind, bool? Ch
 
 /// <summary>
 /// Battery levels of wireless devices: headphones, mice, keyboards, controllers (and a laptop's own battery on Linux).
-///  - Windows: the Bluetooth battery property of paired devices (what Settings › Bluetooth shows), read with SetupAPI.
+///  - Windows: Bluetooth battery property via SetupAPI (what Settings › Bluetooth shows) and Razer USB HID devices.
 ///  - Linux: UPower (BlueZ devices, Logitech receivers, the laptop battery).
 ///  - macOS: ioreg (Magic Mouse / Keyboard / Trackpad) and system_profiler (AirPods and other headphones).
 /// Read once a minute, only while a phone shows the widget.
 /// </summary>
-public sealed class BatteryMonitor(ILogger<BatteryMonitor> log) : BackgroundService
+public sealed partial class BatteryMonitor(ILogger<BatteryMonitor> log) : BackgroundService
 {
     private volatile IReadOnlyList<DeviceBattery> _devices = [];
     private long _lastRequest;
@@ -43,7 +43,7 @@ public sealed class BatteryMonitor(ILogger<BatteryMonitor> log) : BackgroundServ
     private static IReadOnlyList<DeviceBattery> Read()
     {
 #if WINDOWS
-        var list = Windows();
+        var list = MergeDevices(Windows(), WindowsRazer());
 #else
         var list = OperatingSystem.IsMacOS() ? MacOs() : Linux();
 #endif
@@ -54,9 +54,9 @@ public sealed class BatteryMonitor(ILogger<BatteryMonitor> log) : BackgroundServ
     public static string KindOf(string name)
     {
         var n = name.ToLowerInvariant();
-        if (System.Text.RegularExpressions.Regex.IsMatch(n, @"buds|airpods|headphone|headset|earbud|earphone|\bwh-|\bwf-|jabra|bose|beats|sennheiser|soundcore|\bqc\d|xm\d|arctis|hyperx cloud")) return "headphones";
-        if (System.Text.RegularExpressions.Regex.IsMatch(n, @"mouse|mx master|mx anywhere|pebble|trackball|trackpad|\bm\d{3}\b|g\d{3} ")) return "mouse";
-        if (System.Text.RegularExpressions.Regex.IsMatch(n, @"keyboard|keys|\bk\d{3}\b|slim|craft|magic keyboard")) return "keyboard";
+        if (System.Text.RegularExpressions.Regex.IsMatch(n, @"buds|airpods|headphone|headset|earbud|earphone|\bwh-|\bwf-|jabra|bose|beats|sennheiser|soundcore|\bqc\d|xm\d|arctis|hyperx cloud|blackshark|barracuda|kraken|nari|kaira|opus")) return "headphones";
+        if (System.Text.RegularExpressions.Regex.IsMatch(n, @"mouse|mx master|mx anywhere|pebble|trackball|trackpad|\bm\d{3}\b|g\d{3} |basilisk|viper|deathadder|naga|orochi|cobra|lancehead|mamba")) return "mouse";
+        if (System.Text.RegularExpressions.Regex.IsMatch(n, @"keyboard|keys|\bk\d{3}\b|slim|craft|magic keyboard|blackwidow|huntsman|deathstalker|ornata|tartarus")) return "keyboard";
         if (System.Text.RegularExpressions.Regex.IsMatch(n, @"controller|gamepad|xbox|dualsense|dualshock|joy-con|8bitdo")) return "controller";
         if (System.Text.RegularExpressions.Regex.IsMatch(n, @"pencil|stylus|pen\b")) return "pen";
         return "other";
