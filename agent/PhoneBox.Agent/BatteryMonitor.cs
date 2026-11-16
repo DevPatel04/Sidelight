@@ -16,6 +16,11 @@ public sealed record DeviceBattery(string Name, int Level, string Kind, bool? Ch
 public sealed partial class BatteryMonitor(ILogger<BatteryMonitor> log) : BackgroundService
 {
     private volatile IReadOnlyList<DeviceBattery> _devices = [];
+    private volatile IReadOnlyList<DeviceBattery> _btDevices = [];
+    private volatile IReadOnlyList<DeviceBattery> _razerDevices = [];
+#if WINDOWS
+    private Task? _razerTask;
+#endif
     private long _lastRequest;
     private long _readAt;
 
@@ -33,21 +38,46 @@ public sealed partial class BatteryMonitor(ILogger<BatteryMonitor> log) : Backgr
             if (wanted && Environment.TickCount64 - _readAt > 60_000)
             {
                 _readAt = Environment.TickCount64;
+#if WINDOWS
+                try
+                {
+                    _btDevices = await Task.Run(Windows, ct);
+                    PublishWindowsDevices();
+                }
+                catch (Exception ex) { log.LogDebug("batteries: {Msg}", ex.Message); }
+
+                if (_razerTask is null || _razerTask.IsCompleted)
+                {
+                    _razerTask = Task.Run(() =>
+                    {
+                        var (razer, error) = WindowsRazer();
+                        if (error is not null) log.LogDebug("batteries (razer): {Msg}", error);
+                        _razerDevices = razer;
+                        PublishWindowsDevices();
+                    }, ct);
+                }
+#else
                 try { _devices = await Task.Run(Read, ct); }
                 catch (Exception ex) { log.LogDebug("batteries: {Msg}", ex.Message); }
+#endif
             }
             await Task.Delay(1000, ct);
         }
     }
 
+    private void PublishWindowsDevices()
+        => _devices = SortDevices(MergeRazerIntoBluetooth(_btDevices, _razerDevices));
+
+    private static List<DeviceBattery> SortDevices(IEnumerable<DeviceBattery> list)
+        => list.OrderBy(d => d.Kind == "laptop" ? 1 : 0).ThenBy(d => d.Name).ToList();
+
     private static IReadOnlyList<DeviceBattery> Read()
     {
 #if WINDOWS
-        var list = MergeDevices(Windows(), WindowsRazer());
+        return SortDevices(MergeRazerIntoBluetooth(Windows(), WindowsRazer().Devices));
 #else
-        var list = OperatingSystem.IsMacOS() ? MacOs() : Linux();
+        return SortDevices(OperatingSystem.IsMacOS() ? MacOs() : Linux());
 #endif
-        return list.OrderBy(d => d.Kind == "laptop" ? 1 : 0).ThenBy(d => d.Name).ToList();
     }
 
     /// <summary>Guesses the kind of device from its name.</summary>

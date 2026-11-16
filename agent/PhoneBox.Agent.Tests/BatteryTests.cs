@@ -125,17 +125,23 @@ public class BatteryTests
         => Assert.Equal(expectedKind, BatteryMonitor.RazerKindFromPid(pid));
 
     [Fact]
-    public void MergeDevices_DeduplicatesAndPrefersChargingMetadata()
+    public void MergeRazerIntoBluetooth_PreservesBluetoothDuplicatesAndPrefersHidCharging()
     {
-        var bluetooth = new[] { new DeviceBattery("Razer Basilisk V3 Pro", 45, "mouse", null) };
+        var bluetooth = new[]
+        {
+            new DeviceBattery("Office Mouse", 60, "mouse", null),
+            new DeviceBattery("office mouse", 40, "mouse", null),
+            new DeviceBattery("Razer Basilisk V3 Pro", 45, "mouse", null),
+        };
         var hid = new[]
         {
             new DeviceBattery("Razer Basilisk V3 Pro", 47, "mouse", true),
             new DeviceBattery("Razer BlackWidow V3 Pro", 80, "keyboard", false),
         };
 
-        var merged = BatteryMonitor.MergeDevices(bluetooth, hid);
-        Assert.Equal(2, merged.Count);
+        var merged = BatteryMonitor.MergeRazerIntoBluetooth(bluetooth, hid);
+        Assert.Equal(4, merged.Count);
+        Assert.Equal(2, merged.Count(d => string.Equals(d.Name, "Office Mouse", StringComparison.OrdinalIgnoreCase)));
         var mouse = Assert.Single(merged, d => d.Name == "Razer Basilisk V3 Pro");
         Assert.True(mouse.Charging);
         Assert.Equal(47, mouse.Level);
@@ -152,10 +158,71 @@ public class BatteryTests
         };
 
         var razer = BatteryMonitor.MergeRazerDevices(readings);
-        var merged = BatteryMonitor.MergeDevices([], razer);
+        var merged = BatteryMonitor.MergeRazerIntoBluetooth([], razer);
 
         Assert.Equal(2, merged.Count);
         Assert.Contains(merged, d => d.Name == "Razer BlackShark V2 Pro 2.4" && d.Level == 29 && d.Charging == false);
         Assert.Contains(merged, d => d.Name == "Razer BlackShark V2 Pro 2.4 (2)" && d.Level == 82 && d.Charging == true);
+    }
+
+    [Fact]
+    public void BuildRazerReport_AllFeatureFramesAreReadOnlyQueries()
+    {
+        foreach (var tx in BatteryMonitor.RazerTxCandidates)
+        {
+            foreach (var cmd in new[] { BatteryMonitor.RazerCmdBattery, BatteryMonitor.RazerCmdCharging })
+            {
+                var frame = BatteryMonitor.BuildRazerReport(tx, cmd);
+                Assert.Equal(BatteryMonitor.RazerClassPower, frame[7]);
+                Assert.True((frame[8] & 0x80) != 0, $"Command 0x{frame[8]:X2} must have the read bit (bit 7) set.");
+            }
+        }
+    }
+
+    [Fact]
+    public void QueryRazerFeatureDevice_NeverSendsToUnknownOrHeadsetOnlyPids()
+    {
+        var sent = new List<byte[]>();
+        byte[]? Spy(byte[] req) { sent.Add(req); return null; }
+
+        Assert.Equal((null, null, null), BatteryMonitor.QueryRazerFeatureDevice(0x9999, null, Spy));
+        Assert.Equal((null, null, null), BatteryMonitor.QueryRazerFeatureDevice(0x0555, null, Spy));
+        Assert.Empty(sent);
+    }
+
+    [Fact]
+    public void QueryRazerFeatureDevice_StopsOnOkAndUsesPreferredTxFirst()
+    {
+        var sentTx = new List<byte>();
+        byte[]? SleepingOnFirstTx(byte[] req)
+        {
+            sentTx.Add(req[2]);
+            var resp = (byte[])req.Clone();
+            resp[1] = BatteryMonitor.RazerStatusOk;
+            resp[10] = 0x00; // sleeping
+            return resp;
+        }
+
+        var (level, charging, workingTx) = BatteryMonitor.QueryRazerFeatureDevice(0x00AB, null, SleepingOnFirstTx);
+        Assert.Null(level);
+        Assert.Null(charging);
+        Assert.Equal((byte)0x1F, workingTx);
+        Assert.Equal([(byte)0x1F], sentTx);
+
+        sentTx.Clear();
+        byte[]? RespondOnPreferred(byte[] req)
+        {
+            sentTx.Add(req[2]);
+            var resp = (byte[])req.Clone();
+            resp[1] = BatteryMonitor.RazerStatusOk;
+            resp[10] = req[8] == BatteryMonitor.RazerCmdBattery ? (byte)0x78 : (byte)0x01;
+            return resp;
+        }
+
+        var res = BatteryMonitor.QueryRazerFeatureDevice(0x00AB, 0x3F, RespondOnPreferred);
+        Assert.Equal(47, res.Level);
+        Assert.True(res.Charging);
+        Assert.Equal((byte)0x3F, res.WorkingTxId);
+        Assert.Equal([(byte)0x3F, (byte)0x3F], sentTx);
     }
 }

@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
@@ -18,13 +20,16 @@ public sealed partial class BatteryMonitor
     internal const byte RazerStatusTimeout = 0x04;
     internal const byte RazerStatusNotSupported = 0x05;
 
+    private const long RazerTotalBudgetMs = 1500;
+
     internal const byte RazerPaReportId = 0x02;
     internal const byte RazerPaCmdBattery = 0x21;
     internal const byte RazerPaCmdCharging = 0x2A;
 
-    private static readonly byte[] RazerTxCandidates = [0x1F, 0x3F, 0xFF];
-    // 64-byte vendor-HID "PA" headsets (UsagePage 0xFF00/0xFF14, Report ID 0x02).
-    private static readonly HashSet<int> RazerPaPids = [0x0536, 0x0555, 0x0556, 0x0583];
+    internal static readonly byte[] RazerTxCandidates = [0x1F, 0x3F, 0xFF];
+    // Only 0x0555 is verified by capture; other PA headsets remain excluded until tested.
+    private static readonly HashSet<int> RazerPaPids = [0x0555];
+    private static readonly ConcurrentDictionary<int, byte> PreferredRazerTxByPid = new();
 
     private static readonly Dictionary<int, (string Name, string Kind)> RazerDevices = new()
     {
@@ -90,12 +95,8 @@ public sealed partial class BatteryMonitor
         [0x02BA] = ("Razer BlackWidow V4 Mini HyperSpeed", "keyboard"),
         [0x02D5] = ("Razer BlackWidow V4 TKL HyperSpeed", "keyboard"),
         [0x02D7] = ("Razer BlackWidow V4 TKL HyperSpeed", "keyboard"),
-        // Headsets
-        [0x0528] = ("Razer BlackShark V2", "headphones"),
-        [0x0536] = ("Razer Barracuda X", "headphones"),
+        // Headsets (PA protocol)
         [0x0555] = ("Razer BlackShark V2 Pro", "headphones"),
-        [0x0556] = ("Razer BlackShark V2 Pro", "headphones"),
-        [0x0583] = ("Razer Barracuda Pro", "headphones"),
     };
 
     /// <summary>Builds a 91-byte HID Feature report querying a Razer power property (0x07 / 0x80 or 0x84).</summary>
@@ -174,6 +175,67 @@ public sealed partial class BatteryMonitor
 
     internal static string? RazerKindFromPid(int pid) => RazerDeviceInfo(pid).Kind;
 
+    /// <summary>
+    /// Pure 91-byte Razer feature query policy: never probes unknown or PA-headset PIDs, tries the remembered
+    /// transaction id first, stops trying other transaction ids on OK or Timeout, and respects the overall deadline.
+    /// </summary>
+    internal static (int? Level, bool? Charging, byte? WorkingTxId) QueryRazerFeatureDevice(
+        int pid,
+        byte? preferredTx,
+        Func<byte[], byte[]?> sendFeature,
+        long? deadlineMs = null,
+        Func<long>? clock = null)
+    {
+        if (!RazerDevices.ContainsKey(pid) || RazerPaPids.Contains(pid))
+            return (null, null, null);
+
+        var now = clock ?? (() => Environment.TickCount64);
+        IEnumerable<byte> txOrder = preferredTx is { } pref
+            ? RazerTxCandidates.OrderBy(t => t == pref ? 0 : 1)
+            : RazerTxCandidates;
+
+        foreach (var tx in txOrder)
+        {
+            if (deadlineMs is { } dl && now() >= dl) break;
+
+            var batResp = QueryRazerFeatureCommand(tx, RazerCmdBattery, sendFeature, deadlineMs, now);
+            if (batResp is null) continue;
+            if (batResp[1] == RazerStatusTimeout) return (null, null, tx);
+            if (batResp[1] == RazerStatusNotSupported) continue;
+            if (batResp[1] != RazerStatusOk) continue;
+
+            var level = ParseRazerBattery(batResp);
+            if (level is null) return (null, null, tx);
+
+            var chgResp = QueryRazerFeatureCommand(tx, RazerCmdCharging, sendFeature, deadlineMs, now);
+            var charging = chgResp is not null ? ParseRazerCharging(chgResp) : null;
+            return (level, charging, tx);
+        }
+
+        return (null, null, null);
+    }
+
+    private static byte[]? QueryRazerFeatureCommand(
+        byte txId,
+        byte commandId,
+        Func<byte[], byte[]?> sendFeature,
+        long? deadlineMs,
+        Func<long> now)
+    {
+        var req = BuildRazerReport(txId, commandId);
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            if (deadlineMs is { } dl && now() >= dl) return null;
+            var resp = sendFeature(req);
+            if (resp is null || resp.Length < RazerReportLength) return null;
+            byte status = resp[1];
+            if (status is RazerStatusTimeout or RazerStatusNotSupported) return resp;
+            if (status == RazerStatusOk && resp[7] == RazerClassPower && resp[8] == commandId) return resp;
+            if (status != RazerStatusBusy && status != RazerStatusOk) return resp;
+        }
+        return null;
+    }
+
     internal static List<DeviceBattery> MergeRazerDevices(IEnumerable<(string PhysicalId, DeviceBattery Device)> readings)
     {
         var byPhysicalId = new Dictionary<string, DeviceBattery>(StringComparer.OrdinalIgnoreCase);
@@ -184,7 +246,7 @@ public sealed partial class BatteryMonitor
         }
 
         // Disambiguate distinct physical devices that share the same product name (e.g. two identical receivers)
-        // so MergeDevices preserves every physical peripheral.
+        // so MergeRazerIntoBluetooth preserves every physical peripheral.
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         var result = new List<DeviceBattery>(byPhysicalId.Count);
         foreach (var dev in byPhysicalId.Values)
@@ -196,15 +258,19 @@ public sealed partial class BatteryMonitor
         return result;
     }
 
-    internal static List<DeviceBattery> MergeDevices(IEnumerable<DeviceBattery> primary, IEnumerable<DeviceBattery> extra)
+    /// <summary>Merges Razer HID devices into the Bluetooth list without collapsing duplicate Bluetooth entries.</summary>
+    internal static List<DeviceBattery> MergeRazerIntoBluetooth(IEnumerable<DeviceBattery> bluetooth, IEnumerable<DeviceBattery> razer)
     {
-        var byName = new Dictionary<string, DeviceBattery>(StringComparer.OrdinalIgnoreCase);
-        foreach (var d in primary.Concat(extra))
+        var list = bluetooth.ToList();
+        foreach (var r in razer)
         {
-            if (!byName.TryGetValue(d.Name, out var existing) || PreferDevice(d, existing))
-                byName[d.Name] = d;
+            var idx = list.FindIndex(b => string.Equals(b.Name, r.Name, StringComparison.OrdinalIgnoreCase));
+            if (idx < 0)
+                list.Add(r);
+            else if (PreferDevice(r, list[idx]))
+                list[idx] = r;
         }
-        return byName.Values.ToList();
+        return list;
     }
 
     private static bool PreferDevice(DeviceBattery candidate, DeviceBattery existing)
@@ -215,21 +281,25 @@ public sealed partial class BatteryMonitor
 #if WINDOWS
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
 
-    private static List<DeviceBattery> WindowsRazer()
+    private static (List<DeviceBattery> Devices, string? Error) WindowsRazer()
     {
         var readings = new List<(string PhysicalId, DeviceBattery Device)>();
         var handledDevices = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var deadline = Environment.TickCount64 + RazerTotalBudgetMs;
+        bool? synapseRunning = null;
+        string? lastError = null;
+
         try
         {
             var guid = HidInterfaceGuid;
             var set = SetupDiGetClassDevs(ref guid, IntPtr.Zero, IntPtr.Zero, 0x02 | 0x10); // DIGCF_PRESENT | DIGCF_DEVICEINTERFACE
-            if (set == IntPtr.Zero || set == new IntPtr(-1)) return [];
+            if (set == IntPtr.Zero || set == new IntPtr(-1)) return ([], null);
 
             try
             {
                 var ifData = new SP_DEVICE_INTERFACE_DATA { cbSize = (uint)Marshal.SizeOf<SP_DEVICE_INTERFACE_DATA>() };
                 var devData = new SP_DEVINFO_DATA { cbSize = (uint)Marshal.SizeOf<SP_DEVINFO_DATA>() };
-                for (uint i = 0; SetupDiEnumDeviceInterfaces(set, IntPtr.Zero, ref guid, i, ref ifData); i++)
+                for (uint i = 0; Environment.TickCount64 < deadline && SetupDiEnumDeviceInterfaces(set, IntPtr.Zero, ref guid, i, ref ifData); i++)
                 {
                     SetupDiGetDeviceInterfaceDetailW(set, ref ifData, IntPtr.Zero, 0, out var req, IntPtr.Zero);
                     if (req == 0) continue;
@@ -252,15 +322,25 @@ public sealed partial class BatteryMonitor
                         if (!HidD_GetAttributes(handle, ref attrs) || attrs.VendorID != RazerVendorId) continue;
 
                         int pid = attrs.ProductID;
+                        if (!RazerDevices.ContainsKey(pid)) continue;
                         if (!TryGetHidCaps(handle, out var caps)) continue;
 
                         DeviceBattery? dev = null;
-                        if (RazerPaPids.Contains(pid) && caps.UsagePage is 0xFF00 or 0xFF14
-                            && caps.InputReportByteLength == RazerPaReportLength
-                            && caps.OutputReportByteLength == RazerPaReportLength)
-                            dev = ReadRazerPaDevice(path, handle, pid);
+                        if (RazerPaPids.Contains(pid))
+                        {
+                            if (caps.UsagePage is 0xFF00 or 0xFF14
+                                && caps.InputReportByteLength == RazerPaReportLength
+                                && caps.OutputReportByteLength == RazerPaReportLength)
+                            {
+                                synapseRunning ??= IsRazerSynapseRunning();
+                                if (!synapseRunning.Value)
+                                    dev = ReadRazerPaDevice(path, handle, pid, deadline);
+                            }
+                        }
                         else if (caps.FeatureReportByteLength == RazerReportLength)
-                            dev = ReadRazerDevice(handle, pid);
+                        {
+                            dev = ReadRazerDevice(handle, pid, deadline);
+                        }
 
                         if (dev is not null)
                         {
@@ -268,14 +348,34 @@ public sealed partial class BatteryMonitor
                             readings.Add((physicalId, dev));
                         }
                     }
-                    catch { }
+                    catch (Exception ex) { lastError ??= ex.Message; }
                     finally { Marshal.FreeHGlobal(mem); }
                 }
             }
             finally { SetupDiDestroyDeviceInfoList(set); }
         }
+        catch (Exception ex) { lastError ??= ex.Message; }
+
+        return (MergeRazerDevices(readings), lastError);
+    }
+
+    private static bool IsRazerSynapseRunning()
+    {
+        try
+        {
+            foreach (var p in Process.GetProcesses())
+            {
+                try
+                {
+                    if (p.ProcessName.StartsWith("RazerSynapse", StringComparison.OrdinalIgnoreCase)
+                        || p.ProcessName.Equals("Razer Synapse Service", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+                finally { p.Dispose(); }
+            }
+        }
         catch { }
-        return MergeRazerDevices(readings);
+        return false;
     }
 
     private static string GetPhysicalDeviceId(string path, uint devInst)
@@ -317,44 +417,51 @@ public sealed partial class BatteryMonitor
         return (name, knownKind);
     }
 
-    private static DeviceBattery? ReadRazerDevice(SafeFileHandle handle, int pid)
+    private static DeviceBattery? ReadRazerDevice(SafeFileHandle handle, int pid, long deadline)
     {
-        foreach (var tx in RazerTxCandidates)
+        byte? preferred = PreferredRazerTxByPid.TryGetValue(pid, out var p) ? p : null;
+        var respBuf = new byte[RazerReportLength];
+
+        var (level, charging, workingTx) = QueryRazerFeatureDevice(pid, preferred, req =>
         {
-            var batResp = QueryRazerFeature(handle, tx, RazerCmdBattery);
-            if (batResp is null) continue;
-            if (batResp[1] == RazerStatusTimeout) break;
-            if (batResp[1] == RazerStatusNotSupported) continue;
+            if (!HidD_SetFeature(handle, req, (uint)req.Length)) return null;
+            Thread.Sleep(15);
+            Array.Clear(respBuf);
+            if (!HidD_GetFeature(handle, respBuf, (uint)respBuf.Length)) return null;
+            if (respBuf[1] == RazerStatusBusy) Thread.Sleep(25);
+            return respBuf;
+        }, deadline);
 
-            var level = ParseRazerBattery(batResp);
-            if (level is null) continue;
+        if (workingTx is { } tx) PreferredRazerTxByPid[pid] = tx;
+        if (level is null) return null;
 
-            var chgResp = QueryRazerFeature(handle, tx, RazerCmdCharging);
-            var charging = chgResp is not null ? ParseRazerCharging(chgResp) : null;
-
-            var (name, knownKind) = ResolveRazerNameAndKind(handle, pid);
-            return new DeviceBattery(name, level.Value, knownKind ?? KindOf(name), charging);
-        }
-        return null;
+        var (name, knownKind) = ResolveRazerNameAndKind(handle, pid);
+        return new DeviceBattery(name, level.Value, knownKind ?? KindOf(name), charging);
     }
 
-    private static DeviceBattery? ReadRazerPaDevice(string path, SafeFileHandle infoHandle, int pid)
+    private static DeviceBattery? ReadRazerPaDevice(string path, SafeFileHandle infoHandle, int pid, long deadline)
     {
+        if (Environment.TickCount64 >= deadline) return null;
+
         // GENERIC_READ | GENERIC_WRITE (0xC0000000), FILE_SHARE_READ | FILE_SHARE_WRITE (3), FILE_FLAG_OVERLAPPED (0x40000000)
         using var rwHandle = CreateFileW(path, 0xC0000000u, 3, IntPtr.Zero, 3, 0x40000000u, IntPtr.Zero);
         if (rwHandle.IsInvalid) return null;
 
-        for (int i = 0; i < 16; i++)
-            if (ReadPaOverlapped(rwHandle, RazerPaReportLength, 10) is null) break;
+        for (int i = 0; i < 16 && Environment.TickCount64 < deadline; i++)
+        {
+            var (drained, fatal) = ReadPaOverlapped(rwHandle, RazerPaReportLength, 10);
+            if (fatal || drained is null) break;
+        }
 
+        if (Environment.TickCount64 >= deadline) return null;
         if (!WritePaOverlapped(rwHandle, BuildRazerPaRemoteFrame(true), 200)) return null;
         Thread.Sleep(35);
 
         try
         {
-            var bat = QueryRazerPa(rwHandle, RazerPaCmdBattery);
+            var bat = QueryRazerPa(rwHandle, RazerPaCmdBattery, deadline);
             if (bat is null || bat.Value > 100) return null;
-            var chg = QueryRazerPa(rwHandle, RazerPaCmdCharging);
+            var chg = QueryRazerPa(rwHandle, RazerPaCmdCharging, deadline);
             bool? charging = chg is not null ? chg.Value != 0 : null;
 
             var (name, knownKind) = ResolveRazerNameAndKind(infoHandle, pid);
@@ -362,24 +469,23 @@ public sealed partial class BatteryMonitor
         }
         finally
         {
+            // Restore remote mode off only when our initial "on" write succeeded.
             WritePaOverlapped(rwHandle, BuildRazerPaRemoteFrame(false), 150);
         }
     }
 
-    private static byte? QueryRazerPa(SafeFileHandle handle, byte cmdId)
+    private static byte? QueryRazerPa(SafeFileHandle handle, byte cmdId, long deadline)
     {
         var query = BuildRazerPaQueryFrame(cmdId);
-        var remote = BuildRazerPaRemoteFrame(true);
-        for (int attempt = 0; attempt < 3; attempt++)
+        for (int attempt = 0; attempt < 2 && Environment.TickCount64 < deadline; attempt++)
         {
-            if (!WritePaOverlapped(handle, remote, 200)) break;
-            Thread.Sleep(35);
             if (!WritePaOverlapped(handle, query, 200)) break;
 
-            var deadline = Environment.TickCount64 + 180;
-            while (Environment.TickCount64 < deadline)
+            var replyDeadline = Math.Min(deadline, Environment.TickCount64 + 180);
+            while (Environment.TickCount64 < replyDeadline)
             {
-                var reply = ReadPaOverlapped(handle, RazerPaReportLength, 50);
+                var (reply, fatal) = ReadPaOverlapped(handle, RazerPaReportLength, 50);
+                if (fatal) return null;
                 if (reply is null) continue;
                 var val = ParseRazerPaReply(reply, cmdId);
                 if (val is not null) return val;
@@ -391,39 +497,40 @@ public sealed partial class BatteryMonitor
     private static bool WritePaOverlapped(SafeFileHandle handle, byte[] data, int timeoutMs)
         => PaOverlappedIo(isWrite: true, handle, data, timeoutMs) == data.Length;
 
-    private static byte[]? ReadPaOverlapped(SafeFileHandle handle, int len, int timeoutMs)
+    private static (byte[]? Data, bool FatalError) ReadPaOverlapped(SafeFileHandle handle, int len, int timeoutMs)
     {
         var buf = new byte[len];
         var read = PaOverlappedIo(isWrite: false, handle, buf, timeoutMs);
-        if (read <= 0) return null;
+        if (read == -2) return (null, true);
+        if (read <= 0) return (null, false);
         if (read < len) Array.Resize(ref buf, read);
-        return buf;
+        return (buf, false);
     }
 
     private static int PaOverlappedIo(bool isWrite, SafeFileHandle handle, byte[] buf, int timeoutMs)
     {
-        var ev = CreateEventW(IntPtr.Zero, true, false, null);
-        if (ev == IntPtr.Zero) return -1;
+        var ev = CreateEventW(IntPtr.Zero, true, false, IntPtr.Zero);
+        if (ev == IntPtr.Zero) return -2;
         var pinBuf = GCHandle.Alloc(buf, GCHandleType.Pinned);
         var ovMem = Marshal.AllocHGlobal(Marshal.SizeOf<OVERLAPPED>());
         try
         {
             Marshal.StructureToPtr(new OVERLAPPED { hEvent = ev }, ovMem, false);
             var ok = isWrite
-                ? WriteFile(handle, pinBuf.AddrOfPinnedObject(), (uint)buf.Length, out var transferred, ovMem)
-                : ReadFile(handle, pinBuf.AddrOfPinnedObject(), (uint)buf.Length, out transferred, ovMem);
+                ? WriteFile(handle, pinBuf.AddrOfPinnedObject(), (uint)buf.Length, IntPtr.Zero, ovMem)
+                : ReadFile(handle, pinBuf.AddrOfPinnedObject(), (uint)buf.Length, IntPtr.Zero, ovMem);
             if (!ok)
             {
-                if (Marshal.GetLastWin32Error() != 997) return -1; // ERROR_IO_PENDING
+                if (Marshal.GetLastWin32Error() != 997) return -2; // immediate error (e.g. unplugged)
                 if (WaitForSingleObject(ev, (uint)timeoutMs) != 0)
                 {
                     // Wait for overlapped cancellation before unpinning the buffer.
                     CancelIoEx(handle, ovMem);
                     GetOverlappedResult(handle, ovMem, out _, true);
-                    return -1;
+                    return -1; // timeout
                 }
-                if (!GetOverlappedResult(handle, ovMem, out transferred, false)) return -1;
             }
+            if (!GetOverlappedResult(handle, ovMem, out var transferred, false)) return -2;
             return (int)transferred;
         }
         finally
@@ -432,31 +539,6 @@ public sealed partial class BatteryMonitor
             pinBuf.Free();
             CloseHandle(ev);
         }
-    }
-
-    private static byte[]? QueryRazerFeature(SafeFileHandle handle, byte txId, byte commandId)
-    {
-        var req = BuildRazerReport(txId, commandId);
-        var resp = new byte[RazerReportLength];
-        var deadline = Environment.TickCount64 + 180;
-
-        for (int attempt = 0; attempt < 3 && Environment.TickCount64 < deadline; attempt++)
-        {
-            if (!HidD_SetFeature(handle, req, (uint)req.Length)) return null;
-            Thread.Sleep(5);
-
-            for (int poll = 0; poll < 3 && Environment.TickCount64 < deadline; poll++)
-            {
-                Array.Clear(resp);
-                if (!HidD_GetFeature(handle, resp, (uint)resp.Length)) return null;
-                byte status = resp[1];
-                if (status is RazerStatusTimeout or RazerStatusNotSupported) return resp;
-                if (status == RazerStatusOk && resp[7] == RazerClassPower && resp[8] == commandId) return resp;
-                if (status == RazerStatusBusy) { Thread.Sleep(25); continue; }
-                Thread.Sleep(15);
-            }
-        }
-        return null;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -497,26 +579,26 @@ public sealed partial class BatteryMonitor
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(string fileName, uint access, uint share, IntPtr sec, uint disp, uint flags, IntPtr template);
     [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool ReadFile(SafeFileHandle handle, IntPtr buf, uint len, out uint read, IntPtr overlapped);
+    private static extern bool ReadFile(SafeFileHandle handle, IntPtr buf, uint len, IntPtr bytesRead, IntPtr overlapped);
     [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool WriteFile(SafeFileHandle handle, IntPtr buf, uint len, out uint written, IntPtr overlapped);
+    private static extern bool WriteFile(SafeFileHandle handle, IntPtr buf, uint len, IntPtr bytesWritten, IntPtr overlapped);
     [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool GetOverlappedResult(SafeFileHandle handle, IntPtr overlapped, out uint transferred, bool wait);
+    private static extern bool GetOverlappedResult(SafeFileHandle handle, IntPtr overlapped, out uint transferred, [MarshalAs(UnmanagedType.Bool)] bool wait);
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CancelIoEx(SafeFileHandle handle, IntPtr overlapped);
     [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr CreateEventW(IntPtr sec, bool manualReset, bool initialState, string? name);
+    private static extern IntPtr CreateEventW(IntPtr sec, [MarshalAs(UnmanagedType.Bool)] bool manualReset, [MarshalAs(UnmanagedType.Bool)] bool initialState, IntPtr name);
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint WaitForSingleObject(IntPtr handle, uint ms);
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr handle);
 
-    [DllImport("hid.dll", SetLastError = true)] private static extern bool HidD_GetAttributes(SafeFileHandle handle, ref HIDD_ATTRIBUTES attrs);
-    [DllImport("hid.dll", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool HidD_GetProductString(SafeFileHandle handle, StringBuilder buf, uint len);
-    [DllImport("hid.dll", SetLastError = true)] private static extern bool HidD_GetPreparsedData(SafeFileHandle handle, out IntPtr pp);
-    [DllImport("hid.dll", SetLastError = true)] private static extern bool HidD_FreePreparsedData(IntPtr pp);
+    [DllImport("hid.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.U1)] private static extern bool HidD_GetAttributes(SafeFileHandle handle, ref HIDD_ATTRIBUTES attrs);
+    [DllImport("hid.dll", CharSet = CharSet.Unicode, SetLastError = true)] [return: MarshalAs(UnmanagedType.U1)] private static extern bool HidD_GetProductString(SafeFileHandle handle, StringBuilder buf, uint len);
+    [DllImport("hid.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.U1)] private static extern bool HidD_GetPreparsedData(SafeFileHandle handle, out IntPtr pp);
+    [DllImport("hid.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.U1)] private static extern bool HidD_FreePreparsedData(IntPtr pp);
     [DllImport("hid.dll", SetLastError = true)] private static extern int HidP_GetCaps(IntPtr pp, out HIDP_CAPS caps);
-    [DllImport("hid.dll", SetLastError = true)] private static extern bool HidD_SetFeature(SafeFileHandle handle, byte[] buf, uint len);
-    [DllImport("hid.dll", SetLastError = true)] private static extern bool HidD_GetFeature(SafeFileHandle handle, byte[] buf, uint len);
+    [DllImport("hid.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.U1)] private static extern bool HidD_SetFeature(SafeFileHandle handle, byte[] buf, uint len);
+    [DllImport("hid.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.U1)] private static extern bool HidD_GetFeature(SafeFileHandle handle, byte[] buf, uint len);
 #endif
 }
