@@ -547,3 +547,17 @@ test('photo frame shows the folder photos one after another', async ({ page }) =
   await expect(page.locator('.w-photos .pf-img.on')).toHaveCount(1);
   await expect(page.locator('.w-photos .pf-note')).toBeHidden();
 });
+
+test('a photo frame on a hidden Smart Stack card fetches nothing', async ({ page }) => {
+  await page.clock.install();
+  await layout(page, [widget('stack', { interval: 120, widgets: [{ type: 'clock' }, { type: 'photos', options: { interval: 5 } }] })]);
+  await page.evaluate(() => {
+    window.__photoFetches = 0;
+    const demo = window.fetch;
+    window.fetch = (url, init) => { if (String(url).includes('/photos')) window.__photoFetches++; return demo(url, init); };
+  });
+  await page.clock.fastForward(30_000);
+  expect(await page.evaluate(() => window.__photoFetches)).toBe(0);
+  await page.getByRole('button', { name: 'photos', exact: true }).click();
+  await expect(page.locator('.stack-item.active .w-photos .pf-img.on')).toHaveCount(1);
+});

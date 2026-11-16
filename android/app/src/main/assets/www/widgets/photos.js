@@ -86,8 +86,9 @@ W.photos = {
 
     return {
       update() {
-        // the neighbouring pages get ticks too (to be ready when swiped to); the slideshow runs only on its own page
-        if (!alive || document.body.classList.contains('night') || pages[curPage] !== page) return;
+        // the neighbouring pages get ticks too (to be ready when swiped to), and so do a Smart Stack's hidden cards:
+        // the slideshow runs only on its own page, and in a stack only while it is the card showing
+        if (!alive || document.body.classList.contains('night') || pages[curPage] !== page || box.closest('.stack-item:not(.active)')) return;
         const now = Date.now();
         if (!listAt || now - listAt > 10 * 60_000) loadList();
         if (order.length && now >= nextAt) { nextAt = now + every; showNext(); }
