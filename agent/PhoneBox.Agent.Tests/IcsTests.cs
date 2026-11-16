@@ -181,6 +181,18 @@ public class IcsTests
     }
 
     [Fact]
+    public void AmbiguousFallBackTimesUseTheFirstOccurrence()
+    {
+        var from = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
+        var events = Ics.Parse(Cal(
+            "UID:single\nDTSTART;TZID=America/New_York:20261101T013000\nSUMMARY:Single",
+            "UID:weekly\nDTSTART;TZID=America/New_York:20261025T013000\nRRULE:FREQ=WEEKLY;COUNT=2\nSUMMARY:Weekly"),
+            from, from.AddDays(1)).ToList();
+        Assert.Equal(2, events.Count);
+        Assert.All(events, e => Assert.Equal(new DateTime(2026, 11, 1, 5, 30, 0, DateTimeKind.Utc), Utc(e.Start)));
+    }
+
+    [Fact]
     public void WallClockTimeSurvivesDaylightSavingChange()
     {
         // weekly at 09:00 Berlin time across the end of DST (25 Oct 2026): 07:00 UTC before, 08:00 UTC after

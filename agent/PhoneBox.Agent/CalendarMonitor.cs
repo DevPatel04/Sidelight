@@ -301,6 +301,9 @@ public static class Ics
     {
         local = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
         if (zone.IsInvalidTime(local)) local = local.AddHours(1); // skipped by a DST change
+        // iCalendar selects the earlier instant when the same wall-clock time occurs twice.
+        if (zone.IsAmbiguousTime(local))
+            return new DateTimeOffset(local, zone.GetAmbiguousTimeOffsets(local).Max()).UtcDateTime;
         return TimeZoneInfo.ConvertTimeToUtc(local, zone);
     }
 
