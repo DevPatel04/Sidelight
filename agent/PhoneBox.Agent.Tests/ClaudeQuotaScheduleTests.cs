@@ -116,18 +116,60 @@ public sealed class ClaudeQuotaScheduleTests : IDisposable
     [Fact]
     public async Task ARefusedTokenIsNotSentAgainUntilClaudeCodeRenewsIt()
     {
-        SignIn("revoked", _t0 + 3_600_000);
+        SignIn("revoked", _t0 + 7_200_000);
         _api.Respond(HttpStatusCode.Unauthorized, """{"error":"invalid token"}""");
         var agent = Agent();
-        for (var t = _t0; t <= _t0 + 60 * Minute; t += 30_000) await agent.ClaudeTickAsync(t, default);
+        for (var t = _t0; t < _t0 + 30 * Minute; t += 30_000) await agent.ClaudeTickAsync(t, default);
         Assert.Equal(1, _api.Calls);
         Assert.NotNull(Claude(agent).Error);
 
         SignIn("renewed", _t0 + 7_200_000);
         _api.Respond(HttpStatusCode.OK, Usage);
-        await agent.ClaudeTickAsync(_t0 + 61 * Minute, default);
+        await agent.ClaudeTickAsync(_t0 + 30 * Minute, default);
         Assert.Equal(2, _api.Calls);
         Assert.Null(Claude(agent).Error);
+    }
+
+    [Fact]
+    public async Task ARefusalIsNotPermanent()
+    {
+        // a 401 from a proxy or an outage: the same token is tried again after half an hour
+        SignIn("token-1", _t0 + 7_200_000);
+        _api.Respond(HttpStatusCode.Unauthorized, "");
+        var agent = Agent();
+        for (var t = _t0; t <= _t0 + 61 * Minute; t += 30_000) await agent.ClaudeTickAsync(t, default);
+        Assert.Equal(3, _api.Calls); // at 0, 30 and 60 minutes
+    }
+
+    [Fact]
+    public async Task AForbiddenReplyBacksOffLikeOtherErrors()
+    {
+        SignIn("token-1", _t0 + 7_200_000);
+        _api.Respond(HttpStatusCode.Forbidden, "<html>challenge</html>");
+        var agent = Agent();
+        for (var t = _t0; t <= _t0 + 8 * Minute; t += 30_000) await agent.ClaudeTickAsync(t, default);
+        Assert.Equal(4, _api.Calls); // at 0, 1, 3 and 7 minutes
+        Assert.Contains("403", Claude(agent).Error);
+    }
+
+    [Fact]
+    public async Task AClockSetBackDoesNotStopTheChecks()
+    {
+        SignIn("token-1", _t0 + 7_200_000);
+        _api.Respond(HttpStatusCode.OK, Usage);
+        var agent = Agent();
+        await agent.ClaudeTickAsync(_t0, default);
+
+        // the clock was a day ahead and NTP corrected it
+        var back = _t0 - 24 * 60 * Minute;
+        var t = back;
+        while (_api.Calls < 2 && t < back + 3 * 60 * Minute) { t += 30_000; await agent.ClaudeTickAsync(t, default); }
+        Assert.Equal(2, _api.Calls);
+        Assert.InRange(t - back, 0, 3_605_000 + 60_000); // the longest wait, plus the 30 s passes on either side
+
+        // and from then on the normal 3 minutes, with no leftover from the old schedule
+        for (var u = t + 30_000; u <= t + 3 * Minute + 30_000; u += 30_000) await agent.ClaudeTickAsync(u, default);
+        Assert.Equal(3, _api.Calls);
     }
 
     [Fact]

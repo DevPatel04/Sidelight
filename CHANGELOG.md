@@ -14,8 +14,8 @@
 - The Claude quota check spends fewer of Anthropic's rate-limited requests and shows fewer errors:
   - a restart (an update) or a second agent on the computer uses a reading under 3 minutes old, and still waits
     out a `429`'s Retry-After, instead of asking again;
-  - an expired token is not sent, and a token Anthropic refused is not sent again; the token Claude Code renews is
-    used within a minute, instead of after a back-off of up to 15 minutes;
+  - an expired token is not sent, and a token Anthropic refused (`401`) is tried again only after 30 minutes; the
+    token Claude Code renews is used within a minute, instead of after a back-off of up to 15 minutes;
   - when the network isn't back yet (after sleep), the last reading stays without an error and the check is
     retried after 30 seconds, up to three times;
   - a reply PhoneBox doesn't recognize (a captive portal, a changed format) keeps the last reading instead of

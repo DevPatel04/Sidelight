@@ -298,7 +298,7 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     //  - an expired, missing or refused token is waited out locally (the sign-in is read once a minute), never sent;
     //  - the schedule and the last reading are shared through files, so a restart (an update) or a second agent on
     //    this computer doesn't ask again before the 3 minutes or a Retry-After are over;
-    //  - a token the server refused is not sent again; Claude Code renews it, and the renewed one is used at once.
+    //  - a token the server refused (401) is sent again only after 30 minutes; a renewed one is used within a minute.
 
     internal const long ClaudeHealthyMs = 180_000;
     private const long ClaudeMaxWaitMs = 3_605_000;  // the longest wait ClaudeDelay can ask for
@@ -307,9 +307,11 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     internal const long ClaudeOfflineRetryMs = 30_000;
     private const long ClaudeUnrecognizedMs = 900_000;
     private const long ClaudeTokenRecheckMs = 60_000;
+    private const long ClaudeRefusedRetryMs = 1_800_000; // a refusal may be a passing one (a proxy, an outage)
 
     private int _claudeOffline;         // consecutive requests that could not reach the server
     private string? _claudeRefused;     // fingerprint of the token the server refused (never the token itself)
+    private long _claudeRefusedAt;
     private bool _claudeAwaitingToken;  // expired, missing or refused: only the sign-in is read until it changes
     private long _claudeCredsReadAt;
 
@@ -326,6 +328,10 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     {
         // The sign-in is read when a request is due, and once a minute while waiting for Claude Code to renew an
         // expired or refused token (on macOS each read starts the `security` tool).
+        // The schedule is wall-clock time, shared with other agents through a file. A clock set back (an NTP correction,
+        // a resumed VM) would otherwise hold it up for as long as it moved: no wait is longer than ClaudeMaxWaitMs.
+        if (_claudeNextAt - nowMs > ClaudeMaxWaitMs) _claudeNextAt = nowMs + ClaudeMaxWaitMs;
+        if (_claudeCredsReadAt > nowMs) _claudeCredsReadAt = 0;
         if (_claudeAwaitingToken ? nowMs - _claudeCredsReadAt < ClaudeTokenRecheckMs : nowMs < _claudeNextAt) return;
         _claudeCredsReadAt = nowMs;
 
@@ -371,7 +377,7 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
         var print = token.Length == 0 ? "" : Fingerprint(token);
         var wait = token.Length == 0 ? "Not signed in to Claude Code"
             : expires > 0 && expires - nowMs < ClaudeTokenMarginMs ? "Token expired; it will refresh when Claude Code runs"
-            : print == _claudeRefused ? RefusedMessage : null;
+            : print == _claudeRefused && nowMs - _claudeRefusedAt is >= 0 and < ClaudeRefusedRetryMs ? RefusedMessage : null;
         _claudeAwaitingToken = wait is not null;
         if (wait is not null)
         {
@@ -393,6 +399,7 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
                 break;
             case ClaudeResult.Refused:
                 _claudeRefused = print;
+                _claudeRefusedAt = nowMs;
                 _claudeAwaitingToken = true;
                 next = nowMs + ClaudeTokenRecheckMs;
                 break;
@@ -430,7 +437,7 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
             if (res.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
                 // Asking again before Retry-After only keeps the limit in place, so wait at least that long.
                 return (ClaudeResult.Limited, RetryAfter(res.Headers.RetryAfter) ?? TimeSpan.FromMinutes(5));
-            if (res.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+            if (res.StatusCode == HttpStatusCode.Unauthorized)
             {
                 _claude = Keep(plan, RefusedMessage);
                 return (ClaudeResult.Refused, null);
@@ -493,10 +500,9 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
         if (_claude?.UpdatedAt is { } updated && updated <= nowMs && nowMs - updated < ClaudeHealthyMs)
             _claudeNextAt = Math.Max(_claudeNextAt, updated + ClaudeHealthyMs);
 
-        if (ReadClaudeSchedule() is not { } shared) return;
-        var nextAt = Math.Min(shared.NextAt, nowMs + ClaudeMaxWaitMs); // a clock that jumped can't silence it for days
-        if (nextAt <= nowMs) return;
-        _claudeNextAt = Math.Max(_claudeNextAt, nextAt);
+        // a schedule further ahead than any wait was written before the clock was set back: it no longer applies
+        if (ReadClaudeSchedule() is not { } shared || shared.NextAt <= nowMs || shared.NextAt - nowMs > ClaudeMaxWaitMs) return;
+        _claudeNextAt = Math.Max(_claudeNextAt, shared.NextAt);
         _claudeFailures = Math.Max(_claudeFailures, shared.Failures);
         if (shared.Error is { Length: > 0 } error) _claude = Keep(plan, error);
     }
