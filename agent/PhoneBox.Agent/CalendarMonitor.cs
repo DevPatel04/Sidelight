@@ -148,12 +148,20 @@ public static class Ics
                 starts = Expand(start, rrule, zone, allDay, fromUtc, toUtc, local)
                     .Where(s => !exdates.Contains(s.Ticks) && !overrides.Contains((uid, s.Ticks)));
             }
-            foreach (var s in starts)
+            try
             {
-                var f = s + length;
-                if (f <= fromUtc && !(length == TimeSpan.Zero && s >= fromUtc)) continue;
-                if (s >= toUtc) break;
-                result.Add(new CalendarEvent(title, Ms(s), Ms(f), allDay, location, "", ""));
+                foreach (var s in starts)
+                {
+                    var f = s + length;
+                    if (f <= fromUtc && !(length == TimeSpan.Zero && s >= fromUtc)) continue;
+                    if (s >= toUtc) break;
+                    result.Add(new CalendarEvent(title, Ms(s), Ms(f), allDay, location, "", ""));
+                }
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // a rule that steps past the year 9999 (a weekday, a time of day, the event's length) ends that event's
+                // repeats there; the occurrences before it and the rest of the feed stay
             }
         }
         return result;

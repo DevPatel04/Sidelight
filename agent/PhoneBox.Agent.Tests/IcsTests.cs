@@ -222,6 +222,20 @@ public class IcsTests
         Assert.Contains(events, e => e.Title == "Review");
         Assert.Equal(3, events.Count(e => e.Title is "Daily" or "Monthly" or "Yearly")); // each still yields its DTSTART
     }
+
+    [Fact]
+    public void ARuleThatRunsIntoTheYear9999OnlyStopsItsOwnEvent()
+    {
+        // within the interval bounds, but a weekday or a time of day near the end of the calendar still steps past
+        // DateTime.MaxValue: that event stops repeating, the rest of the feed stays
+        var events = Ics.Parse(Cal(
+            "UID:1\nDTSTART:20261110T090000Z\nSUMMARY:Weekly\nRRULE:FREQ=WEEKLY;INTERVAL=416018;BYDAY=TU,SU",
+            "UID:2\nDTSTART:20261110T230000Z\nDURATION:PT2H\nSUMMARY:Daily\nRRULE:FREQ=DAILY;INTERVAL=2912410",
+            "UID:3\nDTSTART:20261111T100000Z\nSUMMARY:Review"), From, To).ToList();
+        Assert.Contains(events, e => e.Title == "Review");
+        Assert.Contains(events, e => e.Title == "Weekly");
+        Assert.Contains(events, e => e.Title == "Daily");
+    }
 }
 
 public class RuleWindowTests
