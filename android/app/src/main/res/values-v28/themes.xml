@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Android 8.1+: draw into the display cutout as well (the attribute does not exist before API 27) -->
+    <!-- Android 9+: draw into the display cutout as well (the attribute does not exist before API 28) -->
     <style name="Theme.DeskPanel" parent="android:Theme.Material.NoActionBar.Fullscreen">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>

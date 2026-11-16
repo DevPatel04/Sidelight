@@ -49,7 +49,7 @@ page lists what reviews keep asking for; following it gets a pull request merged
   `android/app/src/main/assets/www/widgets/`, an icon in `WIDGET_ICONS`, the README count (`tools/check-release.py`
   checks it) and, if it calls the agent, a mock in `tools/pages/demo.js` so the web demo and the UI tests can render
   it. Outside the app (no native bridge) it must show an empty state, not throw.
-- **The Android app** targets Android 9 (API 28) and later and runs the panel in the system WebView. Changing
+- **The Android app** targets Android 7.0 (API 24) and later and runs the panel in the system WebView. Changing
   `minSdk` needs `./gradlew lintDebug` to pass and a note on the devices and WebView versions you tried.
 - **Don't change behaviour users rely on** (removing a choice, renaming a setting, changing a default) without
   migrating existing settings and saying so in the pull request.

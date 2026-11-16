@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+**Android**
+- The app runs on Android 7.0 and later (it was Android 9). Two features need newer Android, so they are guarded:
+  before Android 8 the tap vibrations use the older vibration call, and drawing into the display cut-out starts at
+  Android 9 as before. Tested on an Android 7.1.1 phone with Chrome 119 as its WebView by
+  [anandyakshit](https://github.com/anandyakshit) (#73). `setup.ps1` and `setup.sh` now accept these phones.
+
 **Agent**
 - `display.language` is checked like the other settings: a code PhoneBox has no translation for (or an empty one) falls
   back to `auto`, which follows the phone or the browser. It is also in the three default configuration files.
