@@ -29,7 +29,7 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
     private volatile DiscordSnapshot _snap = Empty(null);
     private readonly object _lock = new();
     private readonly List<DiscordNotification> _notes = [];
-    private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonNode?>> _pending = new();
+    internal readonly ConcurrentDictionary<string, TaskCompletionSource<JsonNode?>> _pending = new(); // internal for tests
     private readonly SemaphoreSlim _send = new(1, 1);
     private Stream? _io;
 
@@ -168,7 +168,14 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         catch (Exception ex) when (ex is not (OperationCanceledException or IOException)) { throw new LoginRefusedException($"Discord login was refused ({ex.Message})." + retry); }
         // no answer at all means the connection ended (Discord closed or restarted): that is not a refusal
         var code = granted?["code"]?.GetValue<string>() ?? throw new IOException("Discord closed the connection");
-        tokens = await Exchange(cfg, new() { ["grant_type"] = "authorization_code", ["code"] = code, ["redirect_uri"] = Redirect }, ct)
+        try { tokens = await Exchange(cfg, new() { ["grant_type"] = "authorization_code", ["code"] = code, ["redirect_uri"] = Redirect }, ct); }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            // approved in Discord, but this computer can't reach discord.com (a firewall): retrying would show the prompt
+            // again every 30 s, so stop like after a refusal
+            throw new LoginRefusedException($"PhoneBox could not reach discord.com to finish the login ({ex.Message})." + retry);
+        }
+        tokens = tokens
             ?? throw new LoginRefusedException("Discord refused the client secret or the redirect (add http://127.0.0.1 under OAuth2 › Redirects)." + retry);
         try { return await Auth(tokens.Access, ct); }
         catch (Exception ex) when (ex is not (OperationCanceledException or IOException)) { throw new LoginRefusedException($"Discord refused the new login ({ex.Message})." + retry); }
@@ -294,32 +301,41 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
 
     internal async Task ReadLoop(Stream io, CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested)
+        try
         {
-            var frame = await ReadFrame(io, ct);
-            if (frame is null) break;
-            var (op, msg) = frame.Value;
-            if (op == 3) // PING: answer with the same payload, through the same lock as every other write
+            while (!ct.IsCancellationRequested)
             {
-                await _send.WaitAsync(ct);
-                try { await WriteFrame(io, 4, msg as JsonObject ?? new JsonObject(), ct); } finally { _send.Release(); }
-                continue;
+                var frame = await ReadFrame(io, ct);
+                if (frame is null) break;
+                var (op, msg) = frame.Value;
+                if (op == 3) // PING: answer with the same payload, through the same lock as every other write
+                {
+                    await _send.WaitAsync(ct);
+                    try { await WriteFrame(io, 4, msg as JsonObject ?? new JsonObject(), ct); } finally { _send.Release(); }
+                    continue;
+                }
+                if (op == 4 || msg is null) continue; // PONG
+                var evt = msg["evt"]?.GetValue<string>();
+                if (evt == "NOTIFICATION_CREATE")
+                {
+                    if (!_notesWanted) continue;
+                    var d = msg["data"];
+                    var title = d?["title"]?.GetValue<string>() ?? "";
+                    var body = d?["body"]?.GetValue<string>() ?? d?["message"]?["content"]?.GetValue<string>() ?? "";
+                    lock (_lock) { _notes.Insert(0, new(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), title, body)); if (_notes.Count > 20) _notes.RemoveAt(20); }
+                    continue;
+                }
+                var id = msg["nonce"]?.GetValue<string>();
+                if (id is null || !_pending.TryRemove(id, out var tcs)) continue;
+                if (evt == "ERROR") tcs.TrySetException(new Exception(msg["data"]?["message"]?.GetValue<string>() ?? "Discord refused the request"));
+                else tcs.TrySetResult(msg["data"]?.DeepClone());
             }
-            if (op == 4 || msg is null) continue; // PONG
-            var evt = msg["evt"]?.GetValue<string>();
-            if (evt == "NOTIFICATION_CREATE")
-            {
-                if (!_notesWanted) continue;
-                var d = msg["data"];
-                var title = d?["title"]?.GetValue<string>() ?? "";
-                var body = d?["body"]?.GetValue<string>() ?? d?["message"]?["content"]?.GetValue<string>() ?? "";
-                lock (_lock) { _notes.Insert(0, new(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), title, body)); if (_notes.Count > 20) _notes.RemoveAt(20); }
-                continue;
-            }
-            var id = msg["nonce"]?.GetValue<string>();
-            if (id is null || !_pending.TryRemove(id, out var tcs)) continue;
-            if (evt == "ERROR") tcs.TrySetException(new Exception(msg["data"]?["message"]?.GetValue<string>() ?? "Discord refused the request"));
-            else tcs.TrySetResult(msg["data"]?.DeepClone());
+        }
+        finally
+        {
+            // the connection ended (Discord closed or restarted): answer whatever still waits, so a pending login
+            // prompt ends now as "no answer" instead of timing out as a refusal two minutes later
+            foreach (var p in _pending.Values) p.TrySetResult(null);
         }
     }
 

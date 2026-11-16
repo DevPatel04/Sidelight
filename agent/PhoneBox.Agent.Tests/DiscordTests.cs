@@ -180,6 +180,26 @@ public sealed class DiscordTests : IDisposable
     }
 
     [Fact]
+    public async Task A_request_still_waiting_ends_with_no_answer_when_Discord_closes_the_connection()
+    {
+        // the login prompt waits up to two minutes; when Discord quits meanwhile it must end at once as "no answer"
+        // (a dropped connection, retried with back-off), not time out later and count as the user refusing
+        var monitor = Monitor(false);
+        var (server, client) = await Pipe();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var waiting = new TaskCompletionSource<JsonNode?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        monitor._pending["login"] = waiting;
+        await using (client)
+        {
+            var loop = monitor.ReadLoop(client, cts.Token);
+            await server.DisposeAsync();
+            await loop.WaitAsync(cts.Token);
+            Assert.True(waiting.Task.IsCompletedSuccessfully);
+            Assert.Null(await waiting.Task);
+        }
+    }
+
+    [Fact]
     public async Task Notification_text_is_dropped_unless_notifications_are_on()
     {
         var monitor = Monitor(false);
