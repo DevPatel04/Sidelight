@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -33,7 +35,39 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     internal QuotaMonitor(ILogger<QuotaMonitor> log) : this(null!, log) { }
 
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    // IPv4 first: on networks where IPv6 is advertised but not routable, the default connect fails with
+    // "Socket is not connected" instead of falling back, which breaks the quota checks.
+    private readonly HttpClient _http = new(new SocketsHttpHandler { ConnectCallback = (ctx, ct) => ConnectIpv4First(ctx.DnsEndPoint, ct) })
+    {
+        Timeout = TimeSpan.FromSeconds(15),
+    };
+
+    /// <summary>The addresses in the order to try them: IPv4 first, each family keeping its resolver order.</summary>
+    internal static IEnumerable<IPAddress> Ipv4First(IEnumerable<IPAddress> addresses) =>
+        addresses.OrderBy(a => a.AddressFamily == AddressFamily.InterNetwork ? 0 : 1);
+
+    internal static async ValueTask<Stream> ConnectIpv4First(DnsEndPoint endpoint, CancellationToken ct)
+    {
+        var addresses = await Dns.GetHostAddressesAsync(endpoint.Host, ct);
+        Exception? last = null;
+        foreach (var ip in Ipv4First(addresses))
+        {
+            var socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            try
+            {
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeout.CancelAfter(TimeSpan.FromSeconds(5));
+                await socket.ConnectAsync(new IPEndPoint(ip, endpoint.Port), timeout.Token);
+                return new NetworkStream(socket, ownsSocket: true);
+            }
+            catch (Exception ex) when (ex is SocketException or OperationCanceledException && !ct.IsCancellationRequested)
+            {
+                socket.Dispose();
+                last = ex;
+            }
+        }
+        throw new HttpRequestException("Could not connect to " + endpoint.Host, last);
+    }
 
     private volatile QuotaProvider? _claude;
     private volatile QuotaProvider? _codex;
