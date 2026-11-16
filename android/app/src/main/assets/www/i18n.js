@@ -38,6 +38,9 @@
       'panel.switchingTo': 'Switching to {target}',
       'panel.backTo': 'Back to {target}',
       'panel.moreWaiting': '{n} more waiting',
+      'panel.pagePause': 'Pause page switching',
+      'panel.pagePaused': 'Page switching paused (tap to resume)',
+      'panel.pagePausedWait': 'page paused',
 
       // Panel: Offline / Connection
       'panel.pcNotConnected': 'PC not connected',
@@ -288,6 +291,9 @@
       'panel.switchingTo': '{target} sayfasına geçiliyor',
       'panel.backTo': '{target} sayfasına dönülüyor',
       'panel.moreWaiting': '{n} kişi daha bekliyor',
+      'panel.pagePause': 'Sayfa geçişini duraklat',
+      'panel.pagePaused': 'Sayfa geçişi duraklatıldı (devam için dokunun)',
+      'panel.pagePausedWait': 'sayfa duraklatıldı',
 
       'panel.pcNotConnected': 'PC bağlı değil',
       'panel.connecting': 'Bağlanıyor…',
@@ -531,6 +537,9 @@
       'panel.switchingTo': 'Wechsle zu {target}',
       'panel.backTo': 'Zurück zu {target}',
       'panel.moreWaiting': '{n} weitere warten',
+      'panel.pagePause': 'Seitenwechsel pausieren',
+      'panel.pagePaused': 'Seitenwechsel pausiert (tippen zum Fortsetzen)',
+      'panel.pagePausedWait': 'Seite pausiert',
 
       'panel.pcNotConnected': 'PC nicht verbunden',
       'panel.connecting': 'Verbinde…',
@@ -774,6 +783,9 @@
       'panel.switchingTo': 'Passage à {target}',
       'panel.backTo': 'Retour à {target}',
       'panel.moreWaiting': '{n} de plus en attente',
+      'panel.pagePause': 'Mettre en pause le changement de page',
+      'panel.pagePaused': 'Changement de page en pause (toucher pour reprendre)',
+      'panel.pagePausedWait': 'page en pause',
 
       'panel.pcNotConnected': 'PC non connecté',
       'panel.connecting': 'Connexion…',
@@ -1017,6 +1029,9 @@
       'panel.switchingTo': 'Cambiando a {target}',
       'panel.backTo': 'Volviendo a {target}',
       'panel.moreWaiting': '{n} más esperando',
+      'panel.pagePause': 'Pausar cambio de página',
+      'panel.pagePaused': 'Cambio de página en pausa (toca para reanudar)',
+      'panel.pagePausedWait': 'página en pausa',
 
       'panel.pcNotConnected': 'PC no conectado',
       'panel.connecting': 'Conectando…',
@@ -1260,6 +1275,9 @@
       'panel.switchingTo': 'Passaggio a {target}',
       'panel.backTo': 'Ritorno a {target}',
       'panel.moreWaiting': 'altri {n} in attesa',
+      'panel.pagePause': 'Metti in pausa il cambio pagina',
+      'panel.pagePaused': 'Cambio pagina in pausa (tocca per riprendere)',
+      'panel.pagePausedWait': 'pagina in pausa',
 
       'panel.pcNotConnected': 'PC non connesso',
       'panel.connecting': 'Connessione…',
@@ -1503,6 +1521,9 @@
       'panel.switchingTo': 'Mudando para {target}',
       'panel.backTo': 'Voltando para {target}',
       'panel.moreWaiting': 'mais {n} à espera',
+      'panel.pagePause': 'Pausar mudança de página',
+      'panel.pagePaused': 'Mudança de página em pausa (toque para retomar)',
+      'panel.pagePausedWait': 'página em pausa',
 
       'panel.pcNotConnected': 'PC não ligado',
       'panel.connecting': 'A ligar…',
@@ -1746,6 +1767,9 @@
       'panel.switchingTo': 'Schakelen naar {target}',
       'panel.backTo': 'Terug naar {target}',
       'panel.moreWaiting': 'nog {n} wachtend',
+      'panel.pagePause': 'Paginawissel pauzeren',
+      'panel.pagePaused': 'Paginawissel gepauzeerd (tik om te hervatten)',
+      'panel.pagePausedWait': 'pagina gepauzeerd',
 
       'panel.pcNotConnected': 'PC niet verbonden',
       'panel.connecting': 'Verbinden…',
@@ -1989,6 +2013,9 @@
       'panel.switchingTo': 'Przełączanie na {target}',
       'panel.backTo': 'Powrót do {target}',
       'panel.moreWaiting': 'jeszcze {n} oczekuje',
+      'panel.pagePause': 'Wstrzymaj przełączanie stron',
+      'panel.pagePaused': 'Przełączanie stron wstrzymane (stuknij, aby wznowić)',
+      'panel.pagePausedWait': 'strona wstrzymana',
 
       'panel.pcNotConnected': 'PC niepodłączony',
       'panel.connecting': 'Łączenie…',
@@ -2232,6 +2259,9 @@
       'panel.switchingTo': 'Переход на {target}',
       'panel.backTo': 'Возврат на {target}',
       'panel.moreWaiting': 'ещё {n} в очереди',
+      'panel.pagePause': 'Приостановить смену страниц',
+      'panel.pagePaused': 'Смена страниц на паузе (нажмите для продолжения)',
+      'panel.pagePausedWait': 'страница на паузе',
 
       'panel.pcNotConnected': 'ПК не подключён',
       'panel.connecting': 'Подключение…',
@@ -2475,6 +2505,9 @@
       'panel.switchingTo': '正在切换到 {target}',
       'panel.backTo': '返回 {target}',
       'panel.moreWaiting': '还有 {n} 项等待',
+      'panel.pagePause': '暂停页面切换',
+      'panel.pagePaused': '页面切换已暂停（点击恢复）',
+      'panel.pagePausedWait': '页面已暂停',
 
       'panel.pcNotConnected': '电脑未连接',
       'panel.connecting': '正在连接…',

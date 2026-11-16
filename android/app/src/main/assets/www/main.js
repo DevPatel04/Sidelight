@@ -996,8 +996,12 @@ export function buildLayout() {
     sec.dataset.id = p.id;
     pager.appendChild(sec);
   });
-  buildDots();
   const idx = Math.max(0, pages.findIndex((p) => p.id === prevId));
+  if (pagePaused && (pages.length < 2 || (pausedPageId && pages[idx]?.id !== pausedPageId))) {
+    pagePaused = false;
+    pausedPageId = null;
+  }
+  buildDots();
   curPage = -1;
   goPage(idx, true);
   requestAnimationFrame(() => setActive(true));
@@ -1034,18 +1038,105 @@ export function setActive(all = false) {
 }
 
 // ---------------------------------------------------------------- navigation: swipe, dots, overview, volume keys, agent events
+export let pagePaused = false;
+let pausedPageId = null;
+let pagePauseBtn = null;
+let pageOverlayTimer = 0;
+
+/** Builds an inline SVG element for the page pause toggle and center overlay. */
+function makeSvg(cls, d) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  if (cls) svg.setAttribute('class', cls);
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', d);
+  svg.appendChild(path);
+  return svg;
+}
+
+/** Shows a 2-second centered pause or play overlay when page switching is toggled. */
+export function showPagePauseFeedback(paused) {
+  const overlay = $('pagePauseOverlay');
+  if (!overlay) return;
+  if (pageOverlayTimer) { clearTimeout(pageOverlayTimer); pageOverlayTimer = 0; }
+  overlay.replaceChildren(h('div', 'rot-overlay-icon',
+    makeSvg('', paused ? 'M6 5h4v14H6zM14 5h4v14h-4z' : 'M8 5v14l11-7z')));
+  overlay.classList.remove('show');
+  void overlay.offsetWidth;
+  overlay.classList.add('show');
+  pageOverlayTimer = setTimeout(() => {
+    overlay.classList.remove('show');
+    pageOverlayTimer = 0;
+  }, 2000);
+}
+
+/** Syncs the #dots bar and .page-pause button state with `pagePaused`. */
+export function syncPagePauseUi() {
+  const dots = $('dots');
+  if (dots) dots.classList.toggle('paused', pagePaused);
+  if (pagePauseBtn) {
+    pagePauseBtn.classList.toggle('on', pagePaused);
+    pagePauseBtn.setAttribute('aria-label', t('panel.pagePause'));
+    pagePauseBtn.setAttribute('aria-pressed', String(pagePaused));
+    pagePauseBtn.title = pagePaused ? t('panel.pagePaused') : t('panel.pagePause');
+  }
+}
+
+/** Sets whether automatic page switching (idle return and rules) is paused. */
+export function setPagePaused(next, { feedback = false } = {}) {
+  const val = !!(next && pages.length >= 2);
+  if (val === pagePaused) return pagePaused;
+  pagePaused = val;
+  pausedPageId = pagePaused ? (pages[curPage]?.id ?? null) : null;
+  lastTouch = Date.now();
+  syncPagePauseUi();
+  if (feedback) {
+    haptic();
+    showPagePauseFeedback(pagePaused);
+  }
+  if (pagePaused && navQueue.length) navQueue = navQueue.filter((r) => r.kind !== 'home');
+  pump();
+  return pagePaused;
+}
+
+/** Toggles page-level switching pause with haptic and visual feedback. */
+export function togglePagePaused() {
+  if (pages.length < 2) return false;
+  return setPagePaused(!pagePaused, { feedback: true });
+}
+
 export function buildDots() {
-  $('dots').replaceChildren(...pages.map(() => h('i')));
-  $('dots').hidden = pages.length < 2;
+  const dots = $('dots');
+  if (pages.length < 2) {
+    pagePauseBtn = null;
+    dots.replaceChildren();
+    dots.classList.remove('paused');
+    dots.hidden = true;
+    return;
+  }
+  pagePauseBtn = h('button', 'page-pause',
+    makeSvg('i-pause', 'M7 5h4v14H7zM13 5h4v14h-4z'),
+    makeSvg('i-play', 'M8 5v14l11-7z'));
+  pagePauseBtn.type = 'button';
+  pagePauseBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    togglePagePaused();
+  });
+  dots.replaceChildren(...pages.map(() => h('i')), pagePauseBtn);
+  dots.hidden = false;
+  syncPagePauseUi();
 }
 
 export function updateDots() {
-  [...$('dots').children].forEach((d, i) => d.classList.toggle('on', i === curPage));
+  $('dots').querySelectorAll('i').forEach((d, i) => d.classList.toggle('on', i === curPage));
 }
 
 export let snapTimer = 0;
 export function goPage(i, instant = false) {
   i = Math.max(0, Math.min(pages.length - 1, i));
+  if (curPage >= 0 && i !== curPage && pagePaused) setPagePaused(false, { feedback: false });
   if (!instant) { pager.scrollTo({ left: i * window.innerWidth, behavior: 'smooth' }); return; }
   // scroll-snap-stop: always would stop a programmatic jump at the next page, so snapping is paused for the jump.
   pager.style.scrollSnapType = 'none';
@@ -1143,6 +1234,7 @@ export function requestBack(rule) {
 /** Seconds of no touch after which this page goes home (0 = stay). */
 const idleLimit = () => pages[curPage]?.idleSec ?? dsp().idleReturnSec ?? 90;
 function idleDue() {
+  if (pagePaused) return false;
   const idle = idleLimit();
   if (!(idle > 0)) return false;
   const maxHold = (dsp().holdMaxMin ?? 30) * 60_000;
@@ -1214,6 +1306,7 @@ function nextRequest() {
 function waitReason(req) {
   if (!$('approval').hidden) return 'after the permission prompt';
   if (req.kind === 'home') return '';
+  if (pagePaused) return t('panel.pagePausedWait');
   const grace = (dsp().touchGraceSec ?? 20) * 1000;
   if (Date.now() - lastUserTouch < grace) return 'waits until you are done';
   if (sheet || !$('overview').hidden) return 'waits until you are done';
@@ -1312,7 +1405,9 @@ export function flashTitle() {
 export function onScroll() {
   const p = Math.round(pager.scrollLeft / window.innerWidth);
   if (p === curPage) return;
+  const prev = curPage;
   curPage = p;
+  if (prev >= 0 && pagePaused) setPagePaused(false, { feedback: false });
   updateDots();
   flashTitle();
   setActive();
@@ -1361,7 +1456,44 @@ export function switchPc(pc) {
 export function closeOverview() { $('overview').hidden = true; }
 $('overview').addEventListener('click', closeOverview);
 $('ovRules').addEventListener('click', (e) => { e.stopPropagation(); toggleRulesPause(); });
-$('dots').addEventListener('click', openOverview);
+
+let dotsHoldTimer = 0, dotsHoldStart = null, heldDots = false;
+/** Cancels any pending long-press hold timer on the #dots bar. */
+function clearDotsHold() {
+  if (dotsHoldTimer) { clearTimeout(dotsHoldTimer); dotsHoldTimer = 0; }
+  dotsHoldStart = null;
+}
+$('dots').addEventListener('pointerdown', (e) => {
+  heldDots = false;
+  clearDotsHold();
+  if (pages.length < 2 || dimmed || document.body.classList.contains('waking')) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (e.target.closest('.page-pause')) return;
+  dotsHoldStart = [e.clientX, e.clientY];
+  dotsHoldTimer = setTimeout(() => {
+    dotsHoldTimer = 0;
+    dotsHoldStart = null;
+    heldDots = true;
+    togglePagePaused();
+  }, 450);
+});
+$('dots').addEventListener('pointermove', (e) => {
+  if (dotsHoldStart && Math.hypot(e.clientX - dotsHoldStart[0], e.clientY - dotsHoldStart[1]) > 10) clearDotsHold();
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => $('dots').addEventListener(ev, clearDotsHold));
+window.addEventListener('blur', clearDotsHold);
+$('dots').addEventListener('click', (e) => {
+  if (heldDots) {
+    heldDots = false;
+    if (!e.target.closest('.page-pause')) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+  }
+  if (e.target.closest('.page-pause')) return;
+  openOverview();
+});
 
 // Long press on an empty part of a page opens the overview too.
 export let pressTimer = 0;
