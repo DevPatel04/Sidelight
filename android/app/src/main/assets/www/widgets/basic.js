@@ -969,7 +969,7 @@ W.pomodoro = {
 W.countdown = {
   needs: ['tick'],
   create(box, { o }) {
-    const m = String(o.target || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?$/);
+    const m = String(o.target || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2})(?::\d{2})?)?$/);
     let target = NaN;
     if (m) {
       const [, year, month, day, hour = '0', minute = '0'] = m;
@@ -977,7 +977,8 @@ W.countdown = {
       date.setFullYear(+year, +month - 1, +day);
       date.setHours(+hour, +minute, 0, 0);
       if (date.getFullYear() === +year && date.getMonth() === +month - 1 &&
-          date.getDate() === +day && date.getHours() === +hour && date.getMinutes() === +minute) {
+          date.getDate() === +day && +hour < 24 && +minute < 60) {
+        // the time is checked as numbers: one the clocks skip (spring forward) still counts, moved on like before
         target = date.getTime();
       }
     }

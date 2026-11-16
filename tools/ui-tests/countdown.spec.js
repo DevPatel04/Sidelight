@@ -19,3 +19,29 @@ test('countdown rejects nonexistent calendar dates and trailing text', async ({ 
   await expect(widgets.nth(1).locator('.cd-v')).toHaveText('—');
   await expect(widgets.nth(2).locator('.cd-v')).not.toHaveText('—');
 });
+
+// Dates the countdown accepted before the stricter check must keep working: seconds in the time, a time the clocks
+// skip when they spring forward, and a plain date on a day whose midnight is skipped.
+for (const [zone, target] of [
+  ['Europe/Tallinn', '2027-01-01 00:00:00'],
+  ['Europe/Tallinn', '2027-03-28 03:30'],
+  ['America/Santiago', '2026-09-06'],
+]) {
+  test.describe(`countdown in ${zone}`, () => {
+    test.use({ timezoneId: zone });
+    test(`still counts down to ${target}`, async ({ page }) => {
+      await page.addInitScript((target) => {
+        const config = JSON.stringify({
+          night: { enabled: false }, rules: [], shortcuts: [],
+          pages: [{ id: 'countdowns', title: 'Countdowns', widgets: [{ id: 'cd', type: 'countdown', x: 0, y: 0, w: 4, h: 6, options: { target } }] }],
+        });
+        localStorage.setItem('cfg', config);
+        localStorage.setItem('pb-demo-config', config);
+      }, target);
+      await page.goto('/panel/');
+      const widget = page.locator('[data-id="countdowns"] .w-countdown');
+      await expect(widget).toHaveCount(1);
+      await expect(widget.locator('.cd-v')).not.toHaveText('—');
+    });
+  });
+}
