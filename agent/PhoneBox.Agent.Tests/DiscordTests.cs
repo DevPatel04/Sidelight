@@ -148,7 +148,7 @@ public sealed class DiscordTests : IDisposable
 
     private static async Task<(NamedPipeServerStream Server, NamedPipeClientStream Client)> Pipe()
     {
-        var name = "phonebox-discord-" + Guid.NewGuid().ToString("N");
+        var name = "pbd-" + Guid.NewGuid().ToString("N")[..12]; // macOS puts the socket under $TMPDIR, and its path may be at most 104 characters
         var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
         await Task.WhenAll(server.WaitForConnectionAsync(), client.ConnectAsync(5000));
