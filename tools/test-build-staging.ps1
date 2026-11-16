@@ -50,3 +50,6 @@ try {
     }
     [IO.Directory]::Delete($fixture, $true)
 }
+
+# A failing fake build above leaves $LASTEXITCODE non-zero; the runner's pwsh wrapper would report that as the result.
+exit 0
