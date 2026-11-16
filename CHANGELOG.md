@@ -11,6 +11,9 @@
   the battery and charging state, and the BlackShark V2 Pro headset only while Synapse isn't running.
 
 **Panel**
+- The Spotify queue widget shows what is playing now and what comes next, with covers; tap a track to play it. Covers
+  come from Spotify's image server, which the phone contacts only while the widget's "Show covers" option is on
+  (idea from #65, [Sawaid-hub](https://github.com/Sawaid-hub)).
 - Pause page switching: tap the pause button next to the page dots, or hold the dots, to keep the current page. While
   paused, neither idle return nor rules switch away; swiping to another page ends the pause (#162,
   [blx10](https://github.com/blx10)).

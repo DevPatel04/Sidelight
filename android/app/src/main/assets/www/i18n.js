@@ -113,6 +113,9 @@
 
       // Widgets
       'w.loading': 'Loading…',
+      'w.upNext': 'Up next',
+      'w.nowPlaying': 'Now playing',
+      'w.nothingPlaying': 'Nothing playing',
       'w.feeds.addInSettings': 'Add a feed in Settings › General',
       'w.feeds.noneFrom': 'No headlines from "{name}"',
       'w.feeds.opening': 'Opening on the PC',
@@ -360,6 +363,9 @@
       'pace.onPace': 'Normal hızda',
 
       'w.loading': 'Yükleniyor…',
+      'w.upNext': 'Sıradakiler',
+      'w.nowPlaying': 'Şimdi çalıyor',
+      'w.nothingPlaying': 'Çalan bir şey yok',
       'w.feeds.addInSettings': 'Ayarlar › Genel bölümünden bir akış ekleyin',
       'w.feeds.noneFrom': '"{name}" akışında başlık yok',
       'w.feeds.opening': 'Bilgisayarda açılıyor',
@@ -606,6 +612,9 @@
       'pace.onPace': 'Im Plan',
 
       'w.loading': 'Laden…',
+      'w.upNext': 'Als Nächstes',
+      'w.nowPlaying': 'Läuft gerade',
+      'w.nothingPlaying': 'Es läuft nichts',
       'w.feeds.addInSettings': 'Feed unter Einstellungen › Allgemein hinzufügen',
       'w.feeds.noneFrom': 'Keine Schlagzeilen von „{name}“',
       'w.feeds.opening': 'Wird auf dem PC geöffnet',
@@ -852,6 +861,9 @@
       'pace.onPace': 'Dans les temps',
 
       'w.loading': 'Chargement…',
+      'w.upNext': 'À suivre',
+      'w.nowPlaying': 'En cours de lecture',
+      'w.nothingPlaying': 'Aucune lecture en cours',
       'w.feeds.addInSettings': 'Ajoutez un flux dans Paramètres › Général',
       'w.feeds.noneFrom': 'Aucun titre de « {name} »',
       'w.feeds.opening': 'Ouverture sur le PC',
@@ -1098,6 +1110,9 @@
       'pace.onPace': 'A buen ritmo',
 
       'w.loading': 'Cargando…',
+      'w.upNext': 'A continuación',
+      'w.nowPlaying': 'Sonando ahora',
+      'w.nothingPlaying': 'No suena nada',
       'w.feeds.addInSettings': 'Añade una fuente en Ajustes › General',
       'w.feeds.noneFrom': 'No hay titulares de "{name}"',
       'w.feeds.opening': 'Abriendo en el PC',
@@ -1344,6 +1359,9 @@
       'pace.onPace': 'In linea',
 
       'w.loading': 'Caricamento…',
+      'w.upNext': 'Prossimi brani',
+      'w.nowPlaying': 'In riproduzione',
+      'w.nothingPlaying': 'Nessuna riproduzione',
       'w.feeds.addInSettings': 'Aggiungi un feed in Impostazioni › Generali',
       'w.feeds.noneFrom': 'Nessun titolo da "{name}"',
       'w.feeds.opening': 'Apertura sul PC',
@@ -1590,6 +1608,9 @@
       'pace.onPace': 'No ritmo',
 
       'w.loading': 'A carregar…',
+      'w.upNext': 'A seguir',
+      'w.nowPlaying': 'A tocar agora',
+      'w.nothingPlaying': 'Nada a tocar',
       'w.feeds.addInSettings': 'Adicione um feed em Definições › Geral',
       'w.feeds.noneFrom': 'Sem títulos de "{name}"',
       'w.feeds.opening': 'A abrir no PC',
@@ -1836,6 +1857,9 @@
       'pace.onPace': 'Op schema',
 
       'w.loading': 'Laden…',
+      'w.upNext': 'Hierna',
+      'w.nowPlaying': 'Speelt nu',
+      'w.nothingPlaying': 'Er speelt niets',
       'w.feeds.addInSettings': 'Voeg een feed toe in Instellingen › Algemeen',
       'w.feeds.noneFrom': 'Geen koppen van "{name}"',
       'w.feeds.opening': 'Wordt geopend op de pc',
@@ -2082,6 +2106,9 @@
       'pace.onPace': 'Zgodnie z planem',
 
       'w.loading': 'Ładowanie…',
+      'w.upNext': 'Następne',
+      'w.nowPlaying': 'Teraz gra',
+      'w.nothingPlaying': 'Nic nie gra',
       'w.feeds.addInSettings': 'Dodaj kanał w Ustawienia › Ogólne',
       'w.feeds.noneFrom': 'Brak nagłówków z „{name}”',
       'w.feeds.opening': 'Otwieranie na komputerze',
@@ -2328,6 +2355,9 @@
       'pace.onPace': 'По плану',
 
       'w.loading': 'Загрузка…',
+      'w.upNext': 'Далее',
+      'w.nowPlaying': 'Сейчас играет',
+      'w.nothingPlaying': 'Ничего не играет',
       'w.feeds.addInSettings': 'Добавьте ленту в Настройки › Общие',
       'w.feeds.noneFrom': 'Нет заголовков из «{name}»',
       'w.feeds.opening': 'Открывается на ПК',
@@ -2574,6 +2604,9 @@
       'pace.onPace': '进度正常',
 
       'w.loading': '加载中…',
+      'w.upNext': '接下来播放',
+      'w.nowPlaying': '正在播放',
+      'w.nothingPlaying': '没有正在播放的内容',
       'w.feeds.addInSettings': '请在 设置 › 常规 中添加订阅源',
       'w.feeds.noneFrom': '"{name}" 暂无标题',
       'w.feeds.opening': '正在电脑上打开',

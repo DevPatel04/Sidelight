@@ -392,7 +392,7 @@
     return true;
   }
   const spotifyId = (i) => 'spotify:track:' + String(i).padStart(22, '0');
-  const spotifyTrack = (i) => ({ id: spotifyId(i), name: TRACKS[i][0], artist: TRACKS[i][1] });
+  const spotifyTrack = (i) => ({ id: spotifyId(i), name: TRACKS[i][0], artist: TRACKS[i][1], image: 'https://i.scdn.co/image/demo' + i });
   const deckSpotify = () => ({ connected: true, current: spotifyTrack(player.track), playing: player.playing,
     queue: TRACKS.map((_, i) => i).filter((i) => i !== player.track).map(spotifyTrack) });
   async function controlCommand(kind, q) {
