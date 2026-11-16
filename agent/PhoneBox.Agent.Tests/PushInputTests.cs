@@ -11,7 +11,7 @@ public sealed class PushInputTests
     public void APartialPushSnapshotKeepsItsValidEntriesWithoutBreakingState()
     {
         var path = Path.Combine(Path.GetTempPath(), $"phonebox-push-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, """{"missing":null,"partial":{},"valid":{"Data":"ready","At":1}}""");
+        File.WriteAllText(path, """{"missing":null,"partial":{},"noTime":{"Data":"x","At":null},"text":"oops","valid":{"Data":"ready","At":1}}""");
         try
         {
             var store = new PushStore(NullLogger<PushStore>.Instance, path);
