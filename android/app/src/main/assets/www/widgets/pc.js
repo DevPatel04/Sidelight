@@ -279,7 +279,11 @@ W.agenda = {
     const render = () => {
       const cal = D.calendar;
       const now = Date.now();
-      const until = new Date(new Date().toDateString()).getTime() + days * 864e5;
+      const end = new Date(now);
+      end.setHours(0, 0, 0, 0);
+      // Whole days follow the local calendar even when the clocks change.
+      const wholeDays = Math.floor(days);
+      const until = end.setDate(end.getDate() + wholeDays) + (days - wholeDays) * 864e5;
       const list = (cal?.events || []).filter((e) => e.end > now && e.start < until && (!only.length || only.includes(e.calendar.toLowerCase())));
       const small = box.clientHeight < 110;
       const key = JSON.stringify([list.map((e) => e.start + e.title), Math.floor(now / 30000), small, box.clientHeight]);
