@@ -39,6 +39,40 @@ public class IcsTests
     }
 
     [Fact]
+    public void AlarmRepeatDurationDoesNotShortenItsAllDayEvent()
+    {
+        var e = Assert.Single(Ics.Parse(Cal("""
+            UID:all-day
+            DTSTART;VALUE=DATE:20261110
+            SUMMARY:Day off
+            BEGIN:VALARM
+            ACTION:DISPLAY
+            TRIGGER:-PT15M
+            REPEAT:2
+            DURATION:PT15M
+            DESCRIPTION:Reminder
+            END:VALARM
+            """), From, To));
+        Assert.True(e.AllDay);
+        Assert.Equal(TimeSpan.FromDays(1), Utc(e.End) - Utc(e.Start));
+    }
+
+    [Theory]
+    [InlineData("PT2147483648H")]
+    [InlineData("P1000000000W")]
+    [InlineData("P4000000D")]
+    [InlineData("PT\u0661H")]
+    public void UnrepresentableDurationDoesNotDiscardTheCalendar(string duration)
+    {
+        var events = Ics.Parse(Cal(
+            $"UID:bad\nDTSTART;VALUE=DATE:20261110\nDURATION:{duration}\nSUMMARY:Day off",
+            "UID:next\nDTSTART:20261111T090000Z\nDURATION:PT45M\nSUMMARY:Meeting"), From, To).ToList();
+        Assert.Equal(2, events.Count);
+        Assert.Equal(TimeSpan.FromDays(1), Utc(events[0].End) - Utc(events[0].Start));
+        Assert.Equal(TimeSpan.FromMinutes(45), Utc(events[1].End) - Utc(events[1].Start));
+    }
+
+    [Fact]
     public void AllDayEvent()
     {
         var e = Ics.Parse(Cal("UID:1\nDTSTART;VALUE=DATE:20261112\nDTEND;VALUE=DATE:20261113\nSUMMARY:Holiday"), From, To).Single();
@@ -110,11 +144,34 @@ public class IcsTests
         Assert.Equal([9, 11, 13, 17, 19], everyOther);
     }
 
+    [Theory]
+    [InlineData("20240311T090000Z", "MO", "8,9,10,11,12,13,14", "03-11,04-08,05-13")]
+    [InlineData("20240331T090000Z", "SU", "-7,-6,-5,-4,-3,-2,-1", "03-31,04-28,05-26")]
+    public void MonthlyRulesCombineWeekdayAndMonthDay(string first, string byDay, string byMonthDay, string dates)
+    {
+        var start = new DateTime(2024, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+        var events = Ics.Parse(Cal($"UID:m\nDTSTART:{first}\nRRULE:FREQ=MONTHLY;BYDAY={byDay};BYMONTHDAY={byMonthDay};COUNT=3"),
+            start, start.AddMonths(4));
+        Assert.Equal(dates, string.Join(",", events.Select(e => Utc(e.Start).ToString("MM-dd"))));
+    }
+
     [Fact]
     public void MonthlySecondTuesday()
     {
         var e = Ics.Parse(Cal("UID:m\nDTSTART:20260113T150000Z\nRRULE:FREQ=MONTHLY;BYDAY=2TU\nSUMMARY:Review"), From, To).Single();
         Assert.Equal(new DateTime(2026, 11, 10, 15, 0, 0), Utc(e.Start));
+    }
+
+    [Theory]
+    [InlineData("DAILY", "20261130", "2026-11-30,2027-11-01")]
+    [InlineData("WEEKLY", "20261130", "2026-11-30,2027-11-01")]
+    [InlineData("MONTHLY", "20261101", "2026-11-01,2027-11-01")]
+    public void MonthFiltersLimitNonYearlyRulesBeforeCount(string frequency, string start, string expected)
+    {
+        var from = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
+        var events = Ics.Parse(Cal($"UID:x\nDTSTART;VALUE=DATE:{start}\nRRULE:FREQ={frequency};BYMONTH=11;COUNT=2"),
+            from, from.AddYears(2));
+        Assert.Equal(expected, string.Join(",", events.Select(e => Utc(e.Start).ToString("yyyy-MM-dd"))));
     }
 
     [Fact]
@@ -178,6 +235,18 @@ public class IcsTests
     public void CancelledEventsAreSkipped()
     {
         Assert.Empty(Ics.Parse(Cal("UID:x\nDTSTART:20261110T090000Z\nSTATUS:CANCELLED\nSUMMARY:Gone"), From, To));
+    }
+
+    [Fact]
+    public void AmbiguousFallBackTimesUseTheFirstOccurrence()
+    {
+        var from = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
+        var events = Ics.Parse(Cal(
+            "UID:single\nDTSTART;TZID=America/New_York:20261101T013000\nSUMMARY:Single",
+            "UID:weekly\nDTSTART;TZID=America/New_York:20261025T013000\nRRULE:FREQ=WEEKLY;COUNT=2\nSUMMARY:Weekly"),
+            from, from.AddDays(1)).ToList();
+        Assert.Equal(2, events.Count);
+        Assert.All(events, e => Assert.Equal(new DateTime(2026, 11, 1, 5, 30, 0, DateTimeKind.Utc), Utc(e.Start)));
     }
 
     [Fact]

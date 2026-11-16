@@ -14,7 +14,7 @@ public sealed record PanelEvent(long Seq, string Kind, JsonElement? Data, long A
 /// plus a short queue of events for the phone (notifications, page switches, forced refreshes).
 /// Values survive restarts (data.json next to config.json); events are kept in memory only.
 /// </summary>
-public sealed partial class PushStore
+public sealed partial class PushStore : IDisposable
 {
     public const int MaxBytes = 64 * 1024;
     private const int MaxItems = 200;
@@ -39,8 +39,19 @@ public sealed partial class PushStore
         try
         {
             if (File.Exists(_dataPath))
-                foreach (var (k, v) in JsonSerializer.Deserialize<Dictionary<string, PushItem>>(File.ReadAllText(_dataPath)) ?? [])
-                    if (ValidKey(k)) _items[k] = v;
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(_dataPath));
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                    // one record at a time: a damaged one (a null time, a wrong type) must not take the others with it
+                    foreach (var p in doc.RootElement.EnumerateObject())
+                    {
+                        if (!ValidKey(p.Name) || p.Value.ValueKind != JsonValueKind.Object) continue;
+                        PushItem? v;
+                        try { v = p.Value.Deserialize<PushItem>(); }
+                        catch (JsonException) { continue; }
+                        if (v is not null && v.Data.ValueKind != JsonValueKind.Undefined) _items[p.Name] = v with { Data = v.Data.Clone() };
+                    }
+            }
         }
         catch (Exception ex) { log.LogWarning("could not read {Path}: {Msg}", _dataPath, ex.Message); }
     }
@@ -130,28 +141,50 @@ public sealed partial class PushStore
     }
 
     private readonly Lock _persistLock = new();
+    private bool _disposed;
 
     private void Changed()
     {
-        Interlocked.Exchange(ref _version, Math.Max(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), Interlocked.Read(ref _version) + 1));
-        if (Interlocked.Exchange(ref _savePending, 1) == 0) _saveTimer.Change(2000, Timeout.Infinite); // at most one write per 2 s, never postponed
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        long previous;
+        do
+        {
+            previous = Interlocked.Read(ref _version);
+        } while (Interlocked.CompareExchange(ref _version, Math.Max(now, previous + 1), previous) != previous);
+        if (Interlocked.Exchange(ref _savePending, 1) != 0) return;
+        lock (_persistLock)
+            if (!_disposed) _saveTimer.Change(2000, Timeout.Infinite);
     }
 
     private void Persist()
     {
-        Interlocked.Exchange(ref _savePending, 0);
-        // one write at a time: a slow write must not share data.json.tmp with the next timer's write
+        lock (_persistLock)
+            if (!_disposed) SavePending();
+    }
+
+    public void Dispose()
+    {
         lock (_persistLock)
         {
-            try
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(_dataPath)!);
-                var tmp = _dataPath + ".tmp";
-                AppPaths.WriteAllTextPrivate(tmp, JsonSerializer.Serialize(Snapshot()));
-                File.Move(tmp, _dataPath, overwrite: true);
-            }
-            catch (Exception ex) { _log.LogWarning("could not save pushed data: {Msg}", ex.Message); }
+            if (_disposed) return;
+            _disposed = true;
+            _saveTimer.Dispose();
+            SavePending();
         }
+    }
+
+    // Timer writes and the final flush share this lock, so a restart waits for any active write.
+    private void SavePending()
+    {
+        if (Interlocked.Exchange(ref _savePending, 0) == 0) return;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_dataPath)!);
+            var tmp = _dataPath + ".tmp";
+            AppPaths.WriteAllTextPrivate(tmp, JsonSerializer.Serialize(Snapshot()));
+            File.Move(tmp, _dataPath, overwrite: true);
+        }
+        catch (Exception ex) { _log.LogWarning("could not save pushed data: {Msg}", ex.Message); }
     }
 
     /// <summary>Reads a webhook body: JSON as-is, anything else as a trimmed string; ?value= wins when given.</summary>

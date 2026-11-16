@@ -129,6 +129,96 @@ W.obs = {
   },
 };
 
+// Discord through the desktop app on the PC: the voice channel / call you are in, who is there, mute / deafen / leave,
+// voice channels to join and recent notifications. Buttons only work when the widget allows control.
+W.discord = {
+  needs: ['tick'],
+  create(box, { o }) {
+    let data = null, lastKey = '', busy = null;
+    const open = new Set(); // servers whose channels are unfolded
+    // a round logo: the image once it has loaded, the first letter until then (and when there is no image)
+    const ico = (src, name) => {
+      const w = h('span', 'dc-ico', (name || '?').trim().charAt(0).toUpperCase() || '?');
+      if (src) { const im = new Image(); im.alt = ''; im.onload = () => w.replaceChildren(im); im.src = src; }
+      return w;
+    };
+    const load = async () => { try { data = await api('/discord'); } catch (_) {} };
+    const img = (kind, id, hash) => `${API}/discord/img?kind=${kind}&id=${encodeURIComponent(id)}&hash=${encodeURIComponent(hash)}`;
+    const act = async (action, channel) => {
+      if (busy) return; // one press at a time: a double tap must not toggle twice
+      haptic();
+      busy = action + (channel || ''); render(true);
+      try {
+        const r = await fetch(`${API}/discord/${action}` + (channel ? '?channel=' + encodeURIComponent(channel) : ''), { method: 'POST', cache: 'no-store', headers: PANEL_HEADERS });
+        if (!r.ok) toast((await r.json().catch(() => ({}))).error || t('w.discord.failed'), 'err');
+      } catch (_) { toast(t('panel.pcNoAnswer'), 'err'); }
+      await new Promise((done) => setTimeout(done, 600));
+      await load(); busy = null; render(true);
+    };
+    const render = (force = false) => {
+      const key = JSON.stringify([data, busy, [...open], box.clientHeight]);
+      if (!force && key === lastKey) return;
+      lastKey = key;
+      if (!data) { box.replaceChildren(h('div', 'empty', t('w.loading'))); return; }
+      if (!data.enabled) { box.replaceChildren(h('div', 'w-title', 'Discord'), h('div', 'empty', t('w.discord.turnOn'))); return; }
+      const s = data.snapshot;
+      if (!s.connected) { box.replaceChildren(h('div', 'w-title', 'Discord'), h('div', 'empty', s.error || t('panel.connecting'))); return; }
+      const ctl = data.control;
+      const btn = (cls, label, on, action) => {
+        const b = h('button', 'dc-btn ' + cls + (on ? ' on' : '') + (busy === action ? ' busy' : ''), label);
+        if (ctl && !busy) b.addEventListener('click', () => act(action)); else b.disabled = true;
+        return b;
+      };
+      const kids = [h('div', 'dc-top',
+        h('span', 'dc-where', s.channelName ? `${s.channelName}` : t('w.discord.notInChannel')),
+        s.channelKind ? h('span', 'dc-kind', s.channelKind) : null,
+        btn('mute', s.muted ? '🔇' : '🎙️', s.muted, 'mute'), btn('deaf', s.deafened ? '🔕' : '🎧', s.deafened, 'deafen'),
+        s.channelId ? btn('leave', '📞', false, 'leave') : null)];
+      if (s.channelId && s.members.length) {
+        kids.push(h('div', 'dc-members', ...s.members.map((m) => h('span', 'dc-member' + (m.deafened ? ' deaf' : m.muted ? ' muted' : ''), ico(m.avatar && img('user', m.id, m.avatar), m.name), (m.deafened ? '🔕 ' : m.muted ? '🔇 ' : '') + m.name))));
+      }
+      if (o.channels !== false && s.channels.length) {
+        // one block per server; tap it to unfold its voice channels (the server you are in starts unfolded)
+        // grouped by server id, not by name: two servers can have the same name
+        const servers = new Map();
+        for (const c of s.channels) {
+          const gid = c.guildId || c.guild || 'other';
+          if (!servers.has(gid)) servers.set(gid, []);
+          servers.get(gid).push(c);
+        }
+        kids.push(h('div', 'dc-servers', ...[...servers].map(([gid, chans]) => {
+          const here = chans.some((c) => c.id === s.channelId);
+          const isOpen = open.has(gid) || (here && !open.has('!' + gid));
+          const g = chans[0];
+          const name = g.guild || t('w.discord.otherServer');
+          const head = h('button', 'dc-server' + (isOpen ? ' open' : '') + (here ? ' here' : ''), ico(g.guildIcon && g.guildId && img('guild', g.guildId, g.guildIcon), name),
+            h('span', 'dc-stext', h('b', null, name), h('small', null, t(chans.length === 1 ? 'w.discord.channel' : 'w.discord.channels', { n: chans.length }))));
+          head.addEventListener('click', () => {
+            haptic();
+            if (isOpen) { open.delete(gid); if (here) open.add('!' + gid); } else { open.add(gid); open.delete('!' + gid); }
+            render(true);
+          });
+          const block = h('div', 'dc-block' + (isOpen ? ' open' : ''), head);
+          if (isOpen) {
+            block.append(h('div', 'dc-chans', ...chans.map((c) => {
+              const b = h('button', 'dc-chan' + (c.id === s.channelId ? ' cur' : '') + (busy === 'join' + c.id ? ' busy' : ''), '🔊 ' + c.name);
+              if (ctl && !busy && c.id !== s.channelId) b.addEventListener('click', () => act('join', c.id));
+              return b;
+            })));
+          }
+          return block;
+        })));
+      }
+      if (o.notifications !== false && s.notifications.length) {
+        kids.push(h('div', 'dc-notes', ...s.notifications.slice(0, 6).map((n) => h('div', 'dc-note', h('b', null, n.title), h('span', null, n.body)))));
+      }
+      box.replaceChildren(...kids);
+    };
+    const tick = every(2000, async () => { await load(); render(); });
+    return { update: () => { tick(); render(); } };
+  },
+};
+
 // Home Assistant entities through the agent (which holds the token). Tap a light, switch, scene… to switch it,
 // when the widget allows it.
 export const HA_ICONS = {
@@ -257,6 +347,89 @@ W.docker = {
   },
 };
 
+// The computer's installed applications (macOS): search, tap one to open it (or bring it forward) on the computer.
+// The phone only sends the app's id; the agent opens apps from its own scan.
+W.apps = {
+  needs: ['tick'],
+  create(box, { o }) {
+    const pinned = String(o.pinned || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const confirm = o.confirm !== false; // first tap selects, a second tap within a few seconds opens
+    let data = null, q = '', busy = null, armed = null, armTimer = 0, lastKey = '';
+    const disarm = () => { clearTimeout(armTimer); if (armed) { armed = null; render(true); } };
+    const head = h('div', 'w-title', o.title || 'Apps', h('span', 'ap-count'));
+    const search = h('input', 'ap-search');
+    search.type = 'search';
+    search.placeholder = 'Search apps';
+    search.autocomplete = 'off';
+    search.spellcheck = false;
+    search.addEventListener('input', () => { q = search.value.trim().toLowerCase(); render(true); });
+    const grid = h('div', 'ap-grid');
+    box.append(head, ...(o.search === false ? [] : [search]), grid);
+
+    const load = async () => { try { data = await api('/apps', 'GET', 10_000); } catch (_) { return false; } };
+    const open = async (a) => {
+      if (!data?.canOpen) { toast('Opening apps needs an All apps widget saved on a page'); return; }
+      haptic();
+      busy = a.id; render(true);
+      try {
+        const r = await fetch(`${API}/apps/open?id=${encodeURIComponent(a.id)}`, { method: 'POST', cache: 'no-store', headers: PANEL_HEADERS });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok) toast(`Opening ${a.name}`, 'ok'); else toast(j.error || `Could not open ${a.name}`, 'err');
+      } catch (_) { toast('The PC did not answer', 'err'); }
+      busy = null; render(true);
+    };
+    const rank = (a) => { const i = pinned.indexOf(a.name.toLowerCase()); return i < 0 ? pinned.length : i; };
+    const tile = (a) => {
+      const img = h('img', 'ap-ico');
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      img.alt = '';
+      const src = `${API}/apps/icon?id=${encodeURIComponent(a.id)}`;
+      img.src = src;
+      // The first conversion of an icon can outlast the request on a busy computer; show the initial, try once more later.
+      img.addEventListener('error', () => {
+        const letter = h('span', 'ap-ico ap-letter', a.name.slice(0, 1).toUpperCase());
+        img.replaceWith(letter);
+        setTimeout(() => {
+          if (!letter.isConnected) return;
+          const again = h('img', 'ap-ico');
+          again.alt = '';
+          again.addEventListener('load', () => { if (letter.isConnected) letter.replaceWith(again); }, { once: true });
+          again.src = src + '&retry=1';
+        }, 15_000);
+      }, { once: true });
+      const isArmed = armed === a.id;
+      const t = h('button', 'ap-tile' + (busy === a.id ? ' busy' : '') + (isArmed ? ' armed' : ''), img,
+        h('span', 'ap-name', isArmed ? 'Tap again to open' : a.name));
+      t.title = a.name;
+      t.addEventListener('click', () => {
+        if (!confirm || armed === a.id) { clearTimeout(armTimer); armed = null; open(a); return; }
+        haptic();
+        armed = a.id;
+        clearTimeout(armTimer);
+        armTimer = setTimeout(disarm, 4000);
+        render(true);
+      });
+      return t;
+    };
+    const render = (force = false) => {
+      const all = data?.apps || [];
+      const items = all.filter((a) => !q || a.name.toLowerCase().includes(q))
+        .sort((x, y) => rank(x) - rank(y) || x.name.localeCompare(y.name));
+      const key = JSON.stringify([items.map((a) => a.id), busy, armed, data?.supported, data?.canOpen]);
+      if (!force && key === lastKey) return;
+      lastKey = key;
+      head.querySelector('.ap-count').textContent = all.length ? ` ${q ? items.length + '/' : ''}${all.length}` : '';
+      if (!data) { grid.replaceChildren(h('div', 'empty', 'Loading…')); return; }
+      if (!data.supported) { grid.replaceChildren(h('div', 'empty', 'The apps list is available on macOS for now')); return; }
+      if (!items.length) { grid.replaceChildren(h('div', 'empty', q ? `No apps match "${search.value.trim()}"` : 'No apps found')); return; }
+      grid.replaceChildren(...items.map(tile));
+    };
+    const tick = every(60_000, async () => { const ok = await load(); render(); return ok; }, 5000);
+    return { update: () => { tick(); render(); } };
+  },
+};
+
 // Upcoming events from the calendars set up in the agent (ICS feeds). Small: the current / next event; larger: a
 // list grouped by day, with the event that is happening now highlighted.
 W.agenda = {
@@ -279,7 +452,11 @@ W.agenda = {
     const render = () => {
       const cal = D.calendar;
       const now = Date.now();
-      const until = new Date(new Date().toDateString()).getTime() + days * 864e5;
+      const today = new Date(now);
+      // Whole days follow the local calendar even when the clocks change, also where a day starts at 01:00 because
+      // its midnight is skipped (Santiago): the end is built from the date, not moved on from today's start.
+      const wholeDays = Math.floor(days);
+      const until = new Date(today.getFullYear(), today.getMonth(), today.getDate() + wholeDays).getTime() + (days - wholeDays) * 864e5;
       const list = (cal?.events || []).filter((e) => e.end > now && e.start < until && (!only.length || only.includes(e.calendar.toLowerCase())));
       const small = box.clientHeight < 110;
       const key = JSON.stringify([list.map((e) => e.start + e.title), Math.floor(now / 30000), small, box.clientHeight]);

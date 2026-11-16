@@ -23,7 +23,9 @@ if (!firstInstance)
 }
 
 if (!args.Contains("--config")) AppPaths.EnsureConfig();
-var configPath = args.SkipWhile(a => a != "--config").Skip(1).FirstOrDefault() ?? AppPaths.ConfigPath;
+// absolute from here on: a bare file name ("--config profile.json") has no folder, and the files kept next to the
+// config (the Spotify login, backups) need one
+var configPath = Path.GetFullPath(args.SkipWhile(a => a != "--config").Skip(1).FirstOrDefault() ?? AppPaths.ConfigPath);
 AppPaths.RestrictConfig(configPath);
 var configStore = new ConfigStore(configPath);
 configStore.PersistGenerated(); // keep the Wi-Fi token stable across restarts
@@ -50,6 +52,7 @@ builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamin
 builder.Services.AddSingleton(configStore);
 builder.Services.AddSingleton(endpoint);
 builder.Services.AddSingleton<AudioControl>();
+builder.Services.AddSingleton<AppCatalog>();
 builder.Services.AddSingleton<PairingCodes>();
 builder.Services.AddSingleton<SpotifyControl>();
 builder.Services.AddSingleton<ControlDeck>();
@@ -72,6 +75,7 @@ AddMonitor<PrivacyMonitor>(builder.Services);
 AddMonitor<CalendarMonitor>(builder.Services);
 AddMonitor<DockerMonitor>(builder.Services);
 AddMonitor<ObsMonitor>(builder.Services);
+AddMonitor<DiscordMonitor>(builder.Services);
 AddMonitor<BatteryMonitor>(builder.Services);
 AddMonitor<RuleEngine>(builder.Services);
 AddMonitor<ChargeGuard>(builder.Services);
@@ -470,6 +474,20 @@ app.MapPost("/api/obs/{action}", async (string action, string? scene, ObsMonitor
 // Settings › General › OBS › Test (local only: deliberately not under /api/obs, which the phone may reach over Wi-Fi)
 app.MapPost("/api/obs-test", async (ObsConfig body) => Results.Json(new { result = await ObsMonitor.TestAsync(body.Url, body.Password) }));
 
+// Discord (widget): voice channel, mute / deafen, joinable voice channels, notifications; buttons only if a widget allows control.
+app.MapGet("/api/discord", (DiscordMonitor dc, ConfigStore cfg) => Results.Json(new
+{
+    enabled = cfg.Get().Discord.Enabled,
+    snapshot = dc.Snapshot(),
+    control = DiscordMonitor.ControlAllowed(cfg.Get()),
+}));
+// Ids go in the query string: the Android app lets image requests through by exact path (READ_ONLY_IMAGES).
+app.MapGet("/api/discord/img", async (string kind, string id, string hash, DiscordMonitor dc, CancellationToken ct) =>
+    await dc.ImageAsync(kind, id, hash, ct) is { } img
+        ? Results.File(img.Data, img.Type, lastModified: null, entityTag: null, enableRangeProcessing: false) : Results.NotFound());
+app.MapPost("/api/discord/{action}", async (string action, string? channel, DiscordMonitor dc) =>
+    await dc.ActAsync(action, channel) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true }));
+
 // Battery levels of wireless devices (headphones, mice, keyboards…), for the Device batteries widget.
 app.MapGet("/api/batteries", (BatteryMonitor b) => Results.Json(new { devices = b.Snapshot() }));
 
@@ -644,6 +662,22 @@ app.MapGet("/api/procs/icon", (string name, ProcessMonitor procs) =>
     procs.Icon(name) is { } png ? Results.File(png, "image/png") : Results.NotFound());
 
 app.MapGet("/api/procs/detail", (string name, ProcessMonitor procs) => Results.Json(procs.Detail(name)));
+
+// All apps widget: the installed applications, their icons, and opening one by id (never by path).
+app.MapGet("/api/apps", (AppCatalog apps) => Results.Json(new
+{
+    supported = AppCatalog.Supported,
+    canOpen = AppCatalog.Supported && apps.OpenAllowed(),
+    apps = apps.List().Select(a => new { id = a.Id, name = a.Name }),
+}));
+app.MapGet("/api/apps/icon", async (string id, AppCatalog apps, HttpResponse res, CancellationToken ct) =>
+{
+    if (await apps.IconAsync(id, ct) is not { } png) return Results.NotFound();
+    res.Headers.CacheControl = "private, max-age=86400"; // icons do not change; the phone may keep them
+    return Results.File(png, "image/png");
+});
+app.MapPost("/api/apps/open", (string id, AppCatalog apps) =>
+    apps.Open(id) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true }));
 
 // ?name=X ends every instance of X; ?pid=N ends one process together with its children.
 app.MapPost("/api/procs/kill", (string? name, int? pid, ProcessMonitor procs, ConfigStore cfg) =>
