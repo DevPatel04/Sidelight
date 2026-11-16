@@ -16,9 +16,21 @@ a release or deploys Pages. Changes to Pages deployment still need a successful 
 Published releases update the Scoop bucket and generate winget manifests in a follow-up commit.
 Winget manifests are prepared for submission; generation alone does not mean the package is accepted into winget-pkgs.
 
+The agent zips are self-contained single files: each one carries its own .NET runtime, so .NET security fixes
+reach users only through a PhoneBox release. When .NET ships a fix for Kestrel, TLS or the runtime, publish a patch
+release (`setup-dotnet` with `10.0.x` picks up the newest runtime). Single-file bundles are not compressed on
+purpose: the zip is barely smaller and a compressed bundle costs about 90 MB more memory in a process that runs all day.
+
 Required GitHub Actions secrets are `PHONEBOX_KEYSTORE_BASE64`, `PHONEBOX_STORE_PASSWORD`, `PHONEBOX_KEY_ALIAS`
 and `PHONEBOX_KEY_PASSWORD`. Keep the original Android signing key: an incompatible APK must fail the update
 while preserving the installed app and its data. Never commit the key or its passwords.
+
+`PhoneBoxAgent.exe` in the Windows zip is Authenticode-signed through [SignPath Foundation](https://signpath.org)
+while the repository variable `SIGNPATH_SIGNING_POLICY` is `release-signing` (the API token is the
+`SIGNPATH_API_TOKEN` secret). The release then waits, up to an hour, for the signing request to be approved in
+SignPath; the signature is checked on Windows before the smoke test, and the zip, checksums, attestation and package
+manifests all cover the signed file. Without the variable the agent is released unsigned. The **signing test**
+workflow runs the same step on its own with the test certificate, without releasing anything.
 
 After publishing, verify the tag points to the intended commit, every asset matches `SHA256SUMS-<version>.txt`,
 and `gh attestation verify <asset> --repo ersinkoc/phonebox` succeeds for the APK and agent archives.

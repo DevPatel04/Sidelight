@@ -1,4 +1,4 @@
-import { $, API, D, PANEL_HEADERS, LOCALE, Q_STYLE, api, bridge, cfg, color, cssVar, rulesPaused, toggleRulesPause, fillIcon, fmtDur, fmtHM, fmtMem, gotoPageRef, gpuMem, gpusOf, h, haptic, openSheet, paceInfo, pad, pairedPcs, quotaProviders, r1, shortGpu, store, switchPc, tick, toast, transport } from '../main.js';
+import { $, API, D, PANEL_HEADERS, LOCALE, Q_STYLE, api, bridge, cfg, color, cssVar, rulesPaused, toggleRulesPause, fillIcon, fmtDur, fmtHM, fmtMem, gotoPageRef, gpuMem, gpusOf, h, haptic, openSheet, paceInfo, pad, pairedPcs, quotaProviders, r1, shortGpu, store, switchPc, t, tick, toast, transport } from '../main.js';
 import { W } from '../registry.js';
 import { canKillAnywhere, dialEl, every } from './helpers.js';
 
@@ -28,7 +28,7 @@ W.html = {
     frame.addEventListener('load', () => HTML_KINDS.forEach(send));
     const onMsg = (e) => {
       if (e.source !== frame.contentWindow || !e.data) return;
-      if (e.data.phonebox === 'run' && (cfg.shortcuts || []).some((s) => s.id === e.data.id)) { haptic(); api('/run/' + encodeURIComponent(e.data.id), 'POST', 5000).catch(() => toast('The PC did not answer', 'err')); }
+      if (e.data.phonebox === 'run' && (cfg.shortcuts || []).some((s) => s.id === e.data.id)) { haptic(); api('/run/' + encodeURIComponent(e.data.id), 'POST', 5000).catch(() => toast(t('panel.pcNoAnswer'), 'err')); }
       if (e.data.phonebox === 'goto') gotoPageRef(e.data.page);
     };
     window.addEventListener('message', onMsg);
@@ -57,7 +57,7 @@ W.batteries = {
       const key = JSON.stringify([devices, box.clientHeight]);
       if (key === lastKey) return;
       lastKey = key;
-      if (!data && !devices.length) { list.replaceChildren(h('div', 'empty', 'Loading…')); return; }
+      if (!data && !devices.length) { list.replaceChildren(h('div', 'empty', t('w.loading'))); return; }
       if (!devices.length) { list.replaceChildren(h('div', 'empty', 'No wireless devices report a battery level')); return; }
       list.replaceChildren(...devices.map((d) => {
         const col = d.level <= low ? '#ef4444' : d.level <= low * 2 ? '#f59e0b' : '#22c55e';
@@ -89,7 +89,7 @@ W.obs = {
       try {
         const r = await fetch(`${API}/obs/${action}` + (scene ? '?scene=' + encodeURIComponent(scene) : ''), { method: 'POST', cache: 'no-store', headers: PANEL_HEADERS });
         if (!r.ok) toast((await r.json().catch(() => ({}))).error || 'OBS did not do it', 'err');
-      } catch (_) { toast('The PC did not answer', 'err'); }
+      } catch (_) { toast(t('panel.pcNoAnswer'), 'err'); }
       setTimeout(async () => { await load(); busy = null; render(true); }, 600);
     };
     const render = (force = false) => {
@@ -98,9 +98,9 @@ W.obs = {
       const key = JSON.stringify([data, busy, Math.floor(Date.now() / 1000), box.clientHeight]);
       if (!force && key === lastKey) return;
       lastKey = key;
-      if (!data) { box.replaceChildren(h('div', 'empty', 'Loading…')); return; }
+      if (!data) { box.replaceChildren(h('div', 'empty', t('w.loading'))); return; }
       if (!data.enabled) { box.replaceChildren(h('div', 'w-title', 'OBS'), h('div', 'empty', 'Turn on OBS in Settings › General')); return; }
-      if (!s.connected) { box.replaceChildren(h('div', 'w-title', 'OBS'), h('div', 'empty', s.error || 'Connecting…')); return; }
+      if (!s.connected) { box.replaceChildren(h('div', 'w-title', 'OBS'), h('div', 'empty', s.error || t('panel.connecting'))); return; }
       const ctl = data.control;
       const pill = (on, label, cls, time, action) => {
         const el = h('div', 'obs-pill ' + cls + (on ? ' on' : '') + (ctl ? ' can' : '') + (busy === action ? ' busy' : ''), h('span', 'obs-led'), h('b', null, label), h('span', 'obs-time', on ? dur(time + since) : 'off'));
@@ -146,7 +146,7 @@ export const HA_ACTIVE = new Set(['on', 'open', 'opening', 'unlocked', 'playing'
 
 export function haState(e) {
   const s = e.state, dom = e.id.split('.')[0], dc = e.deviceClass;
-  if (s === 'unavailable' || s === 'unknown') return s === 'unknown' ? '—' : 'Unavailable';
+  if (s === 'unavailable' || s === 'unknown') return s === 'unknown' ? '—' : t('w.unavailable');
   if (dom === 'binary_sensor') {
     const on = s === 'on';
     if (['door', 'window', 'garage_door', 'opening'].includes(dc)) return on ? 'Open' : 'Closed';
@@ -174,7 +174,7 @@ W.ha = {
       try {
         const r = await fetch(`${API}/ha/toggle/${encodeURIComponent(e.id)}`, { method: 'POST', cache: 'no-store', headers: PANEL_HEADERS });
         if (!r.ok) toast((await r.json().catch(() => ({}))).error || 'Could not switch it', 'err');
-      } catch (_) { toast('The PC did not answer', 'err'); }
+      } catch (_) { toast(t('panel.pcNoAnswer'), 'err'); }
       setTimeout(async () => { await load(); busy = null; render(true); }, 700);
     };
     const render = (force = false) => {
@@ -182,7 +182,7 @@ W.ha = {
       if (!force && key === lastKey) return;
       lastKey = key;
       if (!ids.length) { grid.replaceChildren(h('div', 'empty', 'List entity ids in the widget settings, e.g. light.desk')); return; }
-      if (!data) { grid.replaceChildren(h('div', 'empty', 'Loading…')); return; }
+      if (!data) { grid.replaceChildren(h('div', 'empty', t('w.loading'))); return; }
       if (!data.configured) { grid.replaceChildren(h('div', 'empty', data.error)); return; }
       grid.replaceChildren(...data.entities.map((e) => {
         const dom = e.id.split('.')[0];
@@ -216,7 +216,7 @@ W.docker = {
         const j = await r.json().catch(() => ({}));
         if (!r.ok) toast(j.error || `Could not ${action} ${c.name}`, 'err');
         else toast(`${c.name}: ${action === 'stop' ? 'stopped' : action === 'start' ? 'started' : 'restarted'}`, 'ok');
-      } catch (_) { toast('The PC did not answer', 'err'); }
+      } catch (_) { toast(t('panel.pcNoAnswer'), 'err'); }
       busy = null; open = null;
       await load(); render(true);
     };
@@ -230,7 +230,7 @@ W.docker = {
       lastKey = key;
       const running = items.filter((c) => c.state === 'running').length;
       head.querySelector('.dk-count').textContent = snap?.available ? ` ${running}/${items.length}` : '';
-      if (!data) { list.replaceChildren(h('div', 'empty', 'Loading…')); return; }
+      if (!data) { list.replaceChildren(h('div', 'empty', t('w.loading'))); return; }
       if (!snap.available || (snap.error && !items.length)) { list.replaceChildren(h('div', 'empty', snap.error || 'Docker is not running')); return; }
       if (!items.length) { list.replaceChildren(h('div', 'empty', filter ? `No containers match "${o.filter}"` : 'No containers')); return; }
       list.replaceChildren(...items.map((c) => {
@@ -351,13 +351,13 @@ W.agenda = {
     const hm = (ms) => fmtHM(new Date(ms));
     const dayKey = (ms) => new Date(ms).toDateString();
     const dayName = (ms) => {
-      const d = new Date(ms), t = new Date();
-      const diff = Math.round((new Date(d.toDateString()) - new Date(t.toDateString())) / 864e5);
-      return diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : d.toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric', month: 'short' });
+      const d = new Date(ms), now = new Date();
+      const diff = Math.round((new Date(d.toDateString()) - new Date(now.toDateString())) / 864e5);
+      return diff === 0 ? t('time.today') : diff === 1 ? t('time.tomorrow') : d.toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric', month: 'short' });
     };
     const inMin = (ms) => {
       const m = Math.round((ms - Date.now()) / 60000);
-      return m < 1 ? 'now' : m < 60 ? `in ${m} min` : m < 24 * 60 ? `in ${Math.floor(m / 60)} h ${m % 60 ? (m % 60) + ' min' : ''}`.trim() : '';
+      return m < 1 ? t('time.now') : m < 60 ? t('time.inDur', { dur: t('time.min', { m }) }) : m < 24 * 60 ? t('time.inDur', { dur: fmtDur(ms - Date.now()) }) : '';
     };
     const render = () => {
       const cal = D.calendar;
@@ -369,7 +369,7 @@ W.agenda = {
       if (key === lastKey) return;
       lastKey = key;
       box.classList.toggle('small', small);
-      if (!cal) { box.replaceChildren(h('div', 'empty', 'Loading…')); return; }
+      if (!cal) { box.replaceChildren(h('div', 'empty', t('w.loading'))); return; }
       if (!cal.updated && !list.length) { box.replaceChildren(h('div', 'w-title', o.title || 'Agenda'), h('div', 'empty', 'Add a calendar in Settings › General')); return; }
       const timed = list.filter((e) => !e.allDay);
       const cur = timed.find((e) => e.start <= now);
@@ -379,7 +379,7 @@ W.agenda = {
         if (!e) { box.replaceChildren(h('div', 'ag-big-t', 'No events'), h('div', 'ag-big-s', `next ${days} days`)); return; }
         box.style.setProperty('--c', e.color);
         box.replaceChildren(
-          h('div', 'ag-big-s', e === cur ? `Now · until ${hm(e.end)}` : e.allDay ? dayName(e.start) + ' · all day' : `${dayName(e.start) === 'Today' ? inMin(e.start) || 'Today' : dayName(e.start)} · ${hm(e.start)}`),
+          h('div', 'ag-big-s', e === cur ? `Now · until ${hm(e.end)}` : e.allDay ? dayName(e.start) + ' · all day' : `${dayName(e.start) === t('time.today') ? inMin(e.start) || t('time.today') : dayName(e.start)} · ${hm(e.start)}`),
           h('div', 'ag-big-t', e.title));
         return;
       }
@@ -479,7 +479,7 @@ W.pcswitch = {
         return;
       }
       row.replaceChildren(...pcs.map((pc) => {
-        const b = h('button', 'ov-pc' + (pc.active && !usb ? ' on' : ''), '🖥️ ' + (pc.name || 'Computer'));
+        const b = h('button', 'ov-pc' + (pc.active && !usb ? ' on' : ''), '🖥️ ' + (pc.name || t('panel.computer')));
         b.disabled = usb;
         b.addEventListener('click', (e) => { e.stopPropagation(); switchPc(pc); });
         return b;
@@ -510,7 +510,7 @@ W.topprocs = {
           title.textContent = `Top CPU (${Math.round(pc.cpu)}%)`;
         }
         const data = D.procs;
-        if (!data?.groups?.length) { rowMap.clear(); list.replaceChildren(h('div', 'empty', 'Measuring…')); return; }
+        if (!data?.groups?.length) { rowMap.clear(); list.replaceChildren(h('div', 'empty', t('w.measuring'))); return; }
         if (list.querySelector('.empty')) list.replaceChildren();
         const n = Math.max(1, Math.floor((box.clientHeight - 30) / 24));
         const top = [...data.groups].sort((a, b) => (byMem ? b.memMb - a.memMb : b.cpu - a.cpu)).slice(0, n);
@@ -609,7 +609,7 @@ W.rules = {
   needs: ['state'],
   create(box, { o }) {
     const list = h('div', 'ru-list'), btn = h('button', 'ru-pause');
-    box.append(h('div', 'w-title', o.title || 'Rules', btn), list);
+    box.append(h('div', 'w-title', o.title || t('s.nav.rules'), btn), list);
     btn.addEventListener('click', (e) => { e.stopPropagation(); toggleRulesPause(); });
     let key = '';
     return {
@@ -687,13 +687,13 @@ W.nextup = {
         track.hidden = !cur;
         if (!ev) {
           when.textContent = ''; meta.textContent = '';
-          title.textContent = !cal ? 'Loading…' : cal.updated || evs.length ? 'Nothing else today' : 'Add a calendar in Settings › General';
+          title.textContent = !cal ? t('w.loading') : cal.updated || evs.length ? t('w.noEvents') : 'Add a calendar in Settings › General';
           return;
         }
         const left = Math.round(((cur ? ev.end : ev.start) - now) / 60000);
-        const dur = left < 60 ? `${Math.max(1, left)} min` : `${Math.floor(left / 60)} h${left % 60 ? ' ' + (left % 60) + ' min' : ''}`;
+        const dur = left < 60 ? t('time.min', { m: Math.max(1, left) }) : fmtDur((cur ? ev.end : ev.start) - now);
         const sameDay = new Date(ev.start).toDateString() === new Date().toDateString();
-        when.textContent = cur ? `now · ${dur} left` : sameDay || left < 12 * 60 ? `in ${dur}` : new Date(ev.start).toLocaleDateString(LOCALE, { weekday: 'long' });
+        when.textContent = cur ? t('w.nowLeft', { dur }) : sameDay || left < 12 * 60 ? t('time.inDur', { dur }) : new Date(ev.start).toLocaleDateString(LOCALE, { weekday: 'long' });
         title.textContent = ev.title;
         meta.textContent = [`${hm(ev.start)}–${hm(ev.end)}`, ev.location, cur && next ? `then ${next.title} at ${hm(next.start)}` : ''].filter(Boolean).join(' · ');
         if (cur) bar.style.width = Math.min(100, ((now - ev.start) / (ev.end - ev.start)) * 100) + '%';

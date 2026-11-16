@@ -39,6 +39,25 @@ public class IcsTests
     }
 
     [Fact]
+    public void AlarmRepeatDurationDoesNotShortenItsAllDayEvent()
+    {
+        var e = Assert.Single(Ics.Parse(Cal("""
+            UID:all-day
+            DTSTART;VALUE=DATE:20261110
+            SUMMARY:Day off
+            BEGIN:VALARM
+            ACTION:DISPLAY
+            TRIGGER:-PT15M
+            REPEAT:2
+            DURATION:PT15M
+            DESCRIPTION:Reminder
+            END:VALARM
+            """), From, To));
+        Assert.True(e.AllDay);
+        Assert.Equal(TimeSpan.FromDays(1), Utc(e.End) - Utc(e.Start));
+    }
+
+    [Fact]
     public void AllDayEvent()
     {
         var e = Ics.Parse(Cal("UID:1\nDTSTART;VALUE=DATE:20261112\nDTEND;VALUE=DATE:20261113\nSUMMARY:Holiday"), From, To).Single();
@@ -108,6 +127,17 @@ public class IcsTests
         var everyOther = Ics.Parse(Cal("UID:i\nDTSTART:20261109T080000Z\nRRULE:FREQ=DAILY;INTERVAL=2;BYDAY=MO,TU,WE,TH,FR\nSUMMARY:Alt"), From, To)
             .Select(e => Utc(e.Start).Day).ToList();
         Assert.Equal([9, 11, 13, 17, 19], everyOther);
+    }
+
+    [Theory]
+    [InlineData("20240311T090000Z", "MO", "8,9,10,11,12,13,14", "03-11,04-08,05-13")]
+    [InlineData("20240331T090000Z", "SU", "-7,-6,-5,-4,-3,-2,-1", "03-31,04-28,05-26")]
+    public void MonthlyRulesCombineWeekdayAndMonthDay(string first, string byDay, string byMonthDay, string dates)
+    {
+        var start = new DateTime(2024, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+        var events = Ics.Parse(Cal($"UID:m\nDTSTART:{first}\nRRULE:FREQ=MONTHLY;BYDAY={byDay};BYMONTHDAY={byMonthDay};COUNT=3"),
+            start, start.AddMonths(4));
+        Assert.Equal(dates, string.Join(",", events.Select(e => Utc(e.Start).ToString("MM-dd"))));
     }
 
     [Fact]
@@ -181,6 +211,18 @@ public class IcsTests
     }
 
     [Fact]
+    public void AmbiguousFallBackTimesUseTheFirstOccurrence()
+    {
+        var from = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
+        var events = Ics.Parse(Cal(
+            "UID:single\nDTSTART;TZID=America/New_York:20261101T013000\nSUMMARY:Single",
+            "UID:weekly\nDTSTART;TZID=America/New_York:20261025T013000\nRRULE:FREQ=WEEKLY;COUNT=2\nSUMMARY:Weekly"),
+            from, from.AddDays(1)).ToList();
+        Assert.Equal(2, events.Count);
+        Assert.All(events, e => Assert.Equal(new DateTime(2026, 11, 1, 5, 30, 0, DateTimeKind.Utc), Utc(e.Start)));
+    }
+
+    [Fact]
     public void WallClockTimeSurvivesDaylightSavingChange()
     {
         // weekly at 09:00 Berlin time across the end of DST (25 Oct 2026): 07:00 UTC before, 08:00 UTC after
@@ -207,6 +249,34 @@ public class IcsTests
         // a UTC series still repeats in UTC
         var utc = Ics.Parse(Cal("UID:u\nDTSTART:20260302T080000Z\nRRULE:FREQ=WEEKLY\nSUMMARY:Sync"), summer, summer.AddDays(7), berlin).Single();
         Assert.Equal(new DateTime(2026, 7, 6, 8, 0, 0), Utc(utc.Start));
+    }
+
+    [Fact]
+    public void AHugeIntervalCannotTakeDownTheFeed()
+    {
+        // RFC 5545 INTERVAL is any positive int; the period math used to overflow int and the date adds used to
+        // throw past DateTime.MaxValue, so one weird rule crashed Parse and dropped every event in the feed
+        var events = Ics.Parse(Cal(
+            "UID:1\nDTSTART:20261110T090000Z\nSUMMARY:Daily\nRRULE:FREQ=DAILY;INTERVAL=2000000000",
+            "UID:2\nDTSTART:20261110T090000Z\nSUMMARY:Monthly\nRRULE:FREQ=MONTHLY;INTERVAL=2000000",
+            "UID:3\nDTSTART:20261110T090000Z\nSUMMARY:Yearly\nRRULE:FREQ=YEARLY;INTERVAL=20000",
+            "UID:4\nDTSTART:20261111T100000Z\nSUMMARY:Review"), From, To).ToList();
+        Assert.Contains(events, e => e.Title == "Review");
+        Assert.Equal(3, events.Count(e => e.Title is "Daily" or "Monthly" or "Yearly")); // each still yields its DTSTART
+    }
+
+    [Fact]
+    public void ARuleThatRunsIntoTheYear9999OnlyStopsItsOwnEvent()
+    {
+        // within the interval bounds, but a weekday or a time of day near the end of the calendar still steps past
+        // DateTime.MaxValue: that event stops repeating, the rest of the feed stays
+        var events = Ics.Parse(Cal(
+            "UID:1\nDTSTART:20261110T090000Z\nSUMMARY:Weekly\nRRULE:FREQ=WEEKLY;INTERVAL=416018;BYDAY=TU,SU",
+            "UID:2\nDTSTART:20261110T230000Z\nDURATION:PT2H\nSUMMARY:Daily\nRRULE:FREQ=DAILY;INTERVAL=2912410",
+            "UID:3\nDTSTART:20261111T100000Z\nSUMMARY:Review"), From, To).ToList();
+        Assert.Contains(events, e => e.Title == "Review");
+        Assert.Contains(events, e => e.Title == "Weekly");
+        Assert.Contains(events, e => e.Title == "Daily");
     }
 }
 

@@ -1,4 +1,4 @@
-import { $, API, D, LEVEL_COLOR, LOCALE, MEDIA_HTML, METRICS, Q_STYLE, S_ORDER, ago, api, averageColor, buzz, cfg, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, haptic, hasProcessesPage, hist, hour12, keyButton, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, setMediaState, setVolDragging, shortDur, shortGpu, store, tick, toast, volDragging, wxBlock, wxIcon } from '../main.js';
+import { $, API, D, LEVEL_COLOR, LOCALE, MEDIA_HTML, METRICS, Q_STYLE, S_ORDER, ago, api, averageColor, buzz, cfg, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, haptic, hasProcessesPage, hist, hour12, keyButton, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxIcon } from '../main.js';
 import { W } from '../registry.js';
 import { invalidateDeckState } from './controls.js';
 
@@ -63,7 +63,7 @@ W.forecast = {
     return {
       update() {
         const w = D.weather;
-        if (!w?.hourly || !w?.daily) { row.replaceChildren(h('div', 'empty', D.weather === null ? 'Loading…' : 'Weather unavailable')); return; }
+        if (!w?.hourly || !w?.daily) { row.replaceChildren(h('div', 'empty', D.weather === null ? t('w.loading') : t('w.weatherUnavailable'))); return; }
         box.querySelector('.w-sub').textContent = cfg.weather?.city || '';
         const vertical = box.clientHeight > box.clientWidth * 0.9;
         const room = vertical ? box.clientHeight - 30 : box.clientWidth - 16;
@@ -73,7 +73,7 @@ W.forecast = {
         if (daily) {
           const d = w.daily;
           for (let i = 0; i < Math.min(n, d.time.length); i++) {
-            const day = i === 0 ? 'Today' : new Date(d.time[i] + 'T12:00').toLocaleDateString(LOCALE, { weekday: 'short' });
+            const day = i === 0 ? t('time.today') : new Date(d.time[i] + 'T12:00').toLocaleDateString(LOCALE, { weekday: 'short' });
             const rain = d.precipitation_probability_max?.[i];
             cells.push(h('div', 'fc-i', h('span', 'fc-t', day), h('span', 'fc-ic', wxIcon(d.weather_code[i])),
               h('span', 'fc-v', Math.round(d.temperature_2m_max[i]) + '°', h('small', null, ' ' + Math.round(d.temperature_2m_min[i]) + '°')),
@@ -266,7 +266,9 @@ W.gauge = {
 W.chart = {
   needs: ['state'],
   create(box, { o }) {
-    const keys = (Array.isArray(o.metrics) && o.metrics.length ? o.metrics : ['cpu']).filter((k) => METRICS[k]);
+    // a list of only unknown names falls back like no list at all; own keys only, so "constructor" is unknown too
+    const keys = (Array.isArray(o.metrics) && o.metrics.length ? o.metrics : ['cpu']).filter((k) => Object.prototype.hasOwnProperty.call(METRICS, k));
+    if (!keys.length) keys.push('cpu');
     const single = keys.length === 1 ? METRICS[keys[0]] : null;
     const isNet = keys.every((k) => k === 'down' || k === 'up');
     const label = single ? single.name : isNet ? 'Network' : keys.map((k) => METRICS[k].name).join(' · ');
@@ -649,8 +651,8 @@ W.github = {
         rc.textContent = g.reviewRequests.length;
         mc.textContent = g.myPrs.length;
         const nRev = Math.min(g.reviewRequests.length || 1, Math.max(1, Math.floor(rows / 2)));
-        rev.replaceChildren(...(g.reviewRequests.length ? g.reviewRequests.slice(0, nRev).map((p) => prRow(p, false)) : [h('div', 'gh-pr', 'No pending reviews')]));
-        mine.replaceChildren(...(g.myPrs.length ? g.myPrs.slice(0, Math.max(1, rows - nRev)).map((p) => prRow(p, true)) : [h('div', 'gh-pr', 'No open pull requests')]));
+        rev.replaceChildren(...(g.reviewRequests.length ? g.reviewRequests.slice(0, nRev).map((p) => prRow(p, false)) : [h('div', 'gh-pr', t('w.noReviews'))]));
+        mine.replaceChildren(...(g.myPrs.length ? g.myPrs.slice(0, Math.max(1, rows - nRev)).map((p) => prRow(p, true)) : [h('div', 'gh-pr', t('w.noPrs'))]));
         err.textContent = g.error ? 'GitHub: ' + g.error : '';
       },
     };
@@ -664,7 +666,7 @@ W.processes = {
     let sort = currentProcessesSort();
     const sum = h('span', 'p-sum');
     const seg = h('div', 'seg', h('button', sort === 'cpu' ? 'on' : null, 'CPU'), h('button', sort === 'mem' ? 'on' : null, 'RAM'));
-    const grid = h('div', 'p-grid', h('div', 'empty', 'Processes appear once the computer is connected.'));
+    const grid = h('div', 'p-grid', h('div', 'empty', t('w.procsWait')));
     box.style.setProperty('--c', '#f472b6');
     box.append(h('div', 'p-head', h('span', 's-label', 'Processes'), sum, seg), grid);
     const els = new Map();
@@ -682,7 +684,7 @@ W.processes = {
     const render = () => {
       const data = D.procs;
       if (!data) return;
-      if (!data.groups.length) { sum.textContent = ''; grid.replaceChildren(h('div', 'empty', 'Measuring…')); return; }
+      if (!data.groups.length) { sum.textContent = ''; grid.replaceChildren(h('div', 'empty', t('w.measuring'))); return; }
       const cols = box.clientWidth > 460 ? 2 : 1;
       const rows = Math.max(1, Math.floor((box.clientHeight - 46) / 40));
       grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
@@ -698,7 +700,7 @@ W.processes = {
       const loadPart = sort === 'cpu'
         ? (cpuPct != null ? `Total CPU ${cpuPct}% · ` : '')
         : ramStr;
-      sum.textContent = box.clientWidth > 380 ? `${loadPart}${data.total} processes · ${data.groupCount ?? data.groups.length} apps · tap one for details` : `${loadPart}${data.total} processes`;
+      sum.textContent = box.clientWidth > 380 ? loadPart + t('w.procsSummary', { n: data.total, apps: data.groupCount ?? data.groups.length }) : loadPart + t('w.procsSummaryShort', { n: data.total });
       if (grid.querySelector('.empty')) grid.replaceChildren();
       const keep = new Set(list.map((g) => g.name));
       for (const [n, e] of els) if (!keep.has(n)) { e.remove(); els.delete(n); }
@@ -741,7 +743,7 @@ W.shortcuts = {
     const ids = Array.isArray(o.ids) && o.ids.length ? o.ids : null;
     const list = ids ? ids.map((id) => all.find((s) => s.id === id)).filter(Boolean) : all;
     if (!list.length) {
-      box.append(h('div', 'empty', all.length ? 'None of the chosen shortcuts exist any more.' : 'Shortcuts load once the computer is connected.\nEdit them from the tray icon › Settings.'));
+      box.append(h('div', 'empty', all.length ? t('w.shortcutsMissing') : t('w.shortcutsWait')));
       return {};
     }
     const cols = Math.min(8, Math.max(1, o.columns || 4));
@@ -757,7 +759,7 @@ W.button = {
   bare: true, needs: ['state'],
   create(box, { o }) {
     const s = (cfg.shortcuts || []).find((x) => x.id === o.id) || (cfg.shortcuts || [])[0];
-    box.append(s ? keyButton(s) : h('div', 'empty', 'Pick a shortcut in the settings'));
+    box.append(s ? keyButton(s) : h('div', 'empty', t('w.pickShortcut')));
     return { update: () => applyToggles(box) };
   },
 };
@@ -794,7 +796,7 @@ W.worldclock = {
           const zoneUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
           const diffH = Math.round((zoneUtc - localUtc) / 360000) / 10;
           const dayDiff = Math.round((Date.UTC(+p.year, +p.month - 1, +p.day) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
-          const day = dayDiff > 0 ? 'Tomorrow' : dayDiff < 0 ? 'Yesterday' : 'Today';
+          const day = dayDiff > 0 ? t('time.tomorrow') : dayDiff < 0 ? t('time.yesterday') : t('time.today');
           it.s.textContent = diffH === 0 ? day : `${day}, ${diffH > 0 ? '+' : '−'}${Math.abs(diffH)}h`;
         }
       },
@@ -839,50 +841,115 @@ export function isoWeek(d) {
   return Math.ceil(((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7);
 }
 
+/**
+ * A Pomodoro sequence from text such as "25 focus, 5 break, 25 focus, 15 long" ("focus 25", "25 min long break" and
+ * "f / b / l" work too). Returns { steps, bad }: steps is null when the text is empty or not understood.
+ */
+export function parsePomodoro(text) {
+  const kindOf = (k) => (/^l/i.test(k) ? 'long' : /^(b|s)/i.test(k) ? 'break' : 'focus');
+  const KIND = '(focus|work|f|short\\s*break|break|b|long\\s*break|long|l)';
+  const re = new RegExp(`^(?:${KIND}\\s*(\\d{1,3})\\s*(?:m|min|minutes?)?|(\\d{1,3})\\s*(?:m|min|minutes?)?\\s*${KIND})$`, 'i');
+  const steps = [];
+  for (const raw of String(text || '').split(/[,;\n]+/)) {
+    const part = raw.trim();
+    if (!part) continue;
+    const m = part.match(re);
+    const min = m ? +(m[2] || m[3]) : 0;
+    if (!m || min < 1 || min > 600) return { steps: null, bad: part };
+    steps.push({ kind: kindOf(m[1] || m[4]), ms: min * 60_000 });
+    if (steps.length > 48) return { steps: null, bad: 'more than 48 steps' };
+  }
+  return { steps: steps.length ? steps : null, bad: null };
+}
+
 W.pomodoro = {
   needs: ['tick'],
   always: true, // the alarm goes off on whatever page is showing
   create(box, { o, page, w }) {
     const key = `pomo:${page.id}/${w.id}`;
-    const focusMs = Math.max(1, o.focus || 25) * 60_000, breakMs = Math.max(1, o.break || 5) * 60_000;
+    const minutes = (v, d, max) => Math.min(max, Math.max(1, +v || d)) * 60_000;
+    const focus = { kind: 'focus', ms: minutes(o.focus, 25, 180) }, brk = { kind: 'break', ms: minutes(o.break, 5, 60) };
+    const long = { kind: 'long', ms: minutes(o.longBreak, 15, 120) };
+    const every = Math.min(12, Math.max(0, Math.floor(+o.longEvery || 0)));
+    const rounds = Math.min(99, Math.max(0, Math.floor(+o.rounds || 0)));
+    const custom = parsePomodoro(o.sequence);
+    // the plan: the own sequence, or focus / break with a long break after every N focus sessions
+    let plan = custom.steps;
+    if (!plan) {
+      plan = [];
+      if (!every) plan.push(focus, brk);
+      else for (let i = 0; i < every; i++) plan.push(focus, i === every - 1 ? long : brk);
+    }
+    const sig = plan.map((s) => `${s.kind[0]}${s.ms / 60_000}`).join(' ') + `/${rounds}`;
+    const focusTotal = plan.filter((s) => s.kind === 'focus').length;
     const today = new Date().toDateString();
     let st = store.get(key, null);
-    if (!st || typeof st !== 'object') st = { phase: 'focus', endsAt: null, left: focusMs, count: 0, day: today };
+    if (!st || typeof st !== 'object') st = { phase: 'focus', endsAt: null, left: plan[0].ms, count: 0, day: today };
+    if (st.sig === undefined) {
+      // state from before sequences (focus / break only): keep a running timer where it is
+      st.step = st.phase === 'break' && plan.length > 1 ? 1 : 0;
+      st.round = 0;
+      st.sig = sig;
+    } else if (st.sig !== sig) {
+      // the sequence was changed in the settings: start it from the beginning
+      Object.assign(st, { step: 0, round: 0, endsAt: null, left: plan[0].ms, sig });
+    }
+    if (!(st.step >= 0 && st.step < plan.length)) st.step = 0;
     if (st.day !== today) { st.count = 0; st.day = today; }
-    const save = () => store.set(key, st);
+    const save = () => { st.phase = plan[st.step].kind; store.set(key, st); };
+    save();
     const dial = h('div', 'g-dial'), time = h('div', 'g-val'), phase = h('div', 'g-label'), count = h('div', 'g-sub');
     const play = h('button', 'pb main', '▶'), reset = h('button', 'pb', '↺'), skip = h('button', 'pb', '⏭');
     dial.append(time);
     box.append(dial, phase, count, h('div', 'pomo-btns', reset, play, skip));
     let svg = null;
-    const total = () => (st.phase === 'focus' ? focusMs : breakMs);
+    const total = () => plan[st.step].ms;
     const remaining = () => (st.endsAt ? Math.max(0, st.endsAt - Date.now()) : st.left);
-    const switchPhase = (manual) => {
-      if (st.phase === 'focus' && !manual) st.count++;
-      st.phase = st.phase === 'focus' ? 'break' : 'focus';
+    /** Moves to the next step; returns true when the last round of the sequence is over (the timer then stops). */
+    const advance = (manual) => {
+      if (plan[st.step].kind === 'focus' && !manual) st.count++;
+      st.step++;
+      if (st.step >= plan.length) { st.step = 0; st.round = (st.round || 0) + 1; }
       st.left = total();
-      st.endsAt = manual ? null : Date.now() + st.left;
+      const finished = rounds > 0 && st.round >= rounds;
+      if (finished) st.round = 0;
+      st.endsAt = manual || finished ? null : Date.now() + st.left;
       save();
+      return finished;
+    };
+    const label = () => {
+      const s = plan[st.step];
+      if (s.kind === 'long') return t('w.longBreak');
+      if (s.kind === 'break') return t('w.break');
+      const n = plan.slice(0, st.step + 1).filter((x) => x.kind === 'focus').length;
+      return focusTotal > 1 ? `${t('w.focus')} ${n}/${focusTotal}` : t('w.focus');
     };
     const render = () => {
       // "today" starts over at midnight also while the panel stays open
       const day = new Date().toDateString();
       if (st.day !== day) { st.count = 0; st.day = day; save(); }
       if (st.endsAt && remaining() <= 0) {
-        const wasFocus = st.phase === 'focus';
-        switchPhase(false);
-        buzz('0,200,120,200,120,400');
-        toast(wasFocus ? 'Time for a break' : 'Back to focus', 'ok', '🍅 Pomodoro', 5);
+        const was = plan[st.step].kind;
+        const finished = advance(false);
+        buzz(finished ? '0,200,120,200,120,200,120,600' : '0,200,120,200,120,400');
+        const next = plan[st.step].kind;
+        toast(finished ? 'Sequence finished, well done'
+          : next === 'long' ? 'Time for a long break' : next === 'break' ? 'Time for a break'
+            : was === 'focus' ? 'Next focus session' : 'Back to focus', 'ok', '🍅 Pomodoro', 5);
       }
       const left = remaining();
-      box.classList.toggle('brk', st.phase === 'break');
+      const kind = plan[st.step].kind;
+      box.classList.toggle('brk', kind !== 'focus');
+      box.classList.toggle('long', kind === 'long');
       box.classList.toggle('run', !!st.endsAt);
       if (svg) svg.remove();
       dial.insertAdjacentHTML('afterbegin', ringSvg(100 * (1 - left / total())));
       svg = dial.firstElementChild;
       time.textContent = fmtTime(left + 999);
-      phase.textContent = st.phase === 'focus' ? 'Focus' : 'Break';
-      count.textContent = st.count ? '🍅'.repeat(Math.min(st.count, 6)) + (st.count > 6 ? ` ×${st.count}` : '') : 'No sessions yet today';
+      phase.textContent = label();
+      const tomatoes = st.count ? '🍅'.repeat(Math.min(st.count, 6)) + (st.count > 6 ? ` ×${st.count}` : '') : t('w.noSessionsToday');
+      count.textContent = custom.bad ? `Sequence not understood: "${custom.bad}"`
+        : rounds > 1 ? `Round ${(st.round || 0) + 1}/${rounds} · ${tomatoes}` : tomatoes;
       play.textContent = st.endsAt ? '⏸' : '▶';
     };
     play.addEventListener('click', () => {
@@ -890,8 +957,13 @@ W.pomodoro = {
       if (st.endsAt) { st.left = remaining(); st.endsAt = null; } else st.endsAt = Date.now() + st.left;
       save(); render();
     });
-    reset.addEventListener('click', () => { haptic(); st.endsAt = null; st.left = total(); save(); render(); });
-    skip.addEventListener('click', () => { haptic(); switchPhase(true); render(); });
+    // ↺ restarts this step; pressed again on a step that has not started, it goes back to the start of the sequence
+    reset.addEventListener('click', () => {
+      haptic();
+      if (!st.endsAt && st.left === total()) { st.step = 0; st.round = 0; }
+      st.endsAt = null; st.left = total(); save(); render();
+    });
+    skip.addEventListener('click', () => { haptic(); advance(true); render(); });
     return { update: render };
   },
 };
@@ -903,7 +975,7 @@ W.countdown = {
     const target = m ? new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime() : NaN;
     const big = h('div', 'cd-v'), sub = h('div', 'cd-s');
     box.append(h('div', 'cd-l', o.label || 'Countdown'), big, sub);
-    if (Number.isNaN(target)) { big.textContent = '—'; sub.textContent = 'Set a date as YYYY-MM-DD HH:MM'; return {}; }
+    if (Number.isNaN(target)) { big.textContent = '—'; sub.textContent = t('w.setDateFormat'); return {}; }
     sub.textContent = new Date(target).toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) + ', ' + fmtHM(new Date(target));
     return {
       update() {
@@ -949,11 +1021,11 @@ W.command = {
       try {
         res = await api(`/widget/${encodeURIComponent(page.id)}/${encodeURIComponent(w.id)}${force ? '?force=true' : ''}`, 'GET', 4000);
         const text = res.output ?? '';
-        out.textContent = text || (res.running ? 'Running…' : '(no output)');
+        out.textContent = text || (res.running ? t('w.running') : t('w.noOutput'));
         const short = text.length <= 14 && !text.includes('\n');
         out.classList.toggle('big', short);
         box.classList.toggle('bad', res.ok === false);
-      } catch (_) { if (!res) out.textContent = online ? 'Unavailable' : '—'; }
+      } catch (_) { if (!res) out.textContent = online ? t('w.unavailable') : '—'; }
       busy = false;
     };
     box.addEventListener('click', () => { haptic(); last = Date.now(); load(true).then(() => setTimeout(() => load(false), 1500)); });
@@ -979,7 +1051,7 @@ W.push = {
         if (lastAt === 0) return;
         lastAt = 0;
         box.style.removeProperty('--c');
-        box.replaceChildren(h('div', 'w-title', o.title || key), h('div', 'push-empty', 'No data yet', h('code', null, `POST /api/push/${key}`)));
+        box.replaceChildren(h('div', 'w-title', o.title || key), h('div', 'push-empty', t('w.noDataYet'), h('code', null, `POST /api/push/${key}`)));
         return;
       }
       const ageEl = box.querySelector('.push-age');
@@ -1044,7 +1116,7 @@ W.inbox = {
           const e = h('div', 'ib-i', h('div', 'ib-h', h('b', null, n.title || n.text), h('span', null, ago(n.at))), n.title && n.text ? h('div', 'ib-t', n.text) : null);
           e.style.setProperty('--lc', LEVEL_COLOR[n.level] || 'var(--dim)');
           return e;
-        }) : [h('div', 'empty', 'Nothing yet.\nSend one with POST /api/notify')]));
+        }) : [h('div', 'empty', t('w.notifyEmpty'))]));
       },
     };
   },

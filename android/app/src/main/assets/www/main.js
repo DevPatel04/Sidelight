@@ -21,7 +21,9 @@ export const API = '/agent/api';
 // Custom HTML widget cannot reach the agent: adding the header to a cross-origin request needs a CORS preflight,
 // which the proxy refuses. See MainActivity.fromPanel.
 export const PANEL_HEADERS = { 'X-PhoneBox-Panel': '1' };
-export const LOCALE = 'en-GB';
+export const I18n = window.PhoneBoxI18n;
+export const t = (key, vars) => (I18n ? I18n.t(key, vars) : key);
+export let LOCALE = I18n ? I18n.getLocale() : 'en-GB';
 export const COLS = 12;
 export const ROWS = 6;
 export const $ = (id) => document.getElementById(id);
@@ -67,7 +69,27 @@ export let lastUserTouch = 0;     // last real touch or key (rules wait a while 
 export let wakeUntil = 0;
 export let rulesPaused = null;    // unix ms until which the agent's rules are paused
 export let nightOn = null;
-export let evSeq = null;          // last agent event seen (notifications, page switches…)
+export let evSeq = null;          // last event seq the agent reported in a state (notifications, page switches…)
+let evReplay = false;             // the agent restarted: the next poll replays the events it kept (from 0)
+let evGen = 0;                    // bumped when a restart arms evReplay, so an answer already in flight cannot disarm a newer one
+let stateTs = 0;                  // server ts of the newest state applied (a late response must not reset the events)
+const evSeen = new Set();         // event seqs already handled in this agent run (the stream and a poll can repeat one)
+const evMark = (s) => { evSeen.add(s); if (evSeen.size > 400) evSeen.delete(evSeen.values().next().value); };
+let evQueue = [];                 // live events held while a replay is armed — the backlog must apply before them
+let evDrop = 0;                   // highest seq pushed out of a full evQueue (0 = none lost) — replay covers them or retries
+const evDrain = () => {           // the backlog applied: release the held events in seq order
+  for (const e of evQueue.sort((a, b) => a.seq - b.seq)) if (!evSeen.has(e.seq)) { evMark(e.seq); handleEvent(e); }
+  evQueue = [];
+};
+let evPre = null;                 // stream events before the first state of a connection — that state picks the run first
+const evOffer = (e) => {          // one event from the stream or a state answer: dedupe, then hold or dispatch
+  if (typeof e.seq !== 'number' || evSeen.has(e.seq)) return;
+  // a replay is armed: hold it so the backlog applies first — the drain sorts held and replayed events together
+  if (evReplay) {
+    if (!evQueue.some((q) => q.seq === e.seq)) evQueue.push(e);
+    if (evQueue.length > 100) evDrop = Math.max(evDrop, evQueue.shift().seq);
+  } else { evMark(e.seq); handleEvent(e); }
+};
 export let pushVersion = null;
 
 /** Latest data from the agent and the web; widgets read from here. */
@@ -140,20 +162,20 @@ export function fmtRate(bps) {
 export const rateStr = (b) => fmtRate(b).join(' ');
 export function fmtDur(ms) {
   const m = Math.max(0, Math.round(ms / 60000));
-  if (m < 60) return `${m} min`;
+  if (m < 60) return t('time.min', { m });
   const hr = Math.floor(m / 60);
-  if (hr < 24) return `${hr} h ${m % 60} min`;
+  if (hr < 24) return t('time.hMin', { h: hr, m: m % 60 });
   const d = Math.floor(hr / 24);
-  return `${d} d ${hr % 24} h`;
+  return t('time.dH', { d, h: hr % 24 });
 }
 export function shortDur(ms) {
   const m = Math.max(0, Math.floor(ms / 60000));
-  if (m < 1) return 'now';
+  if (m < 1) return t('time.now');
   if (m < 60) return m + 'm';
   const hr = Math.floor(m / 60);
   return hr < 24 ? `${hr}h ${m % 60}m` : `${Math.floor(hr / 24)}d`;
 }
-export const ago = (ts) => { const d = Date.now() - ts; return d < 60_000 ? 'just now' : shortDur(d) + ' ago'; };
+export const ago = (ts) => { const d = Date.now() - ts; return d < 60_000 ? t('time.justNow') : t('time.ago', { dur: shortDur(d) }); };
 export const r1 = (v) => (v == null ? '—' : (Math.round(v * 10) / 10).toString());
 export const fmtMem = (mb) => (mb >= 1024 ? (mb / 1024).toFixed(1) + ' GB' : Math.round(mb) + ' MB');
 export const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -362,10 +384,10 @@ export function wxLines() {
 
 export function wxBlock() {
   const e = h('div', 'wx', h('span', 'wx-icon', '·'), h('span', 'wx-temp', '--°'),
-    h('div', 'wx-meta', h('span', 'wx-desc', 'Loading weather…'), h('span', 'wx-range muted')));
+    h('div', 'wx-meta', h('span', 'wx-desc', t('w.loading')), h('span', 'wx-range muted')));
   e.update = () => {
     const l = wxLines();
-    if (!l) { e.querySelector('.wx-desc').textContent = D.weather === null ? 'Loading weather…' : 'Weather unavailable'; return; }
+    if (!l) { e.querySelector('.wx-desc').textContent = D.weather === null ? t('w.loading') : t('w.weatherUnavailable'); return; }
     e.querySelector('.wx-icon').textContent = l.icon;
     e.querySelector('.wx-temp').textContent = l.temp;
     e.querySelector('.wx-desc').textContent = l.desc;
@@ -384,7 +406,7 @@ export function quotaProviders() { return D.quotas?.providers || []; }
 
 export function renderStatus(el) {
   const via = transport();
-  const name = online ? (D.state?.host || 'PC') + (via === 'wifi' ? ' · Wi-Fi' : via === 'usb' ? ' · USB' : '') : online === false ? 'PC not connected' : 'Connecting…';
+  const name = online ? (D.state?.host || 'PC') + (via === 'wifi' ? ' · Wi-Fi' : via === 'usb' ? ' · USB' : '') : online === false ? t('panel.pcNotConnected') : t('panel.connecting');
   const kids = [h('span', 'dot ' + (online ? 'on' : online === false ? 'off' : '')), h('span', null, name)];
   const bat = phoneBattery();
   if (bat) kids.push(h('span', 'sep', '·'), h('span', null, bat));
@@ -482,8 +504,8 @@ export const MEDIA_HTML = `
       <input type="range" class="volr" min="0" max="100" step="1" value="50"><span class="vol-val">--</span>
     </div>
   </div>
-  <div class="offline-msg"><b>Computer not connected</b>
-    <span>Is the PhoneBox agent running? Plug in the USB cable, or turn on Wi-Fi in the PhoneBox settings and pair once over USB.</span></div>`;
+  <div class="offline-msg"><b data-i18n="panel.computerNotConnected">${t('panel.computerNotConnected')}</b>
+    <span data-i18n="panel.offlineHelp">${t('panel.offlineHelp')}</span></div>`;
 
 // ---------------------------------------------------------------- quotas
 export const Q_STYLE = { antigravity: { color: '#38bdf8', logo: '✦' }, claude: { color: '#d97757', logo: '✳' }, codex: { color: '#e5e7eb', logo: '◎' } };
@@ -493,7 +515,7 @@ export function fmtReset(ts) {
   const d = new Date(ts);
   const hm = fmtHM(d);
   const day = d.toDateString() === new Date().toDateString() ? hm : d.toLocaleDateString(LOCALE, { weekday: 'short' }) + ' ' + hm;
-  return `${day} · in ${fmtDur(ts - Date.now())}`;
+  return `${day} · ${t('time.inDur', { dur: fmtDur(ts - Date.now()) })}`;
 }
 
 /** Compares the share of the quota used with the share of the window elapsed. */
@@ -502,15 +524,15 @@ export function paceInfo(l) {
   const win = l.windowSec * 1000;
   const left = l.resetsAt - Date.now();
   const elapsed = Math.min(1, Math.max(0, 1 - left / win));
-  if (l.percent >= 100) return { elapsed, cls: 'over', text: 'Limit reached' };
-  if (elapsed < 0.04 || l.percent < 1) return { elapsed, cls: 'calm', text: 'Plenty left' };
+  if (l.percent >= 100) return { elapsed, cls: 'over', text: t('pace.limitReached') };
+  if (elapsed < 0.04 || l.percent < 1) return { elapsed, cls: 'calm', text: t('pace.plentyLeft') };
   const rate = l.percent / (elapsed * win);          // % per ms
   const msTo100 = (100 - l.percent) / rate;
-  if (msTo100 < left) return { elapsed, cls: 'over', text: `At this pace: full in ${fmtDur(msTo100)}` };
+  if (msTo100 < left) return { elapsed, cls: 'over', text: t('pace.fullIn', { dur: fmtDur(msTo100) }) };
   const diff = l.percent - elapsed * 100;
-  if (diff > 10) return { elapsed, cls: 'fast', text: 'Ahead of pace' };
-  if (diff < -10) return { elapsed, cls: 'calm', text: 'Plenty left' };
-  return { elapsed, cls: '', text: 'On pace' };
+  if (diff > 10) return { elapsed, cls: 'fast', text: t('pace.ahead') };
+  if (diff < -10) return { elapsed, cls: 'calm', text: t('pace.plentyLeft') };
+  return { elapsed, cls: '', text: t('pace.onPace') };
 }
 
 // ---------------------------------------------------------------- sessions & GitHub
@@ -525,10 +547,10 @@ export function notifyTransitions(sessions) {
     if (workLoaded && before && before !== s.status) {
       if (s.status === 'waiting') {
         buzz('0,90,90,90,90,160');
-        toast(s.waitingFor || 'needs input', 'err', s.name);
+        toast(s.waitingFor || t('panel.needsInput'), 'err', s.name);
       } else if (s.status === 'idle' && (before === 'busy' || before === 'shell')) {
         buzz('0,70,110,70');
-        toast(`${s.name} finished`, 'ok');
+        toast(t('panel.sessionFinished', { name: s.name }), 'ok');
       }
     }
     prevStatus.set(s.id, s.status);
@@ -614,7 +636,7 @@ export function openSheet(g, canKill) {
   sheet = { group: g, detail: null, canKill };
   fillIcon($('psIco'), g);
   $('psTitle').textContent = g.title;
-  $('psSub').textContent = 'Loading…';
+  $('psSub').textContent = t('w.loading');
   $('psList').replaceChildren();
   $('pSheet').hidden = false;
   loadSheet();
@@ -646,23 +668,24 @@ export async function loadSheet() {
 export function renderSheet() {
   const d = sheet.detail, canKill = sheet.canKill;
   const totalCpu = d.instances.reduce((a, i) => a + i.cpu, 0), totalMem = d.instances.reduce((a, i) => a + i.memMb, 0);
-  $('psSub').textContent = `${d.instances.length} instance${d.instances.length === 1 ? '' : 's'} · CPU ${totalCpu.toFixed(1)}% · ${fmtMem(totalMem)}` +
-    (d.locked ? ' · system process' : !canKill ? ' · ending disabled in settings' : '');
+  const instLabel = t(d.instances.length === 1 ? 'panel.instanceOne' : 'panel.instanceMany', { n: d.instances.length });
+  $('psSub').textContent = `${instLabel} · CPU ${totalCpu.toFixed(1)}% · ${fmtMem(totalMem)}` +
+    (d.locked ? ` · ${t('panel.systemProcess')}` : !canKill ? ` · ${t('panel.endingDisabled')}` : '');
   const all = $('psAll');
-  if (!all.classList.contains('armed')) all.textContent = d.instances.length > 1 ? `End all ${d.instances.length}` : 'End';
+  if (!all.classList.contains('armed')) all.textContent = d.instances.length > 1 ? t('panel.endAllN', { n: d.instances.length }) : t('panel.end');
   all.disabled = d.locked || !canKill || !d.instances.length;
 
   const list = $('psList');
   list.replaceChildren();
-  if (!d.instances.length) { list.appendChild(h('div', 'empty', 'No running instances')); return; }
+  if (!d.instances.length) { list.appendChild(h('div', 'empty', t('panel.noInstances'))); return; }
   for (const i of d.instances) {
     const primary = i.session ? '✳ ' + i.session : i.window || i.args || d.title;
     const secondary = [i.session ? i.args : i.window ? i.args : null,
-      i.startedAt ? (Date.now() - i.startedAt < 60_000 ? 'just started' : 'started ' + shortDur(Date.now() - i.startedAt) + ' ago') : null]
+      i.startedAt ? (Date.now() - i.startedAt < 60_000 ? t('panel.justStarted') : t('panel.startedAgo', { dur: shortDur(Date.now() - i.startedAt) })) : null]
       .filter(Boolean).join(' · ');
-    const btn = h('button', 'ps-btn danger', 'End');
+    const btn = h('button', 'ps-btn danger', t('panel.end'));
     btn.disabled = i.locked || !canKill;
-    armButton(btn, 'Confirm', () => killInstance(i, primary));
+    armButton(btn, t('panel.confirm'), () => killInstance(i, primary));
     list.appendChild(h('div', 'pi', h('span', 'pid', 'PID ' + i.pid),
       h('div', 'lbl', h('b', i.session ? 'sess' : '', primary), h('small', null, secondary)),
       h('div', 'num', h('b', null, i.cpu.toFixed(1) + '%'), h('br'), fmtMem(i.memMb)), btn));
@@ -677,19 +700,19 @@ export async function postKill(query) {
 export async function killInstance(i, label) {
   try {
     const { ok, body } = await postKill('pid=' + i.pid);
-    ok ? toast(`Ended ${label} (PID ${i.pid})`, 'ok') : toast(body.error || 'Could not end it', 'err');
-  } catch (_) { toast('Computer unreachable', 'err'); }
+    ok ? toast(t('panel.endedPid', { label, pid: i.pid }), 'ok') : toast(body.error || t('panel.couldNotEnd'), 'err');
+  } catch (_) { toast(t('panel.pcUnreachable'), 'err'); }
   setTimeout(() => { loadSheet(); loadProcs(); }, 500);
 }
 
-armButton($('psAll'), 'Tap again to confirm', async () => {
+armButton($('psAll'), t('panel.tapToConfirm'), async () => {
   const g = sheet?.group;
   if (!g) return;
   try {
     const { ok, body } = await postKill('name=' + encodeURIComponent(g.name));
-    if (ok) { toast(`Ended ${body.killed} × ${g.title}${body.failed ? ` (${body.failed} failed)` : ''}`, 'ok'); closeSheet(); }
-    else toast(body.error || 'Could not end them', 'err');
-  } catch (_) { toast('Computer unreachable', 'err'); }
+    if (ok) { toast(t('panel.endedGroup', { killed: body.killed, title: g.title }) + (body.failed ? t('panel.failedCount', { n: body.failed }) : ''), 'ok'); closeSheet(); }
+    else toast(body.error || t('panel.couldNotEndThem'), 'err');
+  } catch (_) { toast(t('panel.pcUnreachable'), 'err'); }
   setTimeout(loadProcs, 500);
 });
 $('psClose').addEventListener('click', () => { haptic(); closeSheet(); });
@@ -730,13 +753,19 @@ export const levelOf = (v) => v.level || (typeof v.value === 'string' ? (/^(ok|p
 export function handleNotify(d) {
   const level = d.level === 'error' ? 'err' : d.level === 'ok' || d.level === 'success' ? 'ok' : d.level === 'warn' ? 'warn' : '';
   if (d.wake && nightOn) { wakeUntil = Date.now() + 30_000; setNight(false); }
+  undim();
   toast(d.text || '', level, d.title || '', d.seconds || 5);
   if (d.vibrate !== false) buzz(level === 'err' ? '0,90,90,90,90,160' : '0,70,110,70');
   D.notes.unshift({ title: d.title || '', text: d.text || '', level: d.level || 'info', at: Date.now() });
   D.notes = D.notes.slice(0, 30);
   store.set('notes', D.notes);
   emit('notes');
-  if (d.page != null) requestPage({ page: d.page, name: d.title || null, countdown: d.countdown });
+  // the webhook body is passed through as sent; like every other countdown, this one is 0-30 s (or the default)
+  // only a number or a numeric string: Number() of an object such as {"toString":null} throws, which would stop the
+  // events after this one from being handled
+  const raw = d.countdown;
+  const countdown = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
+  if (d.page != null) requestPage({ page: d.page, name: d.title || null, countdown: Number.isFinite(countdown) ? Math.min(30, Math.max(0, countdown)) : undefined });
 }
 
 // ---------------------------------------------------------------- permission prompts (Claude Code hook → phone)
@@ -756,6 +785,7 @@ export function renderApproval() {
   if (approvalShown !== a.id) {
     approvalShown = a.id;
     lastTouch = Date.now();
+    undim();
     if (nightOn) { wakeUntil = Date.now() + 60_000; setNight(false); }
     buzz('0,120,80,120,80,240');
     $('apAllow').disabled = $('apDeny').disabled = $('apSkip').disabled = false;
@@ -766,7 +796,7 @@ export function renderApproval() {
   $('apSkip').hidden = !asking;
   $('apSource').textContent = a.source || 'Claude Code';
   $('apProject').textContent = a.project || a.session || '';
-  $('apCount').textContent = approvals.length > 1 ? `1 of ${approvals.length}` : '';
+  $('apCount').textContent = approvals.length > 1 ? t('panel.oneOfN', { n: approvals.length }) : '';
   $('apTool').textContent = a.tool;
   $('apDesc').textContent = a.description || '';
   $('apDetail').textContent = a.detail || '';
@@ -779,8 +809,8 @@ export function tickApproval() {
   const a = approvals[0];
   if (!a || $('approval').hidden) return;
   const left = a.expiresAt - Date.now();
-  $('apTime').textContent = a.kind === 'question' ? 'Answer it in the terminal on your PC'
-    : left > 0 ? `otherwise asked in the terminal in ${fmtTime(left)}` : 'asking in the terminal…';
+  $('apTime').textContent = a.kind === 'question' ? t('panel.answerInTerminal')
+    : left > 0 ? t('panel.askedInTerminalIn', { time: fmtTime(left) }) : t('panel.askingInTerminal');
   if (left < -3000) { approvals.shift(); renderApproval(); }
 }
 setInterval(tickApproval, 1000);
@@ -792,9 +822,9 @@ export async function decide(decision) {
   $('apAllow').disabled = $('apDeny').disabled = $('apSkip').disabled = true;
   try {
     await api(`/approvals/${encodeURIComponent(a.id)}?decision=${decision}`, 'POST', 4000);
-    if (decision === 'skip') toast('The question is waiting in the terminal', 'warn');
-    else toast(`${decision === 'allow' ? 'Allowed' : 'Denied'}: ${a.tool}`, decision === 'allow' ? 'ok' : 'err');
-  } catch (_) { toast('Already answered in the terminal', 'warn'); }
+    if (decision === 'skip') toast(t('panel.questionWaiting'), 'warn');
+    else toast(t(decision === 'allow' ? 'panel.allowedTool' : 'panel.deniedTool', { tool: a.tool }), decision === 'allow' ? 'ok' : 'err');
+  } catch (_) { toast(t('panel.alreadyAnswered'), 'warn'); }
   approvals = approvals.filter((x) => x.id !== a.id);
   renderApproval();
 }
@@ -845,7 +875,8 @@ export function buildLayout() {
   const next = enabled.length ? enabled : FALLBACK_PAGES;
   const portrait = isPortrait();
   const h12 = hour12();
-  const key = JSON.stringify([next, cfg.shortcuts, cfg.display?.showSeconds, cfg.display?.hour12, h12, cfg.display?.appearance, portrait]);
+  // the active language belongs in the key: the widgets render their texts once, when they are created
+  const key = JSON.stringify([next, cfg.shortcuts, cfg.display?.showSeconds, cfg.display?.hour12, h12, cfg.display?.appearance, portrait, I18n?.getLang()]);
   if (key === layoutKey) return;
   layoutKey = key;
   lastHour12 = h12;
@@ -890,8 +921,8 @@ export function activeSet() { return new Set([curPage - 1, curPage, curPage + 1]
 export const pageOf = (kind) => mounted.filter((m) => m.pi === curPage && m.def.needs.includes(kind)).length > 0;
 export const anyNeeds = (kind) => mounted.some((m) => m.def.needs.includes(kind));
 
-export function runUpdate(m, kind) {
-  try { m.inst.update?.(kind); } catch (e) { console.warn(m.ctx.w.type, e); }
+export function runUpdate(m, kind, background = false) {
+  try { m.inst.update?.(kind, background); } catch (e) { console.warn(m.ctx.w.type, e); }
 }
 
 /** Delivers fresh data to the widgets on the visible pages; the others catch up when they come into view. */
@@ -900,7 +931,9 @@ export function emit(kind) {
   for (const m of mounted) {
     if (!m.def.needs.includes(kind)) continue;
     // alarms (timer, pomodoro) must go off on whatever page is showing, so those widgets get every tick
-    if (act.has(m.pi) || (m.def.always && kind === 'tick')) runUpdate(m, kind); else m.dirty = true;
+    if (act.has(m.pi)) runUpdate(m, kind);
+    else if (m.def.always && kind === 'tick') runUpdate(m, kind, true);
+    else m.dirty = true;
   }
 }
 
@@ -1069,12 +1102,16 @@ function dismiss(req) {
   haptic();
   navQueue = navQueue.filter((r) => r !== req);
   if (req.kind === 'home') lastTouch = Date.now();
+  // staying after a rule ended ends its hold, or the list of active rules (applyState) would ask to go back again
+  if (req.kind === 'back' && ruleHold?.rule === req.rule) ruleHold = null;
   navCount = null;
   pump();
 }
 
 function nextRequest() {
   const hold = ruleHold && curPage === ruleHold.page ? ruleHold : null;
+  // the rule ended after you moved on: its hold is over, so coming back to that page later does not undo it
+  if (ruleHold && !hold && navQueue.some((r) => r.kind === 'back' && r.rule === ruleHold.rule)) ruleHold = null;
   navQueue = navQueue.filter((r) => (r.kind === 'back' ? hold && hold.rule === r.rule : r.kind === 'home' ? idleDue() : true));
   // already there: a rule just takes the page over
   for (const r of navQueue.filter((r) => r.kind === 'goto' && r.page === curPage)) {
@@ -1116,10 +1153,15 @@ export function pump() {
 }
 
 let navShown = null;
+let navWoken = null; // the waiting request or the countdown that last brightened a dimmed panel
 function renderNav(req = null, why = '') {
   const card = $('navCard'), chip = $('navChip');
-  if (!req) { card.classList.remove('on'); chip.classList.remove('on'); navShown = null; return; }
-  const name = req.name || (req.kind === 'home' ? 'Nobody around' : req.kind === 'back' ? 'Done' : 'Page switch');
+  if (!req) { card.classList.remove('on'); chip.classList.remove('on'); navShown = null; navWoken = null; return; }
+  // a new waiting request or countdown must not be hidden under the dark layer; this runs every 250 ms while one
+  // waits, so only its first appearance counts, or the panel would never dim behind a request that keeps waiting
+  const wakeKey = why ? req : navCount;
+  if (wakeKey !== navWoken) { navWoken = wakeKey; undim(); }
+  const name = req.name || (req.kind === 'home' ? t('panel.nobodyAround') : req.kind === 'back' ? t('panel.done') : t('panel.pageSwitch'));
   const target = req.kind === 'home' ? pageLabel(homeIndex()) : pageLabel(req.page);
   const more = navQueue.length > 1 ? ` +${navQueue.length - 1}` : '';
   if (why) {
@@ -1136,8 +1178,8 @@ function renderNav(req = null, why = '') {
   if (navShown !== navCount) {
     navShown = navCount;
     $('nvName').textContent = name;
-    $('nvLine').textContent = req.kind === 'goto' ? `Switching to ${target}` : `Back to ${target}`;
-    $('nvDetail').textContent = req.detail && req.detail !== 'test' ? req.detail : more ? `${navQueue.length - 1} more waiting` : '';
+    $('nvLine').textContent = req.kind === 'goto' ? t('panel.switchingTo', { target }) : t('panel.backTo', { target });
+    $('nvDetail').textContent = req.detail && req.detail !== 'test' ? req.detail : more ? t('panel.moreWaiting', { n: navQueue.length - 1 }) : '';
     const ring = $('nvRing');
     ring.style.animation = 'none';
     void ring.getBoundingClientRect();
@@ -1157,8 +1199,8 @@ export async function toggleRulesPause() {
     const r = await api(`/rules/pause?minutes=${paused ? 0 : 60}`, 'POST', 4000);
     rulesPaused = r.pausedUntil || null;
     if (!rulesPaused) navQueue = navQueue.filter((x) => x.kind === 'home');
-    toast(rulesPaused ? 'Rules paused for an hour' : 'Rules are back on', 'ok');
-  } catch (_) { toast('The PC did not answer', 'warn'); }
+    toast(rulesPaused ? t('panel.rulesPausedToast') : t('panel.rulesResumedToast'), 'ok');
+  } catch (_) { toast(t('panel.pcNoAnswer'), 'warn'); }
   renderRulesBtn();
 }
 export function renderRulesBtn() {
@@ -1167,7 +1209,7 @@ export function renderRulesBtn() {
   const paused = rulesPaused && rulesPaused > Date.now();
   b.hidden = PREVIEW || !online;
   b.classList.toggle('on', !!paused);
-  b.textContent = paused ? `⏸ Rules paused until ${fmtHM(new Date(rulesPaused))} · resume` : '⏸ Pause rules 1 h';
+  b.textContent = paused ? t('panel.rulesPausedUntil', { time: fmtHM(new Date(rulesPaused)) }) : t('panel.pauseRules1h');
 }
 
 export let titleTimer = 0;
@@ -1211,7 +1253,7 @@ export function openOverview() {
   // several paired computers: switch between them here (a USB cable always wins)
   const pcs = pairedPcs();
   $('ovPcs').replaceChildren(...(pcs.length > 1 ? pcs.map((pc) => {
-    const b = h('button', 'ov-pc' + (pc.active ? ' on' : ''), '🖥️ ' + (pc.name || 'Computer'));
+    const b = h('button', 'ov-pc' + (pc.active ? ' on' : ''), '🖥️ ' + (pc.name || t('panel.computer')));
     b.addEventListener('click', (e) => { e.stopPropagation(); switchPc(pc); });
     return b;
   }) : []));
@@ -1227,7 +1269,7 @@ export function pairedPcs() {
 /** Makes another paired computer the one used over Wi-Fi; the app then reloads the panel from it. */
 export function switchPc(pc) {
   if (!pc || pc.active || !bridge?.selectPc) return;
-  haptic(); toast(`Switching to ${pc.name || 'the other computer'}…`);
+  haptic(); toast(t('panel.switchingPc', { name: pc.name || t('panel.otherComputer') }));
   setTimeout(() => bridge.selectPc(pc.id), 300);
 }
 export function closeOverview() { $('overview').hidden = true; }
@@ -1313,6 +1355,7 @@ window.onAndroidBack = () => {
 window.addEventListener('resize', () => { buildLayout(); goPage(curPage, true); });
 
 ['pointerdown', 'touchstart'].forEach((ev) => document.addEventListener(ev, (e) => {
+  if (dimmed) wakeFromDim();
   if (e.target?.closest?.('#navCard, #navChip')) return;
   lastTouch = lastUserTouch = Date.now();
   if (navQueue.length) { navQueue = navQueue.filter((r) => r.kind !== 'home'); pump(); }
@@ -1364,11 +1407,73 @@ window.onAndroidSensor = (kind, value) => {
     if (lux < 3) { darkSince ||= Date.now(); } else darkSince = 0;
     if (darkRoom && lux > 15) darkRoom = false;
     applyBrightness();
-  } else if (kind === 'proximity' && value === true && cfg.display?.proximityWake !== false && nightOn) {
+  } else if (kind === 'proximity' && value === true && cfg.display?.proximityWake !== false && (nightOn || dimmed)) {
+    undim();
+    if (!nightOn) return;
     wakeUntil = Date.now() + 30_000;
     setNight(false);
   }
 };
+
+// ---------------------------------------------------------------- OLED burn-in protection
+// Pixel shift (display.pixelShift): every 2 minutes the panel steps along a small loop, at most 2 px from its place, so
+// edges and text don't sit on the same pixels all day; the night clock, the most static thing on screen, drifts further.
+// Idle dim (display.idleDimMin): after that many minutes without a touch, page switch, notification or prompt, a dark
+// layer covers the panel. Like waking the night screen, the touch that brightens it does nothing else.
+const SHIFT = [[0, 0], [1, 0], [2, 1], [1, 2], [0, 2], [-1, 1], [-2, 0], [-1, -1], [0, -2], [1, -1]];
+const NIGHT_SHIFT = [[0, 0], [4, -3], [-4, 3], [3, 4], [-4, -2], [2, -4], [-2, 2], [4, 1], [-3, -4], [1, 3]]; // vmin
+const SHIFT_MS = 120_000;
+let shiftStep = -1;
+let lastWake = Date.now();
+let dimmed = false;
+
+/** Something happened that the user should see: brighten a dimmed panel and restart its idle time. */
+export function undim() {
+  lastWake = Date.now();
+  if (!dimmed) return;
+  dimmed = false;
+  document.body.classList.remove('dimmed');
+}
+
+// The dark layer keeps catching this touch until the finger lifts, so the widget under it is not pressed.
+function wakeFromDim() {
+  const body = document.body.classList;
+  body.add('waking');
+  undim();
+  const done = () => {
+    clearTimeout(fallback);
+    ['pointerup', 'pointercancel'].forEach((t) => document.removeEventListener(t, done, true));
+    setTimeout(() => body.remove('waking'), 300);
+  };
+  const fallback = setTimeout(done, 3000);
+  ['pointerup', 'pointercancel'].forEach((t) => document.addEventListener(t, done, true));
+}
+
+export function applyBurnIn() {
+  const d = cfg.display || {};
+  const shift = d.pixelShift === true && !PREVIEW;
+  document.body.classList.toggle('shifted', shift);
+  const step = shift ? Math.floor(Date.now() / SHIFT_MS) % SHIFT.length : -1;
+  if (step !== shiftStep) {
+    shiftStep = step;
+    const [x, y] = step < 0 ? [0, 0] : SHIFT[step];
+    const [nx, ny] = step < 0 ? [0, 0] : NIGHT_SHIFT[step];
+    const root = document.documentElement.style;
+    root.setProperty('--shift-x', `${x}px`);
+    root.setProperty('--shift-y', `${y}px`);
+    root.setProperty('--night-x', `${nx}vmin`);
+    root.setProperty('--night-y', `${ny}vmin`);
+  }
+  const after = Math.max(0, Math.floor(+d.idleDimMin || 0)) * 60_000;
+  const dim = after > 0 && !PREVIEW && !nightOn && $('approval').hidden
+    && Date.now() - Math.max(lastTouch, lastNav, lastWake) > after;
+  if (dim !== dimmed) {
+    dimmed = dim;
+    document.body.classList.toggle('dimmed', dim);
+  }
+}
+
+document.addEventListener('visibilitychange', () => { if (!document.hidden) undim(); }); // woken on plug-in, back from another app
 
 export function tick() {
   if (lastHour12 !== null && hour12() !== lastHour12) { buildLayout(); renderRulesBtn(); }
@@ -1382,6 +1487,7 @@ export function tick() {
     if (curPage === homeIndex()) { closeSheet(); closeOverview(); lastNav = Date.now(); } // only a sheet to close
     else { navQueue.push({ kind: 'home', at: Date.now(), priority: -1 }); pump(); }
   }
+  applyBurnIn();
   if (!nightOn) emit('tick');
   setTimeout(tick, 1000 - (Date.now() % 1000) + 5);
 }
@@ -1389,6 +1495,9 @@ export function tick() {
 // ---------------------------------------------------------------- data from the agent
 export function applyDisplay() {
   const d = cfg.display || {};
+  const langChanged = I18n ? I18n.setLang(d.language || 'auto') : false;
+  LOCALE = I18n ? I18n.getLocale() : 'en-GB';
+  I18n?.applyDom();
   // theme and accent apply in the preview and the browser too
   document.body.dataset.theme = ['amoled', 'midnight', 'warm', 'graphite'].includes(d.theme) ? d.theme : 'default';
   const accent = hexToRgb(d.accent);
@@ -1397,6 +1506,7 @@ export function applyDisplay() {
   document.documentElement.style.setProperty('--accent', `rgb(${DEFAULT_AMBIENT})`);
   artTint = d.artTint !== false;
   if (before !== DEFAULT_AMBIENT || !artTint) setAmbient(artTint ? currentArtColor : null);
+  if (langChanged) { buildLayout(); renderApproval(); }
   renderRulesBtn();
   if (PREVIEW || !bridge) return;
   try { bridge.setVolumeKeys && bridge.setVolumeKeys(d.volumeKeys !== false); } catch (_) {}
@@ -1469,16 +1579,25 @@ export function setOnline(on) {
   if (changed) emit('state');
 }
 
-export function applyState(s) {
+export function applyState(s, replayGen = null) {
   lastStateAt = Date.now();
   D.state = s;
   media = s.media ? { ...s.media, at: performance.now() } : null;
   setOnline(true);
   if (s.cfgVersion !== undefined && cfgVersion !== null && s.cfgVersion !== cfgVersion) loadConfig();
   if (s.pushVersion !== undefined && s.pushVersion !== pushVersion) loadPush();
-  if (evSeq != null && s.evSeq != null && s.evSeq < evSeq) evSeq = s.evSeq; // the agent restarted: it counts from 0 again
-  if (evSeq != null) for (const e of s.events || []) if (e.seq > evSeq) handleEvent(e);
-  evSeq = Math.max(evSeq ?? 0, s.evSeq ?? 0);
+  // compares the agent's wall clock across responses: if the PC's clock steps back (NTP), polled events are
+  // ignored until it catches up — the stream still delivers them meanwhile
+  const fresh = s.ts == null || s.ts >= stateTs;
+  // the answer to a ?ev=0 replay can be overtaken by streamed states on the way; its events are still the backlog.
+  // they go through evOffer like live ones: while a replay is armed the queue merges them before dispatch
+  if (fresh || replayGen === evGen) for (const e of s.events || []) evOffer(e);
+  if (fresh) {
+    stateTs = s.ts ?? stateTs;
+    // the agent restarted: it counts events from 0 again — forget what was handled and replay its backlog once
+    if (evSeq != null && s.evSeq != null && s.evSeq < evSeq) { evSeen.clear(); evQueue = []; evDrop = 0; evReplay = true; evGen++; evSeq = 0; }
+    evSeq = Math.max(evSeq ?? 0, s.evSeq ?? 0);
+  }
   // the "back" event can be missed while offline; the list of active rules settles it
   if (ruleHold && Array.isArray(s.rules) && !s.rules.includes(ruleHold.rule) && Date.now() - ruleHold.at > 8000) requestBack(ruleHold.rule);
   rulesPaused = s.rulesPaused || null;
@@ -1502,25 +1621,36 @@ export function applyState(s) {
     }
   }
   emit('state');
+  return fresh || replayGen === evGen;
 }
 
 // Live stream from the Android shell (see AgentStream.kt); polling below is the fallback when it is not running.
 export let streamOn = false;
 export let lastStateAt = 0;
 window.onAgentStream = (event, data) => {
-  if (event === 'open') { streamOn = true; return; }
+  // the stream can send events before its first state (Program.cs sends the backlog first): an event that is only
+  // new to this run would dispatch now and again when the replay delivers it — hold them until the state decides
+  if (event === 'open') { streamOn = true; evPre = []; return; }
   if (event === 'close') { streamOn = false; return; }
   let d;
   try { d = JSON.parse(data); } catch (_) { return; }
-  if (event === 'state') applyState(d);
+  if (event === 'state') { applyState(d); for (const e of evPre || []) evOffer(e); evPre = null; }
   else if (event === 'work') applyWork(d);
-  else if (event === 'event' && d.seq > (evSeq ?? 0)) { evSeq = d.seq; handleEvent(d); }
+  else if (event === 'event') { if (evPre) { evPre.push(d); if (evPre.length > 100) evPre.shift(); } else evOffer(d); }
 };
 export const streaming = () => streamOn && Date.now() - lastStateAt < 3000;
 
 export async function poll() {
-  if (!streaming()) {
-    try { applyState(await api('/state' + (evSeq != null ? '?ev=' + evSeq : ''))); }
+  // a pending replay must go through even while the stream is live: the stream only sends events newer than
+  // its own connect, so the poll is the only way to get the ones the restarted agent queued before it
+  if (!streaming() || evReplay) {
+    const replay = evReplay, gen = evGen;
+    try {
+      const s = await api('/state' + (replay ? '?ev=0' : evSeq != null ? '?ev=' + evSeq : ''));
+      // disarm only when this replay's own answer applied: a stale answer or a restart armed meanwhile keeps it
+      // on, and so does an answer that ends before the seqs pushed out of the full buffer — the next pass gets them
+      if (applyState(s, replay ? gen : null) && replay && gen === evGen) { evReplay = s.evSeq != null && s.evSeq < evDrop; evDrop = 0; if (!evReplay) evDrain(); }
+    }
     catch (_) { if (!streaming()) setOnline(false); }
   }
   setTimeout(poll, 1000);

@@ -26,6 +26,17 @@ public class ConfigTests
     }
 
     [Fact]
+    public void BurnInProtectionIsOffByDefaultAndTheDimTimeIsClamped()
+    {
+        var defaults = Load("{}").Display;
+        Assert.False(defaults.PixelShift);
+        Assert.Equal(0, defaults.IdleDimMin);
+        Assert.Equal(1440, Load("""{ "display": { "pixelShift": true, "idleDimMin": 99999 } }""").Display.IdleDimMin);
+        Assert.Equal(0, Load("""{ "display": { "idleDimMin": -5 } }""").Display.IdleDimMin);
+        Assert.True(Load("""{ "display": { "pixelShift": true } }""").Display.PixelShift);
+    }
+
+    [Fact]
     public void TemplatesExpandIntoWidgets()
     {
         var c = Load("""{ "pages": [ { "template": "music" }, { "template": "music" } ] }""");
@@ -130,6 +141,11 @@ public class LanTests
     [InlineData("/api/push/temperature", true)]
     [InlineData("/api/settings", false)]
     [InlineData("/api/pair", false)]
+    [InlineData("/api/pair/claim", true)]
+    [InlineData("/api/pair/start", false)]
+    [InlineData("/api/pair/cancel", false)]
+    [InlineData("/api/pair/status", false)]
+    [InlineData("/api/pair/claim/x", false)]
     [InlineData("/api/shortcuts/test", false)]
     [InlineData("/api/claude/hook", false)]
     [InlineData("/api/obs-test", false)]
@@ -228,6 +244,47 @@ public class ConfigConcurrencyTests
             Assert.Equal("02:22", s.Get().Night.Start);
         }
         finally { File.Delete(path); File.Delete(path + ".bak"); }
+    }
+
+    [Fact]
+    public void DisplayLanguageDefaultsAndExposesToPublic()
+    {
+        var (s, path) = NewStore();
+        try
+        {
+            Assert.Equal("auto", s.Get().Display.Language);
+
+            Assert.Null(s.Save("""{"display":{"language":"tr"}}"""));
+            Assert.Equal("tr", s.Get().Display.Language);
+            var pub = JsonSerializer.Serialize(s.Get().ToPublic(), ConfigStore.WriteOpts);
+            using var doc = JsonDocument.Parse(pub);
+            Assert.Equal("tr", doc.RootElement.GetProperty("display").GetProperty("language").GetString());
+        }
+        finally { File.Delete(path); File.Delete(path + ".bak"); }
+    }
+
+    [Theory]
+    [InlineData("\"TR\"", "tr")]       // any case
+    [InlineData("\" de \"", "de")]     // stray spaces
+    [InlineData("\"xx\"", "auto")]     // a language PhoneBox does not have
+    [InlineData("null", "auto")]
+    [InlineData("\"\"", "auto")]
+    public void ADisplayLanguageItDoesNotKnowFollowsThePhone(string json, string expected)
+    {
+        var (s, path) = NewStore();
+        try
+        {
+            Assert.Null(s.Save("{\"display\":{\"language\":" + json + "}}"));
+            Assert.Equal(expected, s.Get().Display.Language);
+        }
+        finally { File.Delete(path); File.Delete(path + ".bak"); }
+    }
+
+    [Fact]
+    public void EmbeddedI18nResourceExists()
+    {
+        using var s = AppPaths.Resource("www/i18n.js");
+        Assert.NotNull(s);
     }
 }
 

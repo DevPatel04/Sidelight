@@ -1,5 +1,233 @@
 # Changelog
 
+## Unreleased
+
+**Agent**
+- A calendar feed with a recurring event whose `INTERVAL` is huge keeps its other events. Before, such a rule could
+  run past the year 9999 and the whole feed failed, showing only its last good copy (#106,
+  [Seyamalam](https://github.com/Seyamalam)).
+- On a WorkBuddy permission request, the card shows the name WorkBuddy gave the workspace instead of its timestamp
+  folder name (#111, [4gui](https://github.com/4gui)). The guide explains how to add the hook to WorkBuddy.
+- Calendars follow RFC 5545 more closely:
+  - a monthly rule with both a weekday and a month day ("Friday the 13th", a Mother's Day rule) keeps only the days
+    that match both, instead of every such weekday (#119);
+  - an alarm's `DURATION` or `SUMMARY` no longer replaces the event's own (#123);
+  - a local time that happens twice when the clocks go back means the first one (#126). All by [rudycelekli](https://github.com/rudycelekli).
+- A rule's time window with a typo (`08:30-typo`, three parts, a day-long end) is rejected instead of firing for a
+  minute (#114, [rudycelekli](https://github.com/rudycelekli)).
+- Pushed values: one damaged record in `data.json` no longer breaks the panel's state or discards the other values
+  (#115), and versions keep increasing under concurrent writes (#121). By [rudycelekli](https://github.com/rudycelekli).
+- The Antigravity quota falls back to the older status call when the summary can't be read (#122, [rudycelekli](https://github.com/rudycelekli)).
+- The network speed reads each adapter on its own, so a dock, a Wi-Fi reconnect or a counter reset no longer shows a
+  spike or a zero (#124, [rudycelekli](https://github.com/rudycelekli)).
+
+**Panel**
+- A chart whose metrics are all unknown shows the CPU instead of an error card (#125,
+  [Seyamalam](https://github.com/Seyamalam)).
+- A Smart Stack's timer and alarm keep running and ring while the stack shows another card or another page is on
+  screen (#130, [rudycelekli](https://github.com/rudycelekli)).
+
+**Install and packaging**
+- `scripts/install.sh --apk` rebuilds the APK when the Android sources are newer than `dist/` (#113), and Linux
+  and macOS autostart files quote paths with spaces and special characters (#118).
+- `scripts/install.ps1` builds into a temporary folder and stops the running agent only after the build succeeded
+  (#120); `scripts/build.ps1` removes its per-platform staging folders (#127).
+- The winget release-notes link moved to the locale manifest, where winget reads it (#128).
+- The docs demo keeps a layout saved while its catalog loads (#129). All by [rudycelekli](https://github.com/rudycelekli).
+
+## 0.9.12 — 2026-11-16
+
+Pages can follow the app in front, the AI quotas load on networks with broken IPv6, and the Claude quota check asks
+Anthropic less often and shows fewer errors.
+
+**Agent**
+- A new rule condition, "an app is in front", holds while a named app owns the foreground window (for example
+  `Code|obs64|Safari`). With "show the page" and "while active", the phone shows the page for the app you are using
+  and goes back when you switch away (#103, #104, [Seyamalam](https://github.com/Seyamalam)). It works on Windows, on
+  macOS with the Accessibility permission, and on Linux under X11 with `xdotool`; Wayland has no way to ask which app
+  is in front.
+- The AI quotas load on networks that announce IPv6 but don't route it. The quota requests try the IPv4 addresses
+  first, then the others, within one 10-second connect budget. Before, the Claude quota failed with "Socket is not
+  connected" (#105, [sateesh2020](https://github.com/sateesh2020)).
+- The Claude quota check spends fewer of Anthropic's rate-limited requests and shows fewer errors:
+  - a restart (an update) or a second agent on the computer uses a reading under 3 minutes old, and still waits
+    out a `429`'s Retry-After, instead of asking again;
+  - an expired token is not sent, and a token Anthropic refused (`401`) is tried again only after 30 minutes; the
+    token Claude Code renews is used within a minute, instead of after a back-off of up to 15 minutes;
+  - when the network isn't back yet (after sleep), the last reading stays without an error and the check is
+    retried after 30 seconds, up to three times;
+  - a reply PhoneBox doesn't recognize (a captive portal, a changed format) keeps the last reading instead of
+    emptying the card.
+- The Codex quota skips a reading cut off mid-write for the complete one before it, instead of showing a JSON error,
+  and a session log that is busy for a moment keeps the last reading.
+
+## 0.9.11 — 2026-11-16
+
+PhoneBox now runs on Android 7 and 8 phones. Shortcut keys work in apps that read raw input, such as Discord, the
+default Terminal shortcut works on Windows 10 and on Linux outside the Debian family, and setup explains a Smart App
+Control block instead of stopping.
+
+**Android**
+- The app runs on Android 7.0 and later (it was Android 9), as first proposed by
+  [Sawaid-hub](https://github.com/Sawaid-hub) in #65. Two features need newer Android, so they are guarded:
+  before Android 8 the tap vibrations use the older vibration call, and drawing into the display cut-out starts at
+  Android 9 as before. Tested on an Android 7.1.1 phone with Chrome 119 as its WebView by
+  [anandyakshit](https://github.com/anandyakshit) (#73). `setup.ps1` and `setup.sh` now accept these phones.
+
+**Agent**
+- `display.language` is checked like the other settings: a code PhoneBox has no translation for (or an empty one) falls
+  back to `auto`, which follows the phone or the browser. It is also in the three default configuration files.
+- Shortcut keys on Windows press the left Shift, Ctrl and Alt and send real scan codes. Before, they sent the generic
+  modifier keys with no scan code, and apps that read raw input, such as Discord, could take Shift for Right Shift
+  (#98).
+- The default Terminal shortcut works where its program is missing. Windows 10 has no Windows Terminal (`wt.exe`), so
+  PowerShell opens instead. Outside the Debian family there is no `x-terminal-emulator`, so `$TERMINAL` or the first
+  installed common terminal (GNOME Console, Konsole, Alacritty, kitty, xterm …) opens (#73).
+
+**Panel and settings**
+- Changing the language rebuilds the widgets on the phone, so they switch language right away instead of after the
+  next layout change. Texts the first translation pass missed (loading and "unavailable" messages, the Pomodoro
+  steps, the breathe widget, the hook button in the settings) are translated too (#96, Seyamalam).
+
+**Setup**
+- When Smart App Control blocks the unsigned agent, `setup.ps1` no longer stops with "An Application Control policy
+  has blocked this file". It says that PhoneBox is installed but can't run until the agent is signed (#56), and it
+  no longer claims the release agent runs with Smart App Control on (#69). A block by AppLocker or another policy on
+  a managed computer points to its administrator instead.
+
+## 0.9.10 — 2026-11-16
+
+PhoneBox now speaks 11 languages. This is also a reliability release: updates are checked against the release
+checksums and no longer get stuck on a hung or refusing phone, and notifications sent while the agent restarts now
+reach the phone.
+
+Most of the fixes come from an evidence-led audit. Each one was reproduced on the unchanged code before the fix
+(#88, #89, #90, #91).
+
+**Languages**
+- The panel and the settings page are translated into English, Türkçe, Deutsch, Français, Español, Italiano,
+  Português, Nederlands, Polski, Русский and 中文.
+- By default PhoneBox follows the language of the phone (panel) or the browser (settings).
+- To choose a language yourself: Settings › General › Display › Language (`display.language`).
+- The README is restructured around a short quick start, with translations in `docs/README.<language>.md`.
+- New guides: [setup](docs/SETUP.md), [user guide](docs/GUIDE.md), [development](docs/DEVELOPMENT.md).
+
+**Agent**
+- **Updates:**
+  - Downloaded updates are checked against the release's SHA-256 checksums before they are installed. A copy that
+    does not match is deleted and fetched again, and refused if it still does not match. Before, a damaged copy kept
+    in the updates folder could be used again and again.
+  - A phone that refuses the app update (another signing key, or "Install via USB" off on Xiaomi) no longer keeps the
+    other phones, or the agent itself, from updating.
+  - A stuck `adb install` (a hung phone or cable) no longer blocks updates until the agent restarts. adb now has a
+    3-minute limit and is stopped when an update is cancelled.
+  - On Linux and macOS, the agent now updates itself when the home folder is a symbolic link (for example, moved to
+    another disk).
+- **USB:**
+  - A phone that refuses to become the home app no longer stops USB setup for the other phones, or the keep-awake
+    setting.
+  - An `adb reverse` rule left by an agent on another port is pointed back at this one. Before, the panel stayed offline
+    over USB until the cable was plugged in again.
+  - On Windows, adb is found when its folder is on PATH in quotes.
+- **Wi-Fi pairing:** a pairing request without the key whose body is not JSON gets the usual refusal (403). Before,
+  anyone on the network got a 500 and added an error line to `agent.log` with every such request.
+- **Radio directory:** a mirror that answers with something other than the station list is skipped like a failing one.
+  Before, one bad mirror broke "Load countries" and "Import stations".
+
+**Android app**
+- Notifications, page switches and permission prompts that the agent queued while it restarted (after saving
+  settings, an update or a crash) now reach the phone. Before, the panel skipped them because the restarted agent
+  counted its events from 0 again (#86, thanks to Seyamalam).
+- Page switching:
+  - **Stay** on a rule's "Back to …" card now keeps the page.
+  - A rule that ended while you were on another page no longer undoes that page when you open it yourself later.
+  - A notification whose `countdown` is not a number (`"soon"`, `1e9`, an object) no longer freezes page switching or
+    the events after it. The countdown is limited to 0–30 seconds, like every other countdown.
+
+**Setup**
+- `setup.sh` no longer sets up a login service that systemd refuses to start (an install path with a quote, an
+  apostrophe or a backslash). It says to use the desktop's startup applications instead.
+- With several phones connected, skipping the phone choice in `setup.sh` no longer ends setup with PhoneBox stopped.
+
+## 0.9.9 — 2026-11-15
+
+Install PhoneBox with one command on Windows, Linux and macOS. The installer checks the download and sets up what is
+missing. This release also adds OLED burn-in protection and Pomodoro sequences with long breaks.
+
+**Android app**
+- OLED burn-in protection (#79), in **Settings › General › OLED burn-in protection**, both off by default:
+  - **Pixel shift**: the panel moves by up to 2 px every 2 minutes, and the night clock drifts around the screen.
+  - **Idle dim**: after a set time without a touch, a dark layer covers the panel. The touch that brightens it does
+    not press anything under it. A page switch, a notification, a permission prompt, waking on plug-in and the
+    proximity sensor brighten it too.
+- Pomodoro (#82):
+  - **Long breaks**: a long break after every N focus sessions.
+  - **Your own sequence**: for example `25 focus, 5 break, 25 focus, 5 break, 25 focus, 15 long`. It advances by
+    itself, can repeat a number of rounds, and then stops with a message.
+  - **Display**: the widget shows "Focus 2/3" or "Long break", in blue. ↺ restarts the step; pressed again it
+    restarts the sequence.
+  - **Presets**: put several Pomodoro widgets on your pages, each with its own sequence (study, reading, deep work).
+  - **Compatibility**: existing widgets keep working as before, including a timer that is running during the update.
+
+**Setup**
+- One-step installers: `irm https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.ps1 | iex` on Windows,
+  `curl -fsSL https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.sh | bash` on Linux and macOS. They
+  download the latest release and check its checksum (and its build provenance with a signed-in GitHub CLI). They
+  install adb and the optional helpers when missing, after asking, then the agent and start at login. They can also
+  put the app on a phone over USB, with step-by-step help for USB debugging, and finally start PhoneBox. Warnings
+  cover the unsigned build, antivirus, USB debugging, firewall, Linux USB permissions and macOS prompts. Running
+  setup again updates or repairs PhoneBox and keeps the settings; `-DryRun` / `--dry-run` changes nothing. A CI workflow runs
+  both installers on Windows, Linux x64/ARM64 and macOS every week.
+
+**Docs**
+- The README quick start is rewritten around setup: what it does, its options and warnings, connecting the phone
+  over USB or Wi-Fi only, other ways to install, and how to uninstall.
+
+## 0.9.8 — 2026-11-15
+
+Pair a phone over Wi-Fi without a USB cable: the computer shows a QR code, the phone scans it with its camera and
+pairs after you compare a check code. The Claude quota keeps its last reading across restarts.
+
+**Agent**
+- Pair a phone over Wi-Fi without USB: Settings › General › Wi-Fi & Tailscale › **Pair a phone over Wi-Fi** shows a
+  QR code to install the app and one to pair. The pairing link carries the computer's addresses, the certificate
+  fingerprint and a one-time code (5 minutes, single use); the phone trades the code for the Wi-Fi key over the
+  pinned TLS connection, so the key is never in the QR code.
+- Claude quota: the last successful reading is kept on disk, so after a restart (an update) or while Anthropic
+  rate-limits the checks, the panel shows the last values and their age instead of an empty quota.
+
+**Android app**
+- Opens pairing links from the computer's QR code: it shows the computer's name, addresses and a check code to compare
+  with the computer's pairing window, and pairs only after you confirm. It accepts only private network and Tailscale
+  addresses, and pairing a computer never replaces another one with the same name.
+
+**Docs**
+- A pairing page at `/pair/` on the project site, which the QR code opens: it checks the link, shows the check code
+  and hands the link to the app (or to the download page when the app is missing). The pairing details stay in the
+  part of the link that browsers never send to a server. The README and the privacy policy describe both ways to pair.
+
+## 0.9.7 — 2026-11-15
+
+The agent no longer needs .NET installed: each release is one self-contained program. The Claude quota shows again
+after Anthropic rate-limits it, Open on phone works over Wi-Fi, and there is a contributing guide.
+
+**Agent**
+- Claude quota: when Anthropic's usage endpoint answers 429 (it is rate limited per account, and Claude Code uses it
+  too), the agent now waits as long as `Retry-After` asks and backs off on repeated errors (1, 2, 4 … 15 minutes)
+  instead of asking again every minute, which could keep the limit in place so the quota never showed. The panel says
+  when it will try again and keeps the last values.
+- The release agent is a single self-contained program on every system: unzip and run, no .NET runtime to install
+  (Windows needed the .NET 10 Desktop Runtime before). The zips are larger (Windows about 65 MB, Linux and macOS
+  about 45 MB) and updates download that size. After updating, the agent removes the framework-dependent files the
+  updater leaves behind; source installs (`install.ps1`, `install.sh`) stay framework-dependent.
+- Settings: **Open on phone** works over Wi-Fi and Tailscale too. It shows the page selected in the editor on the phone
+  (over USB it also wakes the phone, as before), and says "No phone connected" instead of claiming it worked; a page that is not saved yet asks to save first (#62, #64,
+  thanks to d4rk-lucif3r).
+
+**Docs**
+- [CONTRIBUTING.md](CONTRIBUTING.md), pull request and issue templates, and review rules for the automated reviewer:
+  scope, the security model, privacy and the tests to run.
+
 ## 0.9.6 — 2026-11-15
 
 A Computers widget to switch between paired computers, a privacy policy and code signing policy, fewer outbound

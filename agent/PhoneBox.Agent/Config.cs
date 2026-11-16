@@ -100,6 +100,10 @@ public sealed class NightConfig
 public sealed class DisplayConfig
 {
     public AppearanceConfig? Appearance { get; set; }
+    /// <summary>UI language code ("auto", "en", "tr", "de", "fr", "es", "it", "pt", "nl", "pl", "ru", "zh").</summary>
+    public string Language { get; set; } = "auto";
+    /// <summary>The codes the panel and the settings page are translated into (i18n.js).</summary>
+    internal static readonly string[] Languages = ["auto", "en", "tr", "de", "fr", "es", "it", "pt", "nl", "pl", "ru", "zh"];
     public bool ShowSeconds { get; set; } = true;
     /// <summary>false ("14:05", default), true ("2:05 PM") or "auto" (follow the phone).</summary>
     [JsonConverter(typeof(Hour12JsonConverter))]
@@ -124,6 +128,10 @@ public sealed class DisplayConfig
     public bool NightWhenDark { get; set; }
     /// <summary>A hand near the phone (proximity sensor) wakes the night screen.</summary>
     public bool ProximityWake { get; set; } = true;
+    /// <summary>OLED burn-in protection: every 2 minutes the panel moves by a few pixels and the night clock drifts.</summary>
+    public bool PixelShift { get; set; }
+    /// <summary>OLED burn-in protection: dim the panel after this many minutes without a touch; 0 = never.</summary>
+    public int IdleDimMin { get; set; }
     /// <summary>Screen pinning: Home and Recents stay on the panel.</summary>
     public bool Pin { get; set; }
     /// <summary>The panel is the phone's home app: it starts after a reboot and Home returns to it.</summary>
@@ -222,7 +230,7 @@ public sealed class RuleConfig
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public bool Enabled { get; set; } = true;
-    /// <summary>session-waiting, session-busy, media-playing, process-running, mic-in-use, camera-in-use, obs-live, calendar-event, cpu-above, idle, time, push.</summary>
+    /// <summary>session-waiting, session-busy, media-playing, process-running, app-in-front, mic-in-use, camera-in-use, obs-live, calendar-event, cpu-above, idle, time, push.</summary>
     public string When { get; set; } = "session-waiting";
     /// <summary>App / process names ("zoom|Teams"), a time window ("22:00-07:00") or a push key, depending on <see cref="When"/>.</summary>
     public string? Match { get; set; }
@@ -255,7 +263,7 @@ public sealed class RuleConfig
     public string? Op { get; set; }
     public string? Arg { get; set; }
 
-    public static readonly string[] Triggers = ["session-waiting", "session-busy", "media-playing", "process-running", "mic-in-use", "camera-in-use", "obs-live", "calendar-event",
+    public static readonly string[] Triggers = ["session-waiting", "session-busy", "media-playing", "process-running", "app-in-front", "mic-in-use", "camera-in-use", "obs-live", "calendar-event",
         "cpu-above", "idle", "time", "push", "quota-above", "review-requested", "ci-failed", "battery-low", "ping-high", "always"];
     public static readonly string[] Actions = ["goto", "notify", "push", "shortcut"];
 }
@@ -433,6 +441,10 @@ public sealed partial class ConfigStore(string path)
         c.Display.Appearance?.Normalize();
         c.Display.Hour12 = Hour12JsonConverter.Normalize(c.Display.Hour12);
         c.Display.IdleReturnSec = Math.Clamp(c.Display.IdleReturnSec, 0, 3600);
+        c.Display.IdleDimMin = Math.Clamp(c.Display.IdleDimMin, 0, 1440);
+        // a language the panel does not have falls back to following the phone / browser
+        var lang = (c.Display.Language ?? "").Trim().ToLowerInvariant();
+        c.Display.Language = DisplayConfig.Languages.Contains(lang) ? lang : "auto";
         c.Display.SwitchCountdownSec = Math.Clamp(c.Display.SwitchCountdownSec, 0, 30);
         c.Display.TouchGraceSec = Math.Clamp(c.Display.TouchGraceSec, 0, 600);
         c.Display.MinDwellSec = Math.Clamp(c.Display.MinDwellSec, 0, 600);

@@ -1,4 +1,4 @@
-import { API, PANEL_HEADERS, api, applyState, D, evSeq, h, haptic, toast, store } from '../main.js';
+import { API, PANEL_HEADERS, api, applyState, D, evSeq, h, haptic, toast, store, t } from '../main.js';
 import { W } from '../registry.js';
 
 let cached = null, at = 0, epoch = 0, pending = null;
@@ -99,7 +99,7 @@ function audioView(box, options, mode) {
         row = { el, name, signal, controls, mute, item, balance }; rows.set(item.id, row);
       }
       row.item = item; row.name.textContent = item.name;
-      row.controls.set(item.volume); row.mute.textContent = item.muted ? 'Unmute' : 'Mute';
+      row.controls.set(item.volume); row.mute.textContent = item.muted ? t('w.unmute') : t('w.mute');
       row.controls.input.disabled = item.canControl === false; row.mute.disabled = item.canControl === false;
       row.balance.forEach((slider, channel) => { const value = item.channelVolumes?.[channel]; slider.input.disabled = value == null; slider.set(value || 0); if (value == null) slider.number.textContent = 'n/a'; });
       row.mute.setAttribute('aria-pressed', String(item.muted));
@@ -189,7 +189,7 @@ function mediaView(box, options, mode) {
   } else controls.append(button('⏮', () => call('prev'), 'Previous track'), button('⏯', () => call('playpause'), 'Play or pause'), button('⏭', () => call('next'), 'Next track'));
   return data => {
     current = selectedPlayer(data, options);
-    title.textContent = current?.title || 'No media player selected'; source.textContent = current?.name || 'Choose a source in Media sources';
+    title.textContent = current?.title || t('w.noMediaSelected'); source.textContent = current?.name || 'Choose a source in Media sources';
     controls.querySelectorAll('button').forEach(b => b.disabled = !current);
     if (seek) { seek.input.max = Math.max(1, current?.duration || 1); seek.set(current?.position || 0); seek.number.textContent = `${Math.floor((current?.position || 0) / 1000)} / ${Math.floor((current?.duration || 0) / 1000)} s`; seek.input.disabled = !current?.canSeek; }
     if (shuffle) { shuffle.disabled = !current?.canShuffle; shuffle.setAttribute('aria-pressed', String(!!current?.shuffle)); }
@@ -490,9 +490,9 @@ function mixerView(box,options){
         }else {row.toggle=button('Toggle',()=>deckCommand('action',{id:item.id,value:Number(row.item.state)>0?0:1}));el.append(row.toggle);}
         rows.set(item.id,row);
       }
-      row.item=item;row.label.textContent=item.name;row.state.textContent=item.available===false?item.state || 'Not connected':'';
+      row.item=item;row.label.textContent=item.name;row.state.textContent=item.available===false?item.state || t('w.notConnected'):'';
       if(row.slider){row.slider.input.disabled=item.available===false;row.slider.set(Number(item.state)||0);row.slider.number.textContent=item.available===false?'n/a':item.state+' dB';}
-      if(row.toggle){row.toggle.disabled=item.available===false;row.toggle.textContent=Number(item.state)>0?'Disable':'Enable';row.toggle.setAttribute('aria-pressed',String(Number(item.state)>0));}
+      if(row.toggle){row.toggle.disabled=item.available===false;row.toggle.textContent=Number(item.state)>0?t('w.disable'):t('w.enable');row.toggle.setAttribute('aria-pressed',String(Number(item.state)>0));}
       return row.el;
     }));
     for(const id of rows.keys())if(!items.some(i=>i.id===id))rows.delete(id);
@@ -500,14 +500,14 @@ function mixerView(box,options){
 }
 
 function listening(box) {
-  const state = h('div', 'deck-caption', 'Listening is off'); let ctl = null, context = null, next = 0, check = 0;
-  const stop = () => { ctl?.abort(); ctl = null; context?.close(); context = null; clearInterval(check); toggle.textContent = 'Listen'; state.textContent = 'Listening is off'; };
-  const toggle = button('Listen', async () => {
+  const state = h('div', 'deck-caption', t('w.listeningOff')); let ctl = null, context = null, next = 0, check = 0;
+  const stop = () => { ctl?.abort(); ctl = null; context?.close(); context = null; clearInterval(check); toggle.textContent = t('w.listen'); state.textContent = t('w.listeningOff'); };
+  const toggle = button(t('w.listen'), async () => {
     if (ctl) { stop(); return; }
     const Audio = window.AudioContext || window.webkitAudioContext;
     if (!Audio || !window.ReadableStream) throw new Error('This WebView does not support live audio');
-    context = new Audio(); await context.resume(); ctl = new AbortController(); toggle.textContent = 'Stop listening';
-    state.textContent = 'Listening to computer audio';
+    context = new Audio(); await context.resume(); ctl = new AbortController(); toggle.textContent = t('w.stopListening');
+    state.textContent = t('w.listeningOn');
     const own = ctl;
     check = setInterval(() => { const r = box.getBoundingClientRect(); if (document.hidden || r.right <= 0 || r.left >= innerWidth) stop(); }, 250);
     (async () => {
@@ -571,7 +571,7 @@ export function registerDeckWidget(type, title, mode = type) {
         component = { render(data) { components.forEach(c => c.render(data)); }, destroy() { components.forEach(c => c.destroy()); } };
       } else if (mode === 'duck') {
         let enabled = false; const b = button('Enable ducking', () => deckCommand('duck', { op: enabled ? 'off' : 'on', value: o.level ?? 25 })); box.append(b);
-        render = data => { enabled = data.ducking; b.textContent = enabled ? 'Disable ducking' : 'Enable ducking'; b.setAttribute('aria-pressed', String(enabled)); };
+        render = data => { enabled = data.ducking; b.textContent = enabled ? t('w.disableDucking') : t('w.enableDucking'); b.setAttribute('aria-pressed', String(enabled)); };
       } else if (mode === 'profiles') {
         const list = h('div', 'deck-actions'); box.append(list); let key = '';
         render = data => { const next = JSON.stringify(data.profiles); if (next === key) return; key = next;
@@ -582,12 +582,12 @@ export function registerDeckWidget(type, title, mode = type) {
         box.append(button(`Sleep in ${o.minutes || 30} min`, () => deckCommand('sleep', { id: player?.id || '', value: o.minutes || 30 })),
           button('Cancel timer', () => deckCommand('sleep', { id: player?.id || '', value: 0 })), caption);
         render = data => { player = selectedPlayer(data, o); const timer = data.sleep?.find(t => t.id === player?.id);
-          caption.textContent = timer ? `Pausing ${player?.name || 'player'} in ${Math.max(0, Math.ceil((timer.at - Date.now()) / 60000))} min` : 'No sleep timer'; };
+          caption.textContent = timer ? `Pausing ${player?.name || 'player'} in ${Math.max(0, Math.ceil((timer.at - Date.now()) / 60000))} min` : t('w.noSleepTimer'); };
       } else if (mode === 'brightness') {
         const list = h('div', 'deck-list'); box.append(list); const rows = new Map();
         render = data => {
           const items = (data.monitors || []).filter(m => !o.device || m.id === o.device);
-          if (!items.length) { empty(list, 'No monitors detected'); return; }
+          if (!items.length) { empty(list, t('w.noMonitors')); return; }
           reconcile(list, items.map(m => { if (!rows.has(m.id)) { const s = slider(m.name + ' brightness', value => deckCommand('brightness', { id: m.id, value }));
             rows.set(m.id, { ...s, el: h('div', 'deck-channel', h('div', 'deck-channel-name', m.name), s.input, s.number) }); }
             const row = rows.get(m.id); row.input.disabled = m.brightness == null; row.set(m.brightness || 0); if (m.brightness == null) row.number.textContent = 'DDC/CI unavailable'; return row.el; }));
@@ -684,7 +684,7 @@ integrationWidget('obs-camera', 'OBS virtual camera', 'obs', (root,data,send)=>{
 integrationWidget('media-queue', 'Spotify queue', 'spotify/state', (root,data,send)=>{
   root.append(h('div','deck-track',data.current?.name || 'Nothing playing'));
   for(const item of data.queue || []) root.append(button(item.name+(item.artist?' · '+item.artist:''),()=>send('play-queued',{id:item.id})));
-  if(!data.queue?.length)root.append(h('div','deck-empty','The queue is empty'));
+  if(!data.queue?.length)root.append(h('div','deck-empty',t('w.queueEmpty')));
 });
 integrationWidget('media-favorites', 'Spotify favorites', 'spotify/state', (root,data,send)=>{
   root.append(h('div','deck-track',data.current?.name || 'Nothing playing'),h('div','deck-caption',data.current?.artist || ''));
@@ -697,6 +697,6 @@ W['meeting-timer'] = {needs:['tick'],create(box,{o}){
   const persist=()=>store.set(key,state);
   const start=button(state.started?'Pause':'Start',()=>{state=store.get(key,state);if(state.started){state.elapsed+=Date.now()-state.started;state.started=0;}else state.started=Date.now();persist();render();});
   box.append(start,button('Reset',()=>{state={elapsed:0,started:0};persist();render();}));
-  function render(){state=store.get(key,state);const elapsed=state.elapsed+(state.started?Date.now()-state.started:0);clock.textContent=timeText(elapsed);start.textContent=state.started?'Pause':'Start';start.setAttribute('aria-label',start.textContent);clock.classList.toggle('deck-overdue',elapsed>=(o.minutes || 30)*60000);}
+  function render(){state=store.get(key,state);const elapsed=state.elapsed+(state.started?Date.now()-state.started:0);clock.textContent=timeText(elapsed);start.textContent=state.started?t('w.pause'):t('w.start');start.setAttribute('aria-label',start.textContent);clock.classList.toggle('deck-overdue',elapsed>=(o.minutes || 30)*60000);}
   render();return {update:render};
 }};
