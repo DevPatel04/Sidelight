@@ -80,6 +80,10 @@ jobs:
           dotnet-version: 10.0.x
       - name: Unit tests
         run: dotnet test agent/PhoneBox.Agent.Tests --nologo
+      - name: Local packaging staging cleanup
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        run: ./tools/test-build-staging.ps1
       - name: Windows installer regression checks
         if: matrix.rid == 'win-x64'
         shell: pwsh
