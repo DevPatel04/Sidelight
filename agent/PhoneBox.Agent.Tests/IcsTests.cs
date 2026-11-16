@@ -39,6 +39,25 @@ public class IcsTests
     }
 
     [Fact]
+    public void AlarmRepeatDurationDoesNotShortenItsAllDayEvent()
+    {
+        var e = Assert.Single(Ics.Parse(Cal("""
+            UID:all-day
+            DTSTART;VALUE=DATE:20261110
+            SUMMARY:Day off
+            BEGIN:VALARM
+            ACTION:DISPLAY
+            TRIGGER:-PT15M
+            REPEAT:2
+            DURATION:PT15M
+            DESCRIPTION:Reminder
+            END:VALARM
+            """), From, To));
+        Assert.True(e.AllDay);
+        Assert.Equal(TimeSpan.FromDays(1), Utc(e.End) - Utc(e.Start));
+    }
+
+    [Fact]
     public void AllDayEvent()
     {
         var e = Ics.Parse(Cal("UID:1\nDTSTART;VALUE=DATE:20261112\nDTEND;VALUE=DATE:20261113\nSUMMARY:Holiday"), From, To).Single();

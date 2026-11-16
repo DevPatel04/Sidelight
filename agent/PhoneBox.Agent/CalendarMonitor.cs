@@ -100,11 +100,16 @@ public static class Ics
     {
         var events = new List<List<Prop>>();
         List<Prop>? cur = null;
+        var nestedDepth = 0;
         foreach (var line in Unfold(text))
         {
-            if (line == "BEGIN:VEVENT") { cur = []; continue; }
+            if (line == "BEGIN:VEVENT") { cur = []; nestedDepth = 0; continue; }
             if (line == "END:VEVENT") { if (cur is not null) events.Add(cur); cur = null; continue; }
             if (cur is null) continue;
+            // VALARM can have its own DURATION and other event-like properties.
+            if (line.StartsWith("BEGIN:", StringComparison.OrdinalIgnoreCase)) { nestedDepth++; continue; }
+            if (line.StartsWith("END:", StringComparison.OrdinalIgnoreCase)) { nestedDepth = Math.Max(0, nestedDepth - 1); continue; }
+            if (nestedDepth > 0) continue;
             var p = ParseLine(line);
             if (p is not null) cur.Add(p);
         }
