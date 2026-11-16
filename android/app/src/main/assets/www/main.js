@@ -458,8 +458,11 @@ export function keyButton(s) {
 
 // ---------------------------------------------------------------- media (shared state, any number of widgets)
 export let media = null;          // last media state + the time it was received
-export let volDragging = false;
-export const setVolDragging = (v) => { volDragging = v; };
+export let volDragging = null;
+export function setVolDragging(control, dragging) {
+  if (dragging) volDragging = control;
+  else if (volDragging === control) volDragging = null;
+}
 export const setMediaState = (m) => {
   if (D.state) D.state.media = m || null;
   media = m ? { ...m, at: performance.now() } : null;
