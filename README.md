@@ -52,7 +52,8 @@ their own layouts, or switch one phone between paired computers.
 | **Automation** | Webhook values and notifications, Home Assistant controls and rules that react to activity on the computer |
 
 Tap an AI session for its model, timing and token details. Opt in to Claude Code permission prompts to answer
-**Allow** or **Deny** from the phone. Optional [CodexBar integration](docs/GUIDE.md#widgets) adds quota providers
+**Allow** or **Deny** from the phone. Enable **Include OpenClaw gateway** in the AI sessions widget options to
+include a local OpenClaw gateway (off by default). Optional [CodexBar integration](docs/GUIDE.md#widgets) adds quota providers
 and a cost overview.
 
 <p align="center"><a href="docs/tour-0.6.mp4"><img src="docs/tour-0.6.gif" width="780" alt="PhoneBox tour showing notifications, a Claude Code permission prompt and automatic page switching"></a><br>

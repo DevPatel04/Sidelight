@@ -76,6 +76,10 @@ public sealed class AgentConfig
     /// <summary>True when an enabled page (including enabled Smart Stack children) shows the quota cost overview card.</summary>
     public bool ShowQuotaOverview() => Widgets(enabledPagesOnly: true)
         .Any(w => w.Type is "codexbar" or "quotas" && w.Bool("showOverview") == true);
+
+    /// <summary>True when an enabled page (including enabled Smart Stack children) opts in to OpenClaw gateway sessions.</summary>
+    public bool ShowOpenClawSessions() => Widgets(enabledPagesOnly: true)
+        .Any(w => w.Type == "sessions" && w.Bool("showOpenClaw") == true);
 }
 
 public sealed class WeatherConfig

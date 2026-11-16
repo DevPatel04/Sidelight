@@ -17,8 +17,9 @@ public sealed record AgentSession(string Id, string Tool, string Name, string Pr
 /// Watches running AI coding sessions (local and read-only):
 ///  - Claude Code: ~/.claude/sessions/{pid}.json (status files written by Claude Code itself)
 ///  - Codex: the latest events in recent rollout files under ~/.codex/sessions
+///  - OpenClaw (opt-in): local gateway process/lock state and session activity under ~/.openclaw/agents/*/sessions/*.jsonl
 /// </summary>
-public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundService
+public sealed partial class SessionMonitor(ILogger<SessionMonitor> log, ConfigStore? config = null) : BackgroundService
 {
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     private readonly ConcurrentDictionary<string, string> _codexCwd = new();
@@ -34,13 +35,28 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
     {
         while (!ct.IsCancellationRequested)
         {
-            var list = new List<AgentSession>();
-            try { list.AddRange(ReadClaude()); } catch (Exception ex) { log.LogDebug("claude sessions: {Msg}", ex.Message); }
-            try { list.AddRange(ReadCodex()); } catch (Exception ex) { log.LogDebug("codex sessions: {Msg}", ex.Message); }
-            _sessions = list;
+            _sessions = PollOnce();
             await Task.Delay(2000, ct);
         }
     }
+
+    internal List<AgentSession> PollOnce(string? homeDir = null)
+    {
+        var list = new List<AgentSession>();
+        try { list.AddRange(ReadClaude(homeDir)); } catch (Exception ex) { log.LogDebug("claude sessions: {Msg}", ex.Message); }
+        try { list.AddRange(ReadCodex(homeDir is null ? null : Path.Combine(homeDir, ".codex", "sessions"))); } catch (Exception ex) { log.LogDebug("codex sessions: {Msg}", ex.Message); }
+        if (IsOpenClawEnabled())
+        {
+            try { list.AddRange(ReadOpenClaw(homeDir)); } catch (Exception ex) { log.LogDebug("openclaw sessions: {Msg}", ex.Message); }
+        }
+        else
+        {
+            ResetOpenClawCache();
+        }
+        return list;
+    }
+
+    internal void SetSnapshotForTest(IReadOnlyList<AgentSession> sessions) => _sessions = sessions;
 
     // CodexBar runs `claude` in <Application Support or temp>/CodexBar/ClaudeProbe to read usage.
     // Match only that exact directory so real projects that merely contain "CodexBar" stay visible.

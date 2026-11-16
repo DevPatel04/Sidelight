@@ -186,7 +186,8 @@ public sealed class RuleEngine(ConfigStore config, PushStore push, SessionMonito
             {
                 var status = r.When == "session-waiting" ? "waiting" : "busy";
                 var s = sessions.Snapshot().FirstOrDefault(s => s.Status == status && (names.Length == 0
-                    || names.Any(n => s.Project.Contains(n, StringComparison.OrdinalIgnoreCase) || s.Tool.Equals(n, StringComparison.OrdinalIgnoreCase))));
+                    ? !s.Tool.Equals("openclaw", StringComparison.OrdinalIgnoreCase)
+                    : names.Any(n => s.Project.Contains(n, StringComparison.OrdinalIgnoreCase) || s.Tool.Equals(n, StringComparison.OrdinalIgnoreCase))));
                 return s is null ? (false, "") : (true, status == "waiting" ? $"{s.Project}: {s.WaitingFor ?? "needs you"}" : $"{s.Project} is working");
             }
             case "media-playing":

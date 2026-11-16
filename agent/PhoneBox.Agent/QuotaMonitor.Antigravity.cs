@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -301,66 +300,7 @@ public sealed partial class QuotaMonitor
         finally { foreach (var p in procs) p.Dispose(); }
     }
 
-    /// <summary>
-    /// Retrieves the command-line arguments for a process across supported operating systems.
-    /// </summary>
-    /// <param name="pid">The process identifier.</param>
-    /// <returns>The command-line string, or <c>null</c> if unreadable.</returns>
-    private static string? GetCommandLine(int pid)
-    {
-        if (OperatingSystem.IsWindows())
-            return GetWindowsCommandLine(pid);
-        if (OperatingSystem.IsLinux())
-        {
-            try { return File.Exists($"/proc/{pid}/cmdline") ? File.ReadAllText($"/proc/{pid}/cmdline").Replace('\0', ' ').Trim() : null; }
-            catch { return null; }
-        }
-        if (OperatingSystem.IsMacOS())
-        {
-            try
-            {
-                return ToolProcess.RunAsync(new ProcessStartInfo("/bin/ps", $"-ww -p {pid} -o args="),
-                    TimeSpan.FromSeconds(2), CancellationToken.None).GetAwaiter().GetResult().Output.Trim();
-            }
-            catch { return null; }
-        }
-        return null;
-    }
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern nint OpenProcess(uint access, bool inherit, int pid);
-
-    [DllImport("ntdll.dll")]
-    private static extern int NtQueryInformationProcess(nint h, int infoClass, nint info, int length, out int returnLength);
-
-    [DllImport("kernel32.dll")]
-    private static extern bool CloseHandle(nint h);
-
-    /// <summary>
-    /// Reads the process command line on Windows using NtQueryInformationProcess.
-    /// </summary>
-    /// <param name="pid">The target process identifier.</param>
-    /// <returns>The command line string, or <c>null</c> if query fails.</returns>
-    private static string? GetWindowsCommandLine(int pid)
-    {
-        var h = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
-        if (h == 0) return null;
-        try
-        {
-            NtQueryInformationProcess(h, 60 /* ProcessCommandLineInformation */, 0, 0, out var len);
-            if (len <= 0 || len > 1 << 20) return null;
-            var buf = Marshal.AllocHGlobal(len);
-            try
-            {
-                if (NtQueryInformationProcess(h, 60, buf, len, out _) != 0) return null;
-                var chars = (ushort)Marshal.ReadInt16(buf) / 2;
-                return Marshal.PtrToStringUni(Marshal.ReadIntPtr(buf, IntPtr.Size), chars);
-            }
-            finally { Marshal.FreeHGlobal(buf); }
-        }
-        catch { return null; }
-        finally { CloseHandle(h); }
-    }
+    private static string? GetCommandLine(int pid) => ProcessCommandLine.Read(pid);
 
     /// <summary>
     /// Reads complete flag values, including quoted tokens, without accepting numeric prefixes.

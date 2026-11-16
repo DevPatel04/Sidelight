@@ -1,4 +1,4 @@
-import { $, API, D, LEVEL_COLOR, LOCALE, MEDIA_HTML, METRICS, Q_STYLE, S_ORDER, ago, api, averageColor, buzz, cfg, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, haptic, hasProcessesPage, hist, hour12, keyButton, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxIcon } from '../main.js';
+import { $, API, D, LEVEL_COLOR, LOCALE, MEDIA_HTML, METRICS, Q_STYLE, S_ORDER, S_TOOLS, ago, api, averageColor, buzz, cfg, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, haptic, hasProcessesPage, hist, hour12, keyButton, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxIcon } from '../main.js';
 import { W } from '../registry.js';
 import { invalidateDeckState } from './controls.js';
 
@@ -574,7 +574,8 @@ W.codexbar = W.quotas;
 
 W.sessions = {
   needs: ['work', 'tick'],
-  create(box) {
+  create(box, { o = {} } = {}) {
+    const showOpenClaw = o.showOpenClaw === true;
     const sum = h('span', 'w-sum');
     const list = h('div', 's-list', h('div', 'empty', 'Waiting for session data…'));
     box.append(h('div', 'w-head', h('span', 's-label', 'Sessions'), sum), list);
@@ -582,6 +583,8 @@ W.sessions = {
     const tokens = (n) => n == null ? '—' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
     const statusText = (s) => s.status === 'busy' ? 'Working' : s.status === 'waiting' ? 'Waiting' : s.status === 'shell' ? 'Running a command' : s.outcome === 'completed' ? 'Completed' : s.outcome === 'aborted' ? 'Aborted' : 'Idle';
     const ageText = (since) => Date.now() - since < 60_000 ? 'just now' : shortDur(Date.now() - since) + ' ago';
+    const toolInfo = (s) => S_TOOLS[s.tool] || { icon: '●', label: s.tool || 'Session' };
+    const toolClass = (s) => String(s.tool || '').replace(/[^a-z0-9_-]/gi, '');
     const openDetails = (s) => {
       haptic();
       const backdrop = h('div', 'session-backdrop');
@@ -595,7 +598,8 @@ W.sessions = {
       const dismiss = () => { backdrop.remove(); document.removeEventListener('keydown', onKey); };
       close.addEventListener('click', dismiss);
       backdrop.addEventListener('click', (e) => { if (e.target === backdrop) dismiss(); });
-      panel.append(h('div', 'session-panel-head', h('span', null, s.tool === 'codex' ? '◎ Codex' : '✳ Claude Code'), close), title);
+      const tool = toolInfo(s);
+      panel.append(h('div', 'session-panel-head', h('span', null, `${tool.icon} ${tool.label}`), close), title);
       const rows = [
         ['Status', statusText(s)],
         ['Started', s.startedAt ? ageText(s.startedAt) : null],
@@ -618,8 +622,9 @@ W.sessions = {
     };
     return {
       update() {
-        const sessions = D.work?.sessions;
-        if (!sessions) return;
+        const rawSessions = D.work?.sessions;
+        if (!rawSessions) return;
+        const sessions = showOpenClaw ? rawSessions : rawSessions.filter((s) => s.tool !== 'openclaw');
         const counts = { waiting: 0, busy: 0, shell: 0, idle: 0 };
         sessions.forEach((s) => (counts[s.status] = (counts[s.status] || 0) + 1));
         sum.textContent = [
@@ -629,14 +634,15 @@ W.sessions = {
         ].filter(Boolean).join(' · ') || 'No open sessions';
         const sorted = [...sessions].sort((a, b) => (S_ORDER[a.status] ?? 9) - (S_ORDER[b.status] ?? 9) || b.since - a.since);
         const rows = sorted.length ? sorted.map((s) => {
+          const tool = toolInfo(s);
           const row = h('button', 'sess ' + s.status,
-            h('span', 'st'), h('span', 'tl ' + s.tool, s.tool === 'claude' ? '✳' : '◎'),
+            h('span', 'st'), h('span', 'tl ' + toolClass(s), tool.icon),
             h('span', 'sess-main', h('span', 'nm', s.project || s.name), h('span', 'sess-meta', [s.model, s.effort].filter(Boolean).join(' · ') || statusText(s))),
-            h('span', 'ds', shortDur(Date.now() - s.since)));
+            h('span', 'ds', s.since ? shortDur(Date.now() - s.since) : ''));
           row.type = 'button';
           row.addEventListener('click', () => openDetails(s));
           return row;
-        }) : [h('div', 'empty', 'No Claude Code / Codex sessions open')];
+        }) : [h('div', 'empty', showOpenClaw ? 'No Claude Code / Codex / OpenClaw sessions open' : 'No Claude Code / Codex sessions open')];
         list.replaceChildren(...rows);
       },
     };

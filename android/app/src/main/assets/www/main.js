@@ -559,12 +559,18 @@ export function paceInfo(l) {
 
 // ---------------------------------------------------------------- sessions & GitHub
 export const S_ORDER = { waiting: 0, busy: 1, shell: 2, idle: 3 };
+export const S_TOOLS = {
+  claude: { icon: '✳', label: 'Claude Code' },
+  codex: { icon: '◎', label: 'Codex' },
+  openclaw: { icon: '🦀', label: 'OpenClaw' },
+};
 export const prevStatus = new Map();
 export let workLoaded = false;
 
 /** Vibrates and shows a toast when a session finishes or starts waiting for input. */
 export function notifyTransitions(sessions) {
   for (const s of sessions) {
+    if (s.tool === 'openclaw') continue;
     const before = prevStatus.get(s.id);
     if (workLoaded && before && before !== s.status) {
       if (s.status === 'waiting') {

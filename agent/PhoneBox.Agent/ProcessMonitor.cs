@@ -319,17 +319,17 @@ public sealed class ProcessMonitor(ILogger<ProcessMonitor> log, SessionMonitor s
     /// <summary>The parent's PID (PROCESS_BASIC_INFORMATION.InheritedFromUniqueProcessId), or null.</summary>
     private static int? ParentPid(int pid)
     {
-        var h = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
+        var h = ProcessCommandLine.OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
         if (h == 0) return null;
         var size = 6 * IntPtr.Size;
         var buf = Marshal.AllocHGlobal(size);
-        try { return NtQueryInformationProcess(h, 0 /* ProcessBasicInformation */, buf, size, out _) == 0 ? (int)Marshal.ReadIntPtr(buf, 5 * IntPtr.Size) : null; }
-        finally { Marshal.FreeHGlobal(buf); CloseHandle(h); }
+        try { return ProcessCommandLine.NtQueryInformationProcess(h, 0 /* ProcessBasicInformation */, buf, size, out _) == 0 ? (int)Marshal.ReadIntPtr(buf, 5 * IntPtr.Size) : null; }
+        finally { Marshal.FreeHGlobal(buf); ProcessCommandLine.CloseHandle(h); }
     }
 
     private static string? ImagePath(int pid)
     {
-        var h = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
+        var h = ProcessCommandLine.OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
         if (h == 0) return null;
         try
         {
@@ -337,31 +337,11 @@ public sealed class ProcessMonitor(ILogger<ProcessMonitor> log, SessionMonitor s
             var size = sb.Capacity;
             return QueryFullProcessImageName(h, 0, sb, ref size) ? sb.ToString() : null;
         }
-        finally { CloseHandle(h); }
+        finally { ProcessCommandLine.CloseHandle(h); }
     }
 
     /// <summary>Reads a process's command line (ProcessCommandLineInformation) and returns the arguments only.</summary>
-    private static string? ReadArgs(int pid)
-    {
-        var h = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
-        if (h == 0) return null;
-        try
-        {
-            NtQueryInformationProcess(h, 60 /* ProcessCommandLineInformation */, 0, 0, out var len);
-            if (len <= 0 || len > 1 << 20) return null;
-            var buf = Marshal.AllocHGlobal(len);
-            try
-            {
-                if (NtQueryInformationProcess(h, 60, buf, len, out _) != 0) return null;
-                var chars = Marshal.ReadInt16(buf) / 2; // UNICODE_STRING.Length is in bytes
-                var cmd = Marshal.PtrToStringUni(Marshal.ReadIntPtr(buf, IntPtr.Size), chars);
-                return ShortenArgs(cmd);
-            }
-            finally { Marshal.FreeHGlobal(buf); }
-        }
-        catch { return null; }
-        finally { CloseHandle(h); }
-    }
+    private static string? ReadArgs(int pid) => ShortenArgs(ProcessCommandLine.Read(pid));
 
     private static string? ShortenArgs(string? cmd)
     {
@@ -375,17 +355,8 @@ public sealed class ProcessMonitor(ILogger<ProcessMonitor> log, SessionMonitor s
         return rest.Length > 140 ? rest[..137] + "…" : rest;
     }
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern nint OpenProcess(uint access, bool inherit, int pid);
-
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern bool QueryFullProcessImageName(nint h, int flags, StringBuilder name, ref int size);
-
-    [DllImport("ntdll.dll")]
-    private static extern int NtQueryInformationProcess(nint h, int infoClass, nint info, int length, out int returnLength);
-
-    [DllImport("kernel32.dll")]
-    private static extern bool CloseHandle(nint h);
 #else
     private static string? ReadArgs(int pid) => UnixProc.Args(pid);
     private static int? ParentPid(int pid) => UnixProc.ParentPid(pid);

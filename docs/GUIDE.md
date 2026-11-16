@@ -255,7 +255,9 @@ switchable ports). The panel keeps running over Wi-Fi while the USB power is off
   longer after errors and as long as a `429` asks for, across restarts too. An expired or refused token is not sent:
   PhoneBox waits until Claude Code renews it.
 - **Codex quota and sessions** are read from local files in `~/.codex/sessions`; Claude Code sessions from
-  `~/.claude/sessions`.
+  `~/.claude/sessions`. Optional **OpenClaw gateway** detection (off by default via **Include OpenClaw gateway** in
+  the AI sessions widget options) checks local gateway lock/PID state and `~/.openclaw/agents/*/sessions/*.jsonl`
+  timestamps without reading message content, config secrets or credentials.
 - **Native Antigravity quota:** the agent reads the running Antigravity server's port and CSRF token from its
   process arguments and queries its loopback quota/status API, or invokes the signed-in CLI's structured usage
   command. Only measured quota fields reach the panel; CLI conversation identifiers and token counters are omitted.
