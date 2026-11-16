@@ -416,3 +416,10 @@ test('docker widget clears loading state when filtered or stopped containers yie
   await expect(page.locator('.w-docker .w-title')).toContainText('Podman 0/0');
   await expect(page.locator('.w-docker .empty')).toHaveText('No containers match "missing"');
 });
+
+test('the charge guard serves the battery the phone reports', async ({ page }) => {
+  await layout(page, [widget('clock')]);
+  // the panel posts the demo phone's battery (82 %) a few seconds after boot; /api/charge must serve the report
+  await expect.poll(() => page.evaluate(() => fetch('/api/charge').then((r) => r.json()).then((j) => j.phone)), { timeout: 15000 })
+    .toMatchObject({ level: 82, plugged: true, temp: 29.5 });
+});

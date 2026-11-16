@@ -135,6 +135,8 @@
   };
   let pushVersion = 1;
   let rulesPaused = 0;
+  // the phone reports its battery through /api/phone/battery; /api/charge serves the last report
+  let phoneBattery = { level: 72, plugged: true, temp: 29, at: now() - 20e3, source: 'usb', usb: 'configured' };
   let approvals = [];
   const SAMPLE_PROMPTS = [
     { tool: 'Run a command', detail: 'git push origin main --force-with-lease', description: 'Push the rebased branch', project: 'api-gateway' },
@@ -596,7 +598,18 @@
       rulesPaused = m > 0 ? now() + m * 60e3 : 0;
       return json({ pausedUntil: rulesPaused || null });
     }
-    if (path === '/api/charge') return json({ phone: { level: 72, plugged: true, temp: 29, at: now() - 20e3, source: 'usb', usb: 'configured' }, power: null, switchedAt: null, error: null });
+    if (path === '/api/phone/battery' && method === 'POST') {
+      phoneBattery = {
+        level: Math.max(0, Math.min(100, +q.get('level') || 0)),
+        plugged: q.get('plugged') === 'true',
+        temp: q.has('temp') ? +q.get('temp') : null,
+        at: now(),
+        source: (q.get('source') || '').trim().toLowerCase() || null,
+        usb: (q.get('usb') || '').trim().toLowerCase() || null,
+      };
+      return json({ ok: true });
+    }
+    if (path === '/api/charge') return json({ phone: phoneBattery, power: null, switchedAt: null, error: null });
     if (path === '/api/notify' && method === 'POST') {
       const d = parse(body), payload = typeof d === 'object' && d && !Array.isArray(d) ? d : { text: d == null ? '' : String(d) };
       if (!('text' in payload) && !('title' in payload)) return json({ error: 'give a text or a title' }, 400);
