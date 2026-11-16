@@ -12,7 +12,9 @@ public sealed record SpeechSetupStatusDto(
     bool MicCaptureAvailable,
     string DefaultTranscriptDir,
     bool SaveTranscripts,
-    string TranscriptDir);
+    string TranscriptDir,
+    bool FfmpegFound = false,
+    string? WhisperCliPath = null);
 
 public sealed record SpeechDirectoryEntry(string Name, string Path);
 
@@ -52,7 +54,7 @@ internal sealed partial class SpeechService : IDisposable
     private readonly ISpeechAudioCapture _capture;
     private readonly SpeechRateLimiter _rateLimiter;
     private readonly string _tempRoot;
-    private readonly Func<bool, IReadOnlyCollection<int>, TimeSpan, HttpClient> _httpFactory;
+    private readonly Func<SpeechHttpScope, IReadOnlyCollection<int>, TimeSpan, HttpClient> _httpFactory;
 
     private readonly SemaphoreSlim _opGate = new(1, 1);
     private readonly SemaphoreSlim _diskGate = new(1, 1);
@@ -86,7 +88,7 @@ internal sealed partial class SpeechService : IDisposable
         ISpeechAudioCapture? capture,
         SpeechRateLimiter? rateLimiter,
         string? tempRoot,
-        Func<bool, IReadOnlyCollection<int>, TimeSpan, HttpClient>? httpFactory = null)
+        Func<SpeechHttpScope, IReadOnlyCollection<int>, TimeSpan, HttpClient>? httpFactory = null)
     {
         _store = store;
         _push = push;
@@ -107,6 +109,10 @@ internal sealed partial class SpeechService : IDisposable
             if (!Directory.Exists(_tempRoot)) return;
             foreach (var file in Directory.EnumerateFiles(_tempRoot, "rec-*.wav"))
                 TryDeleteFile(file);
+            foreach (var dir in Directory.EnumerateDirectories(_tempRoot, "wout-*"))
+            {
+                try { Directory.Delete(dir, recursive: true); } catch { }
+            }
         }
         catch { }
     }
@@ -907,7 +913,9 @@ internal sealed partial class SpeechService : IDisposable
             _capture.HasPlatformCapture,
             GetDefaultTranscriptDirectory(),
             cfg.SaveTranscripts,
-            ResolveTranscriptDirectory(cfg));
+            ResolveTranscriptDirectory(cfg),
+            ToolProcess.Find("ffmpeg") is not null,
+            DetectWhisperCli(cfg));
     }
 
     private bool IsOpActive(long opId)
@@ -1167,9 +1175,26 @@ internal sealed partial class SpeechService : IDisposable
                     return (null, "Gemini API key is not configured.");
                 return ("gemini", null);
 
+            case "local-http":
+                if (!cfg.AllowLocalServer)
+                    return (null, "Local HTTP server is disabled in Settings.");
+                if (string.IsNullOrWhiteSpace(cfg.LocalBaseUrl))
+                    return (null, "Local HTTP server URL is not configured.");
+                return ("local-http", null);
+
+            case "whisper-cli":
+            {
+                var (cliPath, cliErr) = ResolveWhisperCliExecutable(cfg);
+                if (cliPath is null)
+                    return (null, cliErr ?? "Whisper CLI binary was not found on this computer.");
+                return ("whisper-cli", null);
+            }
+
             case "auto":
                 if (IsAppleAutoAvailable()) return ("apple", null);
-                return (null, "No local speech provider is available on this computer (select a cloud provider explicitly in Settings or use Apple Speech on macOS).");
+                if (ResolveWhisperCliForAuto(cfg) is not null) return ("whisper-cli", null);
+                if (cfg.AllowLocalServer && !string.IsNullOrWhiteSpace(cfg.LocalBaseUrl)) return ("local-http", null);
+                return (null, "No local speech provider is configured (enable Apple Speech on macOS, configure Whisper CLI, or opt in to Local HTTP server; cloud providers must be selected explicitly).");
 
             default:
                 return (null, $"Unsupported provider '{requested}'.");
@@ -1194,6 +1219,8 @@ internal sealed partial class SpeechService : IDisposable
                 "openai" => await TestOpenAiAsync(cfg, ct),
                 "groq" => await TestGroqAsync(cfg, ct),
                 "gemini" => await TestGeminiAsync(cfg, ct),
+                "local-http" => await TestLocalHttpAsync(cfg, ct),
+                "whisper-cli" => TestWhisperCli(cfg),
                 _ => new SpeechTestResult(false, provider, $"Unsupported provider '{provider}'."),
             };
         }
@@ -1216,6 +1243,8 @@ internal sealed partial class SpeechService : IDisposable
             "openai" => TranscribeOpenAiAsync(wavPath, language, cfg, ct),
             "groq" => TranscribeGroqAsync(wavPath, language, cfg, ct),
             "gemini" => TranscribeGeminiAsync(wavPath, language, cfg, ct),
+            "local-http" => TranscribeLocalHttpAsync(wavPath, language, cfg, ct),
+            "whisper-cli" => TranscribeWhisperCliAsync(wavPath, language, cfg, ct),
             _ => throw new InvalidOperationException($"Unsupported speech provider '{provider}'."),
         };
     }

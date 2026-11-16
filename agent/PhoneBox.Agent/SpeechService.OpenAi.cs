@@ -21,13 +21,13 @@ internal sealed partial class SpeechService
             cfg.OpenAiModel,
             language,
             wavPath,
-            allowLoopback: false,
+            SpeechHttpScope.PublicCloudOnly,
             OpenAiCredentialHosts,
             ct);
     }
 
     private Task<SpeechTestResult> TestOpenAiAsync(SpeechConfig cfg, CancellationToken ct) =>
-        TestBearerModelsEndpointAsync("openai", OpenAiModelsUrl, cfg.OpenAiApiKey, allowLoopback: false, OpenAiCredentialHosts, ct);
+        TestBearerModelsEndpointAsync("openai", OpenAiModelsUrl, cfg.OpenAiApiKey, SpeechHttpScope.PublicCloudOnly, OpenAiCredentialHosts, ct);
 
     private IReadOnlyCollection<int> GetBlockedPorts()
     {
@@ -41,7 +41,7 @@ internal sealed partial class SpeechService
         string model,
         string language,
         string wavPath,
-        bool allowLoopback,
+        SpeechHttpScope scope,
         IReadOnlyCollection<string>? allowedCredentialHosts,
         CancellationToken ct)
     {
@@ -49,7 +49,7 @@ internal sealed partial class SpeechService
         var blocked = GetBlockedPorts();
         var langIso2 = ToIso2Language(language);
 
-        using var client = _httpFactory(allowLoopback, blocked, TimeSpan.FromSeconds(120));
+        using var client = _httpFactory(scope, blocked, TimeSpan.FromSeconds(120));
         using var res = await SafeSpeechHttp.SendWithSafeRedirectsAsync(client, (uri, sendAuth) =>
         {
             var form = new MultipartFormDataContent();
@@ -64,7 +64,7 @@ internal sealed partial class SpeechService
             if (sendAuth && !string.IsNullOrWhiteSpace(bearerToken))
                 req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
             return req;
-        }, endpointUri, allowLoopback, blocked, allowedCredentialHosts, ct);
+        }, endpointUri, scope, blocked, allowedCredentialHosts, ct);
 
         var body = await SafeSpeechHttp.ReadBoundedStringAsync(res.Content, ct);
         if (!res.IsSuccessStatusCode)
@@ -85,7 +85,7 @@ internal sealed partial class SpeechService
         string provider,
         string url,
         string apiKey,
-        bool allowLoopback,
+        SpeechHttpScope scope,
         IReadOnlyCollection<string>? allowedCredentialHosts,
         CancellationToken ct)
     {
@@ -93,13 +93,13 @@ internal sealed partial class SpeechService
             return new SpeechTestResult(false, provider, $"{provider} API key is missing.");
 
         var blocked = GetBlockedPorts();
-        using var client = _httpFactory(allowLoopback, blocked, TimeSpan.FromSeconds(10));
+        using var client = _httpFactory(scope, blocked, TimeSpan.FromSeconds(10));
         using var res = await SafeSpeechHttp.SendWithSafeRedirectsAsync(client, (u, auth) =>
         {
             var r = new HttpRequestMessage(HttpMethod.Get, u);
             if (auth) r.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
             return r;
-        }, new Uri(url), allowLoopback, blocked, allowedCredentialHosts, ct);
+        }, new Uri(url), scope, blocked, allowedCredentialHosts, ct);
 
         return res.IsSuccessStatusCode
             ? new SpeechTestResult(true, provider, $"{provider} API key verified.")

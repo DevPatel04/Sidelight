@@ -17,11 +17,11 @@ internal sealed partial class SpeechService
             cfg.GroqModel,
             language,
             wavPath,
-            allowLoopback: false,
+            SpeechHttpScope.PublicCloudOnly,
             GroqCredentialHosts,
             ct);
     }
 
     private Task<SpeechTestResult> TestGroqAsync(SpeechConfig cfg, CancellationToken ct) =>
-        TestBearerModelsEndpointAsync("groq", GroqModelsUrl, cfg.GroqApiKey, allowLoopback: false, GroqCredentialHosts, ct);
+        TestBearerModelsEndpointAsync("groq", GroqModelsUrl, cfg.GroqApiKey, SpeechHttpScope.PublicCloudOnly, GroqCredentialHosts, ct);
 }

@@ -21,13 +21,13 @@ internal sealed partial class SpeechService
 
         var uri = new Uri($"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(cfg.GeminiModel)}");
         var blocked = GetBlockedPorts();
-        using var client = _httpFactory(false, blocked, TimeSpan.FromSeconds(10));
+        using var client = _httpFactory(SpeechHttpScope.PublicCloudOnly, blocked, TimeSpan.FromSeconds(10));
         using var res = await SafeSpeechHttp.SendWithSafeRedirectsAsync(client, (u, auth) =>
         {
             var r = new HttpRequestMessage(HttpMethod.Get, u);
             if (auth) r.Headers.TryAddWithoutValidation("x-goog-api-key", cfg.GeminiApiKey);
             return r;
-        }, uri, false, blocked, GeminiCredentialHosts, ct);
+        }, uri, SpeechHttpScope.PublicCloudOnly, blocked, GeminiCredentialHosts, ct);
 
         return res.IsSuccessStatusCode
             ? new SpeechTestResult(true, "gemini", $"Gemini model '{cfg.GeminiModel}' reachable.")
@@ -79,7 +79,7 @@ internal sealed partial class SpeechService
         var uri = new Uri($"https://generativelanguage.googleapis.com/v1beta/models/{Uri.EscapeDataString(cfg.GeminiModel)}:generateContent");
         var blocked = GetBlockedPorts();
 
-        using var client = _httpFactory(false, blocked, TimeSpan.FromSeconds(120));
+        using var client = _httpFactory(SpeechHttpScope.PublicCloudOnly, blocked, TimeSpan.FromSeconds(120));
         using var res = await SafeSpeechHttp.SendWithSafeRedirectsAsync(client, (u, auth) =>
         {
             var req = new HttpRequestMessage(HttpMethod.Post, u)
@@ -88,7 +88,7 @@ internal sealed partial class SpeechService
             };
             if (auth) req.Headers.TryAddWithoutValidation("x-goog-api-key", cfg.GeminiApiKey);
             return req;
-        }, uri, false, blocked, GeminiCredentialHosts, ct);
+        }, uri, SpeechHttpScope.PublicCloudOnly, blocked, GeminiCredentialHosts, ct);
 
         var body = await SafeSpeechHttp.ReadBoundedStringAsync(res.Content, ct);
         if (!res.IsSuccessStatusCode)

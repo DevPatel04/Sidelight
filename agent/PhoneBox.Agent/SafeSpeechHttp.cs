@@ -4,7 +4,14 @@ using System.Text;
 
 namespace PhoneBox.Agent;
 
-/// <summary>SSRF-hardened HTTP helpers for external cloud STT APIs and explicit loopback local LLM/STT servers.</summary>
+internal enum SpeechHttpScope
+{
+    PublicCloudOnly = 0,
+    LoopbackOnly = 1,
+    PrivateLanOnly = 2,
+}
+
+/// <summary>SSRF-hardened HTTP helpers for external cloud STT APIs and opt-in loopback or private LAN local STT servers.</summary>
 internal static class SafeSpeechHttp
 {
     public const int MaxResponseBytes = 2 * 1024 * 1024;
@@ -43,7 +50,6 @@ internal static class SafeSpeechHttp
             var b = ip.GetAddressBytes();
             if ((b[0] & 0xfe) == 0xfc) return false;                         // fc00::/7 (ULA)
             if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8) return false; // 2001:db8::/32 (docs)
-            // Transition mechanisms that can embed non-public IPv4 addresses (e.g. 169.254.169.254 or 127.0.0.1)
             if (b[0] == 0x20 && b[1] == 0x02) return false;                  // 2002::/16 (6to4)
             if (b[0] == 0x00 && b[1] == 0x64 && b[2] == 0xff && b[3] == 0x9b)
             {
@@ -63,6 +69,33 @@ internal static class SafeSpeechHttp
         return false;
     }
 
+    /// <summary>Returns true strictly for RFC1918 IPv4 and ULA (fc00::/7) IPv6 LAN addresses (never loopback, metadata/link-local, CGNAT, or public IPs).</summary>
+    public static bool IsPrivateLanAddress(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        if (IPAddress.IsLoopback(ip) || ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.IPv6Any)
+            || ip.Equals(IPAddress.None) || ip.Equals(IPAddress.IPv6None)
+            || ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast || ip.IsIPv6Teredo)
+            return false;
+
+        if (ip.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var b = ip.GetAddressBytes();
+            if (b[0] == 10) return true;                                     // 10.0.0.0/8
+            if (b[0] == 172 && b[1] is >= 16 and <= 31) return true;         // 172.16.0.0/12
+            if (b[0] == 192 && b[1] == 168) return true;                     // 192.168.0.0/16
+            return false;
+        }
+
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            var b = ip.GetAddressBytes();
+            return ip.IsIPv6UniqueLocal || (b[0] & 0xfe) == 0xfc;            // fc00::/7 ULA
+        }
+
+        return false;
+    }
+
     public static bool IsExplicitLoopbackHost(string host)
     {
         if (string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase))
@@ -75,17 +108,122 @@ internal static class SafeSpeechHttp
         return false;
     }
 
-    internal static SocketsHttpHandler CreateHandler(bool allowLoopback, IReadOnlyCollection<int> blockedPorts) =>
+    /// <summary>Validates a Local HTTP URL syntactically: loopback (127.0.0.1 / ::1 / localhost) or, when allowLan is enabled, private RFC1918/ULA HTTPS.</summary>
+    public static bool TryValidateLocalEndpoint(
+        string? rawUrl,
+        bool allowLan,
+        IReadOnlyCollection<int> blockedPorts,
+        out Uri? uri,
+        out SpeechHttpScope scope,
+        out string? error)
+    {
+        uri = null;
+        scope = SpeechHttpScope.LoopbackOnly;
+        error = null;
+
+        if (!Uri.TryCreate((rawUrl ?? "").Trim(), UriKind.Absolute, out var parsed)
+            || (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+        {
+            error = "Local server URL must be an http:// or https:// URL.";
+            return false;
+        }
+
+        if (!string.IsNullOrEmpty(parsed.UserInfo))
+        {
+            error = "Embedded credentials in URLs are not allowed.";
+            return false;
+        }
+
+        if (blockedPorts.Contains(parsed.Port))
+        {
+            error = $"Local server port {parsed.Port} is reserved by PhoneBox.";
+            return false;
+        }
+
+        if (IsExplicitLoopbackHost(parsed.Host))
+        {
+            scope = SpeechHttpScope.LoopbackOnly;
+            uri = parsed;
+            return true;
+        }
+
+        if (!allowLan)
+        {
+            error = "Only loopback hosts (127.0.0.1, ::1, localhost) are allowed unless 'Allow private LAN HTTPS servers' is enabled in Settings.";
+            return false;
+        }
+
+        if (parsed.Scheme != Uri.UriSchemeHttps)
+        {
+            error = "Private LAN endpoints must use HTTPS (plain HTTP is allowed only for 127.0.0.1 / ::1 / localhost).";
+            return false;
+        }
+
+        if (IPAddress.TryParse(parsed.Host, out var literalIp))
+        {
+            if (!IsPrivateLanAddress(literalIp))
+            {
+                error = "Only loopback or private RFC1918/ULA LAN IP addresses (e.g. 192.168.x.x, 10.x.x.x) are allowed; public internet and link-local addresses are blocked.";
+                return false;
+            }
+        }
+
+        scope = SpeechHttpScope.PrivateLanOnly;
+        uri = parsed;
+        return true;
+    }
+
+    /// <summary>Validates and resolves a Local HTTP endpoint up front so DNS or non-private LAN hostnames (such as unresolvable .local names or public IPs) report clearly.</summary>
+    public static async Task<(bool Ok, Uri? Uri, SpeechHttpScope Scope, string? Error)> ValidateAndResolveLocalEndpointAsync(
+        string? rawUrl,
+        bool allowLan,
+        IReadOnlyCollection<int> blockedPorts,
+        CancellationToken ct,
+        Func<string, CancellationToken, Task<IPAddress[]>>? dnsResolver = null)
+    {
+        if (!TryValidateLocalEndpoint(rawUrl, allowLan, blockedPorts, out var uri, out var scope, out var err) || uri is null)
+            return (false, null, SpeechHttpScope.LoopbackOnly, err);
+
+        if (scope == SpeechHttpScope.LoopbackOnly || IPAddress.TryParse(uri.Host, out _))
+            return (true, uri, scope, null);
+
+        IPAddress[] resolved;
+        try
+        {
+            resolved = dnsResolver is not null
+                ? await dnsResolver(uri.Host, ct)
+                : await Dns.GetHostAddressesAsync(uri.Host, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return (false, null, scope, $"Could not resolve local hostname '{uri.Host}' ({ex.Message}). Use its private LAN IP address instead.");
+        }
+
+        if (resolved.Length == 0)
+            return (false, null, scope, $"Local hostname '{uri.Host}' resolved to no addresses. Use its private LAN IP address instead.");
+
+        if (!resolved.All(IsPrivateLanAddress))
+        {
+            return (false, null, scope, $"Host '{uri.Host}' resolved outside private RFC1918/ULA LAN ranges; public internet, loopback, and link-local/metadata targets are blocked.");
+        }
+
+        return (true, uri, scope, null);
+    }
+
+    internal static SocketsHttpHandler CreateHandler(SpeechHttpScope scope, IReadOnlyCollection<int> blockedPorts) =>
         new()
         {
             AllowAutoRedirect = false,
             UseProxy = false,
             AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate,
-            ConnectCallback = (ctx, ct) => ConnectValidatedAsync(ctx, allowLoopback, blockedPorts, ct),
+            ConnectCallback = (ctx, ct) => ConnectValidatedAsync(ctx, scope, blockedPorts, ct),
         };
 
     public static HttpClient CreateClient(bool allowLoopback, IReadOnlyCollection<int> blockedPorts, TimeSpan timeout) =>
-        new(CreateHandler(allowLoopback, blockedPorts), disposeHandler: true)
+        CreateClient(allowLoopback ? SpeechHttpScope.LoopbackOnly : SpeechHttpScope.PublicCloudOnly, blockedPorts, timeout);
+
+    public static HttpClient CreateClient(SpeechHttpScope scope, IReadOnlyCollection<int> blockedPorts, TimeSpan timeout) =>
+        new(CreateHandler(scope, blockedPorts), disposeHandler: true)
         {
             Timeout = timeout,
             MaxResponseContentBufferSize = MaxResponseBytes,
@@ -93,7 +231,7 @@ internal static class SafeSpeechHttp
 
     private static async ValueTask<Stream> ConnectValidatedAsync(
         SocketsHttpConnectionContext ctx,
-        bool allowLoopback,
+        SpeechHttpScope scope,
         IReadOnlyCollection<int> blockedPorts,
         CancellationToken ct)
     {
@@ -103,34 +241,41 @@ internal static class SafeSpeechHttp
         if (blockedPorts.Contains(port))
             throw new HttpRequestException($"Connection to reserved PhoneBox port {port} is blocked.");
 
-        if (allowLoopback && IsExplicitLoopbackHost(host))
+        if (scope == SpeechHttpScope.LoopbackOnly)
         {
+            if (!IsExplicitLoopbackHost(host))
+                throw new HttpRequestException("Only explicit loopback targets (127.0.0.1, ::1, localhost) are permitted.");
             IPAddress[] targets = IPAddress.TryParse(host, out var literal)
                 ? [literal]
                 : [IPAddress.Loopback, IPAddress.IPv6Loopback];
-            return await ConnectFirstAsync(targets, port, requirePublic: false, allowLoopback: true, ct);
+            return await ConnectFirstAsync(targets, port, scope, ct);
         }
 
         IPAddress[] resolved = IPAddress.TryParse(host, out var directIp)
             ? [directIp]
             : await Dns.GetHostAddressesAsync(host, ct);
 
-        return await ConnectFirstAsync(resolved, port, requirePublic: true, allowLoopback: false, ct);
+        return await ConnectFirstAsync(resolved, port, scope, ct);
     }
 
     private static async Task<Stream> ConnectFirstAsync(
         IPAddress[] addresses,
         int port,
-        bool requirePublic,
-        bool allowLoopback,
+        SpeechHttpScope scope,
         CancellationToken ct)
     {
         Exception? lastError = null;
         foreach (var raw in addresses)
         {
             var ip = raw.IsIPv4MappedToIPv6 ? raw.MapToIPv4() : raw;
-            if (requirePublic && !IsPublicAddress(ip)) continue;
-            if (allowLoopback && !IPAddress.IsLoopback(ip)) continue;
+            var permitted = scope switch
+            {
+                SpeechHttpScope.PublicCloudOnly => IsPublicAddress(ip),
+                SpeechHttpScope.LoopbackOnly => IPAddress.IsLoopback(ip),
+                SpeechHttpScope.PrivateLanOnly => IsPrivateLanAddress(ip),
+                _ => false,
+            };
+            if (!permitted) continue;
 
             var socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
             try
@@ -161,7 +306,7 @@ internal static class SafeSpeechHttp
         && string.Equals(a.Host, b.Host, StringComparison.OrdinalIgnoreCase)
         && a.Port == b.Port;
 
-    public static bool CanAttachCredentials(Uri uri, bool allowLoopback, IReadOnlyCollection<string>? allowedCredentialHosts)
+    public static bool CanAttachCredentials(Uri uri, SpeechHttpScope scope, IReadOnlyCollection<string>? allowedCredentialHosts)
     {
         if (allowedCredentialHosts is { Count: > 0 })
         {
@@ -170,15 +315,32 @@ internal static class SafeSpeechHttp
         }
 
         return uri.Scheme == Uri.UriSchemeHttps
-            || (allowLoopback && uri.Scheme == Uri.UriSchemeHttp && IsExplicitLoopbackHost(uri.Host));
+            || (scope == SpeechHttpScope.LoopbackOnly && uri.Scheme == Uri.UriSchemeHttp && IsExplicitLoopbackHost(uri.Host));
     }
+
+    public static Task<HttpResponseMessage> SendWithSafeRedirectsAsync(
+        HttpClient client,
+        Func<Uri, bool, HttpRequestMessage> requestFactory,
+        Uri initialUri,
+        bool allowLoopback,
+        IReadOnlyCollection<int> blockedPorts,
+        IReadOnlyCollection<string>? allowedCredentialHosts,
+        CancellationToken ct) =>
+        SendWithSafeRedirectsAsync(
+            client,
+            requestFactory,
+            initialUri,
+            allowLoopback ? SpeechHttpScope.LoopbackOnly : SpeechHttpScope.PublicCloudOnly,
+            blockedPorts,
+            allowedCredentialHosts,
+            ct);
 
     /// <summary>Executes a request with manual redirect validation, an overall timeout budget, strict credential host scoping, and write protection.</summary>
     public static async Task<HttpResponseMessage> SendWithSafeRedirectsAsync(
         HttpClient client,
         Func<Uri, bool, HttpRequestMessage> requestFactory,
         Uri initialUri,
-        bool allowLoopback,
+        SpeechHttpScope scope,
         IReadOnlyCollection<int> blockedPorts,
         IReadOnlyCollection<string>? allowedCredentialHosts,
         CancellationToken ct)
@@ -196,7 +358,7 @@ internal static class SafeSpeechHttp
 
         for (var hop = 0; hop <= MaxRedirects; hop++)
         {
-            var sendAuth = includeAuth && CanAttachCredentials(currentUri, allowLoopback, allowedCredentialHosts);
+            var sendAuth = includeAuth && CanAttachCredentials(currentUri, scope, allowedCredentialHosts);
             using var req = requestFactory(currentUri, sendAuth);
             if (forceGet && req.Method != HttpMethod.Get && req.Method != HttpMethod.Head)
             {
@@ -215,7 +377,7 @@ internal static class SafeSpeechHttp
                 : new Uri(currentUri, res.Headers.Location);
             res.Dispose();
 
-            if (!IsPermittedRedirectTarget(currentUri, nextUri, allowLoopback, blockedPorts, out var reason))
+            if (!IsPermittedRedirectTarget(currentUri, nextUri, scope, blockedPorts, out var reason))
                 throw new HttpRequestException(reason);
 
             if (req.Method != HttpMethod.Get && req.Method != HttpMethod.Head && !SameOrigin(currentUri, nextUri))
@@ -236,7 +398,7 @@ internal static class SafeSpeechHttp
     public static bool IsPermittedRedirectTarget(
         Uri from,
         Uri to,
-        bool allowLoopback,
+        SpeechHttpScope scope,
         IReadOnlyCollection<int> blockedPorts,
         out string reason)
     {
@@ -253,25 +415,57 @@ internal static class SafeSpeechHttp
             return false;
         }
 
-        if (to.Scheme != Uri.UriSchemeHttps && !(allowLoopback && to.Scheme == Uri.UriSchemeHttp && IsExplicitLoopbackHost(to.Host)))
-        {
-            reason = "Blocked redirect to non-HTTPS target.";
-            return false;
-        }
-
         if (blockedPorts.Contains(to.Port))
         {
             reason = "Blocked redirect to reserved PhoneBox port.";
             return false;
         }
 
-        if (IsExplicitLoopbackHost(to.Host) && !allowLoopback)
+        switch (scope)
         {
-            reason = "Blocked redirect to loopback host.";
-            return false;
-        }
+            case SpeechHttpScope.PublicCloudOnly:
+                if (to.Scheme != Uri.UriSchemeHttps)
+                {
+                    reason = "Blocked redirect to non-HTTPS target.";
+                    return false;
+                }
+                if (IsExplicitLoopbackHost(to.Host) || (IPAddress.TryParse(to.Host, out var pubIp) && !IsPublicAddress(pubIp)))
+                {
+                    reason = "Blocked redirect to non-public target.";
+                    return false;
+                }
+                return true;
 
-        return true;
+            case SpeechHttpScope.LoopbackOnly:
+                if ((to.Scheme != Uri.UriSchemeHttp && to.Scheme != Uri.UriSchemeHttps) || !IsExplicitLoopbackHost(to.Host))
+                {
+                    reason = "Blocked redirect to non-loopback target.";
+                    return false;
+                }
+                return true;
+
+            case SpeechHttpScope.PrivateLanOnly:
+                if (to.Scheme != Uri.UriSchemeHttps)
+                {
+                    reason = "Blocked redirect to non-HTTPS private LAN target.";
+                    return false;
+                }
+                if (IsExplicitLoopbackHost(to.Host))
+                {
+                    reason = "Blocked redirect to loopback host.";
+                    return false;
+                }
+                if (IPAddress.TryParse(to.Host, out var lanIp) && !IsPrivateLanAddress(lanIp))
+                {
+                    reason = "Blocked redirect outside private RFC1918/ULA LAN range.";
+                    return false;
+                }
+                return true;
+
+            default:
+                reason = "Blocked redirect target.";
+                return false;
+        }
     }
 
     public static async Task<byte[]> ReadBoundedAudioBytesAsync(string wavPath, CancellationToken ct)

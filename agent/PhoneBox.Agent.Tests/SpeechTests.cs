@@ -1453,6 +1453,364 @@ public sealed class SpeechTests : IDisposable
         Assert.Equal("gemini", resolved);
     }
 
+    [Fact]
+    public async Task LocalHttpProvider_RestrictsToLoopbackOrOptInPrivateLanAndBlocksPublicAndMetadata()
+    {
+        var store = CreateStore(new AgentConfig());
+        var svc = new SpeechService(
+            store,
+            CreatePushStore(),
+            new AgentEndpoint(),
+            new FakeAppleClient { IsSupported = false },
+            new FakeCapture(),
+            tempRoot: _dir,
+            rateLimiter: new SpeechRateLimiter(100, TimeSpan.FromSeconds(1)));
+
+        var optOutCfg = new SpeechConfig
+        {
+            Enabled = true,
+            Provider = "local-http",
+            AllowLocalServer = false,
+            LocalBaseUrl = "http://127.0.0.1:8080/v1",
+        };
+        optOutCfg.Normalize();
+
+        var (resolvedDisabled, disabledErr) = svc.ResolveProvider(optOutCfg, SpeechWidgetSettings.Parse(null));
+        Assert.Null(resolvedDisabled);
+        Assert.Contains("disabled", disabledErr ?? "", StringComparison.OrdinalIgnoreCase);
+
+        var testDisabled = await svc.TestProviderAsync(optOutCfg);
+        Assert.False(testDisabled.Ok);
+        Assert.Contains("disabled", testDisabled.Message, StringComparison.OrdinalIgnoreCase);
+
+        var wavPath = Path.Combine(_dir, "local-disabled.wav");
+        await File.WriteAllBytesAsync(wavPath, BuildTestWav(800));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            svc.TranscribeWithProviderAsync("local-http", wavPath, "en-US", optOutCfg, CancellationToken.None));
+
+        // 1) LocalHttpAllowLan = false rejects RFC1918 & .local hosts
+        Assert.False(SafeSpeechHttp.TryValidateLocalEndpoint("http://192.168.1.50:8080/v1", allowLan: false, [8765], out _, out _, out _));
+        Assert.False(SafeSpeechHttp.TryValidateLocalEndpoint("https://192.168.1.50:8080/v1", allowLan: false, [8765], out _, out _, out _));
+        Assert.False(SafeSpeechHttp.TryValidateLocalEndpoint("https://nas.local:8443/v1", allowLan: false, [8765], out _, out _, out _));
+
+        // 2) LocalHttpAllowLan = true requires HTTPS, blocks public IPs, metadata link-local, and PhoneBox's own port
+        Assert.False(SafeSpeechHttp.TryValidateLocalEndpoint("http://192.168.1.50:8080/v1", allowLan: true, [8765], out _, out _, out _));
+        Assert.False(SafeSpeechHttp.TryValidateLocalEndpoint("https://8.8.8.8:8443/v1", allowLan: true, [8765], out _, out _, out _));
+        Assert.False(SafeSpeechHttp.TryValidateLocalEndpoint("https://169.254.169.254/latest", allowLan: true, [8765], out _, out _, out _));
+        Assert.False(SafeSpeechHttp.TryValidateLocalEndpoint("http://127.0.0.1:8765/v1", allowLan: true, [8765], out _, out _, out _));
+        Assert.False(SafeSpeechHttp.TryValidateLocalEndpoint("http://user:pass@127.0.0.1:8080/v1", allowLan: true, [8765], out _, out _, out _));
+
+        // 3) Loopback and private RFC1918/ULA HTTPS succeed with distinct scopes
+        Assert.True(SafeSpeechHttp.TryValidateLocalEndpoint("http://127.0.0.1:8080/v1", allowLan: false, [8765], out var okLoopUri, out var loopScope, out _));
+        Assert.Equal(SpeechHttpScope.LoopbackOnly, loopScope);
+        Assert.Equal("http://127.0.0.1:8080/v1", okLoopUri?.ToString());
+
+        Assert.True(SafeSpeechHttp.TryValidateLocalEndpoint("https://192.168.1.50:8443/v1", allowLan: true, [8765], out _, out var lanScope, out _));
+        Assert.Equal(SpeechHttpScope.PrivateLanOnly, lanScope);
+        Assert.True(SafeSpeechHttp.TryValidateLocalEndpoint("https://[fd00::12]:8443/v1", allowLan: true, [8765], out _, out var ulaScope, out _));
+        Assert.Equal(SpeechHttpScope.PrivateLanOnly, ulaScope);
+
+        // 4) Hostname resolution during validation catches .local failures & public/metadata DNS results cleanly
+        var unresolvable = await SafeSpeechHttp.ValidateAndResolveLocalEndpointAsync(
+            "https://nas.local:8443/v1",
+            allowLan: true,
+            [8765],
+            CancellationToken.None,
+            (_, _) => Task.FromException<IPAddress[]>(new SocketException((int)SocketError.HostNotFound)));
+        Assert.False(unresolvable.Ok);
+        Assert.Contains("nas.local", unresolvable.Error ?? "");
+
+        var rebindPublic = await SafeSpeechHttp.ValidateAndResolveLocalEndpointAsync(
+            "https://nas.local:8443/v1",
+            allowLan: true,
+            [8765],
+            CancellationToken.None,
+            (_, _) => Task.FromResult(new[] { IPAddress.Parse("1.1.1.1") }));
+        Assert.False(rebindPublic.Ok);
+        Assert.Contains("private", rebindPublic.Error ?? "", StringComparison.OrdinalIgnoreCase);
+
+        var okLocalDns = await SafeSpeechHttp.ValidateAndResolveLocalEndpointAsync(
+            "https://nas.local:8443/v1",
+            allowLan: true,
+            [8765],
+            CancellationToken.None,
+            (_, _) => Task.FromResult(new[] { IPAddress.Parse("192.168.1.25") }));
+        Assert.True(okLocalDns.Ok);
+        Assert.Equal(SpeechHttpScope.PrivateLanOnly, okLocalDns.Scope);
+
+        // 5) PrivateLanOnly redirect guard blocks redirects out to public internet or loopback
+        using var redirClient = new HttpClient(new StubHttpHandler(_ =>
+        {
+            var r = new HttpResponseMessage(HttpStatusCode.Redirect);
+            r.Headers.Location = new Uri("https://1.1.1.1/steal");
+            return r;
+        }));
+        await Assert.ThrowsAsync<HttpRequestException>(() =>
+            SafeSpeechHttp.SendWithSafeRedirectsAsync(
+                redirClient,
+                (u, _) => new HttpRequestMessage(HttpMethod.Get, u),
+                new Uri("https://192.168.1.50:8443/v1/models"),
+                SpeechHttpScope.PrivateLanOnly,
+                [8765],
+                ["192.168.1.50"],
+                CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task LocalHttpProvider_StripsOperationSuffixesInProbe_RejectsOllamaAudio_AndSendsOpenAiChatInputAudio()
+    {
+        Assert.Equal(
+            "http://127.0.0.1:8080/v1/models",
+            SpeechService.BuildProbeEndpoint(new Uri("http://127.0.0.1:8080/v1/audio/transcriptions"), "/models", "/audio/transcriptions", "/chat/completions", "/models").ToString());
+        Assert.Equal(
+            "http://127.0.0.1:8080/v1/audio/transcriptions",
+            SpeechService.BuildRelativeEndpoint(new Uri("http://127.0.0.1:8080/v1/chat/completions"), "/audio/transcriptions", "/audio/transcriptions", "/chat/completions", "/models").ToString());
+        // Does not partially corrupt non-matching suffix segments like /my-models
+        Assert.Equal(
+            "http://127.0.0.1:8080/my-models/models",
+            SpeechService.BuildProbeEndpoint(new Uri("http://127.0.0.1:8080/my-models"), "/models", "/audio/transcriptions", "/chat/completions", "/models").ToString());
+
+        await using var app = WebApplication.CreateSlimBuilder().Build();
+        string? seenPath = null;
+        string? seenAuth = null;
+        string? seenBody = null;
+        app.MapGet("/v1/models", (HttpContext ctx) =>
+        {
+            seenPath = ctx.Request.Path.Value;
+            seenAuth = ctx.Request.Headers.Authorization.FirstOrDefault();
+            return Results.Json(new { data = Array.Empty<object>() });
+        });
+        app.MapPost("/v1/chat/completions", async (HttpContext ctx) =>
+        {
+            seenPath = ctx.Request.Path.Value;
+            seenAuth = ctx.Request.Headers.Authorization.FirstOrDefault();
+            using var reader = new StreamReader(ctx.Request.Body);
+            seenBody = await reader.ReadToEndAsync();
+            return Results.Json(new
+            {
+                choices = new[] { new { message = new { content = "Local loopback transcript" } } },
+            });
+        });
+
+        app.Urls.Add("http://127.0.0.1:0");
+        await app.StartAsync();
+        var port = new Uri(app.Urls.First()).Port;
+
+        try
+        {
+            var store = CreateStore(new AgentConfig());
+            var svc = new SpeechService(
+                store,
+                CreatePushStore(),
+                new AgentEndpoint(),
+                new FakeAppleClient { IsSupported = false },
+                new FakeCapture(),
+                tempRoot: _dir,
+                rateLimiter: new SpeechRateLimiter(100, TimeSpan.FromSeconds(1)));
+
+            var localKey = "local-dev-secret-key";
+            var chatCfg = new SpeechConfig
+            {
+                Enabled = true,
+                Provider = "local-http",
+                AllowLocalServer = true,
+                LocalProtocol = "openai-chat",
+                LocalBaseUrl = $"http://127.0.0.1:{port}/v1/audio/transcriptions",
+                LocalModel = "whisper-large-v3",
+                LocalApiKey = localKey,
+            };
+            chatCfg.Normalize();
+
+            var testRes = await svc.TestProviderAsync(chatCfg);
+            Assert.True(testRes.Ok, testRes.Message);
+            Assert.Equal("/v1/models", seenPath);
+            Assert.Equal($"Bearer {localKey}", seenAuth);
+
+            var wavPath = Path.Combine(_dir, "local-chat.wav");
+            await File.WriteAllBytesAsync(wavPath, BuildTestWav(800));
+            var transcript = await svc.TranscribeWithProviderAsync("local-http", wavPath, "en-US", chatCfg, CancellationToken.None);
+            Assert.Equal("Local loopback transcript", transcript);
+            Assert.Equal("/v1/chat/completions", seenPath);
+            Assert.Contains("\"type\":\"input_audio\"", seenBody ?? "");
+            Assert.Contains("\"format\":\"wav\"", seenBody ?? "");
+
+            var ollamaCfg = new SpeechConfig
+            {
+                Enabled = true,
+                Provider = "local-http",
+                AllowLocalServer = true,
+                LocalProtocol = "ollama",
+                LocalBaseUrl = $"http://127.0.0.1:{port}/api/chat",
+            };
+            ollamaCfg.Normalize();
+
+            var ollamaTest = await svc.TestProviderAsync(ollamaCfg);
+            Assert.False(ollamaTest.Ok);
+            Assert.Contains("does not accept audio input", ollamaTest.Message);
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                svc.TranscribeWithProviderAsync("local-http", wavPath, "en-US", ollamaCfg, CancellationToken.None));
+        }
+        finally
+        {
+            await app.StopAsync();
+        }
+    }
+
+    [Fact]
+    public void AutoProvider_OnlySelectsConfiguredLocalProviders_NeverCloudOrUnconfiguredPathCli()
+    {
+        var store = CreateStore(new AgentConfig());
+        var svc = new SpeechService(
+            store,
+            CreatePushStore(),
+            new AgentEndpoint(),
+            new FakeAppleClient { IsSupported = false },
+            new FakeCapture(),
+            tempRoot: _dir,
+            rateLimiter: new SpeechRateLimiter(100, TimeSpan.FromSeconds(1)));
+
+        // Unconfigured Whisper CLI path/model + cloud keys set -> Auto skips unconfigured CLI and falls through to configured Local HTTP
+        var withLocalHttpCfg = new SpeechConfig
+        {
+            Enabled = true,
+            Provider = "auto",
+            OpenAiApiKey = "sk-cloud-must-not-run",
+            GroqApiKey = "gsk-cloud-must-not-run",
+            GeminiApiKey = "AIza-cloud-must-not-run",
+            WhisperCliPath = "",
+            WhisperModelPath = "",
+            AllowLocalServer = true,
+            LocalBaseUrl = "http://127.0.0.1:8080/v1",
+        };
+        withLocalHttpCfg.Normalize();
+
+        var (pickedLocal, localErr) = svc.ResolveProvider(withLocalHttpCfg, SpeechWidgetSettings.Parse(null));
+        Assert.Null(localErr);
+        Assert.Equal("local-http", pickedLocal);
+
+        // When no local providers are configured at all, Auto returns null (NEVER falls back to cloud)
+        var cloudOnlyCfg = new SpeechConfig
+        {
+            Enabled = true,
+            Provider = "auto",
+            OpenAiApiKey = "sk-cloud-must-not-run",
+            GroqApiKey = "gsk-cloud-must-not-run",
+            GeminiApiKey = "AIza-cloud-must-not-run",
+        };
+        cloudOnlyCfg.Normalize();
+        var (pickedNone, noneErr) = svc.ResolveProvider(cloudOnlyCfg, SpeechWidgetSettings.Parse(null));
+        Assert.Null(pickedNone);
+        Assert.NotNull(noneErr);
+    }
+
+    [Fact]
+    public async Task WhisperCliProvider_CrossPlatformArgsEnvFilteringTimeoutAndCleanup()
+    {
+        var store = CreateStore(new AgentConfig());
+        var svc = new SpeechService(
+            store,
+            CreatePushStore(),
+            new AgentEndpoint(),
+            new FakeAppleClient { IsSupported = false },
+            new FakeCapture(),
+            tempRoot: _dir,
+            rateLimiter: new SpeechRateLimiter(100, TimeSpan.FromSeconds(1)));
+
+        // Rejects .bat / .cmd wrappers cleanly
+        var batPath = Path.Combine(_dir, "whisper.bat");
+        var cmdPath = Path.Combine(_dir, "whisper.cmd");
+        await File.WriteAllTextAsync(batPath, "@echo off\n");
+        await File.WriteAllTextAsync(cmdPath, "@echo off\n");
+
+        var batCfg = new SpeechConfig { Provider = "whisper-cli", WhisperCliPath = batPath };
+        Assert.False(SpeechService.TestWhisperCli(batCfg).Ok);
+        var cmdCfg = new SpeechConfig { Provider = "whisper-cli", WhisperCliPath = cmdPath };
+        Assert.False(SpeechService.TestWhisperCli(cmdCfg).Ok);
+        Assert.Throws<InvalidOperationException>(() =>
+            SpeechService.BuildWhisperCliCommand(batPath, "in.wav", "en", "model.bin", _dir));
+
+        // Dynamic timeout scales with MaxRecordSec
+        Assert.Equal(TimeSpan.FromSeconds(300), SpeechService.ComputeWhisperCliTimeout(90));
+        Assert.Equal(TimeSpan.FromSeconds(1320), SpeechService.ComputeWhisperCliTimeout(600));
+
+        // Pure cross-platform command builder tests (covers mlx_whisper, python whisper, whisper.cpp, env filtering)
+        var envOverrides = new Dictionary<string, string?>
+        {
+            ["HF_HOME"] = "/tmp/hf-cache",
+            ["CUDA_PATH"] = "/usr/local/cuda",
+            ["CUDA_VISIBLE_DEVICES"] = "0",
+            ["PATHEXT"] = ".EXE",
+            ["SYSTEMDRIVE"] = "C:",
+            ["PB_UNALLOWLISTED_SECRET"] = "must-not-appear",
+        };
+
+        var wavFile = Path.Combine(_dir, "sample.wav");
+        var (mlxPsi, mlxOut) = SpeechService.BuildWhisperCliCommand("/usr/bin/mlx_whisper", wavFile, "en-US", "mlx-community/whisper-large-v3-turbo", _dir, envOverrides);
+        Assert.Equal(
+            [wavFile, "--output-format", "txt", "--output-dir", _dir, "--model", "mlx-community/whisper-large-v3-turbo", "--language", "en"],
+            mlxPsi.ArgumentList);
+        Assert.Equal(Path.Combine(_dir, "sample.txt"), mlxOut);
+        Assert.Equal("/tmp/hf-cache", mlxPsi.Environment["HF_HOME"]);
+        Assert.Equal("/usr/local/cuda", mlxPsi.Environment["CUDA_PATH"]);
+        Assert.Equal("0", mlxPsi.Environment["CUDA_VISIBLE_DEVICES"]);
+        Assert.False(mlxPsi.Environment.ContainsKey("PB_UNALLOWLISTED_SECRET"));
+
+        var (pyPsi, pyOut) = SpeechService.BuildWhisperCliCommand("/usr/bin/whisper", wavFile, "tr-TR", "turbo", _dir, envOverrides);
+        Assert.Equal(
+            [wavFile, "--output_format", "txt", "--output_dir", _dir, "--model", "turbo", "--language", "tr"],
+            pyPsi.ArgumentList);
+        Assert.Equal(Path.Combine(_dir, "sample.txt"), pyOut);
+
+        // whisper.cpp requires a model and defaults blank language to -l auto
+        Assert.Throws<InvalidOperationException>(() =>
+            SpeechService.BuildWhisperCliCommand("whisper-cpp", wavFile, "", "", _dir, envOverrides));
+
+        var ggmlPath = Path.Combine(_dir, "ggml-base.bin");
+        await File.WriteAllBytesAsync(ggmlPath, [1, 2, 3]);
+        var (cppPsi, cppOut) = SpeechService.BuildWhisperCliCommand("whisper-cpp", wavFile, "", ggmlPath, _dir, envOverrides);
+        Assert.Equal(
+            ["-f", wavFile, "-m", ggmlPath, "-l", "auto", "-nt", "-otxt", "-of", Path.Combine(_dir, "transcript")],
+            cppPsi.ArgumentList);
+        Assert.Equal(Path.Combine(_dir, "transcript.txt"), cppOut);
+
+        // TestWhisperCli rejects whisper.cpp without existing model file
+        var cppNoModel = new SpeechConfig { Provider = "whisper-cli", WhisperCliPath = "/bin/sh", WhisperModelPath = Path.Combine(_dir, "missing.bin") };
+        Assert.False(SpeechService.TestWhisperCli(cppNoModel).Ok);
+
+        // Startup temp sweep removes stale wout-* dirs too
+        var staleWout = Path.Combine(_dir, "wout-stale");
+        Directory.CreateDirectory(staleWout);
+        await File.WriteAllTextAsync(Path.Combine(staleWout, "leftover.txt"), "stale");
+        svc.SweepStaleTempFiles();
+        Assert.False(Directory.Exists(staleWout));
+
+        if (OperatingSystem.IsWindows())
+            return;
+
+        // End-to-end execution check on Unix using clean child process without mutating process-wide Environment
+        var scriptPath = Path.Combine(_dir, "whisper-cli");
+        var envDumpPath = Path.Combine(_dir, "env-seen.txt");
+        await File.WriteAllTextAsync(scriptPath,
+            "#!/bin/sh\n" +
+            $"printf '%s' \"${{PB_TEST_SECRET:-clean}}\" > \"{envDumpPath}\"\n" +
+            "out=\"\"\n" +
+            "while [ \"$#\" -gt 0 ]; do\n" +
+            "  if [ \"$1\" = \"-of\" ]; then out=\"$2\"; shift 2; continue; fi\n" +
+            "  shift\n" +
+            "done\n" +
+            "printf 'Whisper CLI ok\\n' > \"${out}.txt\"\n");
+        File.SetUnixFileMode(scriptPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+
+        await File.WriteAllBytesAsync(wavFile, BuildTestWav(800));
+        var runCfg = new SpeechConfig { Enabled = true, Provider = "whisper-cli", WhisperCliPath = scriptPath, WhisperModelPath = ggmlPath };
+        runCfg.Normalize();
+
+        var text = await svc.TranscribeWithProviderAsync("whisper-cli", wavFile, "", runCfg, CancellationToken.None);
+        Assert.Equal("Whisper CLI ok", text);
+        Assert.Equal("clean", await File.ReadAllTextAsync(envDumpPath));
+        Assert.Empty(Directory.GetDirectories(_dir, "wout-*"));
+    }
+
     private sealed class StubHttpHandler(Func<HttpRequestMessage, HttpResponseMessage> responder) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
