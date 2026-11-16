@@ -61,6 +61,7 @@ builder.Services.AddSingleton<PushStore>();
 builder.Services.AddSingleton<CommandRunner>();
 builder.Services.AddSingleton<ApprovalStore>();
 builder.Services.AddSingleton<HomeAssistant>();
+builder.Services.AddSingleton<SpeechService>();
 AddMonitor<SystemMonitor>(builder.Services);
 AddMonitor<MediaMonitor>(builder.Services);
 AddMonitor<QuotaMonitor>(builder.Services);
@@ -335,7 +336,7 @@ app.MapGet("/api/settings", (ConfigStore cfg, HttpResponse res) =>
     return Results.Text(json, "application/json; charset=utf-8");
 });
 
-app.MapPut("/api/settings", async (HttpRequest req, ConfigStore cfg, ControlDeck deck, ILogger<Program> log) =>
+app.MapPut("/api/settings", async (HttpRequest req, ConfigStore cfg, ControlDeck deck, SpeechService speech, ILogger<Program> log) =>
 {
     if (req.ContentType?.StartsWith("application/json") != true) return Results.StatusCode(415);
     using var r = new StreamReader(req.Body);
@@ -345,6 +346,7 @@ app.MapPut("/api/settings", async (HttpRequest req, ConfigStore cfg, ControlDeck
     if (err is not null) return Results.BadRequest(new { error = err });
     deck.StopDisabledControls();
     deck.ReconcileRadios(waitForGate: true);
+    await speech.ReconcileConfigAsync();
     log.LogInformation("settings saved");
     return Results.Ok(new { version = cfg.Version });
 });
@@ -490,6 +492,9 @@ app.MapPost("/api/discord/{action}", async (string action, string? channel, Disc
 
 // Battery levels of wireless devices (headphones, mice, keyboards…), for the Device batteries widget.
 app.MapGet("/api/batteries", (BatteryMonitor b) => Results.Json(new { devices = b.Snapshot() }));
+
+// Speech to text (widget): mic capture, Apple Speech transcription, Note appending, and transcript disk logging.
+SpeechEndpoints.Map(app, Port);
 
 // Settings › Rules › Test: runs a rule's action once (the rule may be unsaved).
 app.MapPost("/api/rules/test", (RuleConfig rule, RuleEngine rules) =>
@@ -696,6 +701,11 @@ app.MapPost("/api/run/{id}", (string id, ConfigStore cfg, PushStore push, AudioC
 
 app.Lifetime.ApplicationStarted.Register(() =>
     app.Logger.LogInformation("PhoneBox agent {Version} ready on http://127.0.0.1:{Port} (config: {Path})", AppPaths.Version, Port, configPath));
+app.Lifetime.ApplicationStopping.Register(() =>
+{
+    try { app.Services.GetRequiredService<SpeechService>().CancelAllForShutdownAsync().Wait(TimeSpan.FromSeconds(5)); }
+    catch { }
+});
 
 app.Run();
 

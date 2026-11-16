@@ -32,6 +32,8 @@ public sealed class AgentConfig
     public ObsConfig Obs { get; set; } = new();
     /// <summary>Discord desktop app (local IPC): the developer application's client id and secret (the secret never goes to the phone).</summary>
     public DiscordConfig Discord { get; set; } = new();
+    /// <summary>Speech to text providers and transcript disk logging (never goes to the phone).</summary>
+    public SpeechConfig Speech { get; set; } = new();
 
     /// <summary>The pages a phone shows: its own selection (Settings › Phones), or all of them.</summary>
     public IEnumerable<PageConfig> PagesFor(string? deviceId)
@@ -56,7 +58,7 @@ public sealed class AgentConfig
             {
                 w.Id, w.Type, w.X, w.Y, w.W, w.H, w.Appearance,
                 // command widgets: only what the panel shows; the scripts (command, commandUnix, …) stay on this computer
-                options = StackWidgets.PublicOptions(w),
+                options = SpeechWidgetSettings.ScrubPublicWidget(w, StackWidgets.PublicOptions(w)),
             }),
         }),
         shortcuts = Shortcuts.Select(s => new { s.Id, s.Label, s.Icon, s.Color, toggle = s.Toggle || s.Cmd == "builtin:mute" }),
@@ -368,6 +370,9 @@ public sealed partial class ConfigStore(string path)
     private DateTime _stamp = DateTime.MinValue;
     private DateTime _seen = DateTime.MinValue; // write time of the file as last looked at, readable or not
 
+    /// <summary>Raised outside the config lock when settings are saved or reloaded from a modified file.</summary>
+    public event Action<AgentConfig>? Changed;
+
     public string Path => path;
 
     /// <summary>Version stamp (file write time) so the phone can notice changes.</summary>
@@ -375,6 +380,8 @@ public sealed partial class ConfigStore(string path)
 
     public AgentConfig Get()
     {
+        AgentConfig? reloaded = null;
+        AgentConfig current;
         lock (_lock)
         {
             try
@@ -383,16 +390,20 @@ public sealed partial class ConfigStore(string path)
                 _seen = stamp;
                 if (stamp != _stamp)
                 {
+                    var hadPrevious = _stamp != DateTime.MinValue;
                     _config = Normalize(JsonSerializer.Deserialize<AgentConfig>(File.ReadAllText(path), ReadOpts) ?? new());
                     _stamp = stamp;
+                    if (hadPrevious) reloaded = _config;
                 }
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"could not read config ({path}): {ex.Message}");
             }
-            return _config;
+            current = _config;
         }
+        if (reloaded is not null) Changed?.Invoke(reloaded);
+        return current;
     }
 
     /// <summary>Save refused: the file changed after the caller loaded it (<see cref="Save"/> with an expected version).</summary>
@@ -428,6 +439,7 @@ public sealed partial class ConfigStore(string path)
             _config = cfg;
             _stamp = _seen = File.GetLastWriteTimeUtc(path);
         }
+        Changed?.Invoke(cfg);
         return null;
     }
 
@@ -502,6 +514,8 @@ public sealed partial class ConfigStore(string path)
         c.Discord.ClientSecret = string.IsNullOrWhiteSpace(c.Discord.ClientSecret) ? null : c.Discord.ClientSecret.Trim();
         if (string.IsNullOrWhiteSpace(c.Obs.Url)) c.Obs.Url = "ws://127.0.0.1:4455";
         c.HomeAssistant ??= new();
+        c.Speech ??= new();
+        c.Speech.Normalize();
         c.HomeAssistant.Url = string.IsNullOrWhiteSpace(c.HomeAssistant.Url) ? null : c.HomeAssistant.Url.Trim().TrimEnd('/');
         c.HomeAssistant.Token = string.IsNullOrWhiteSpace(c.HomeAssistant.Token) ? null : c.HomeAssistant.Token.Trim();
         c.Calendars = (c.Calendars ?? []).Where(x => x is not null).Take(20).ToList();
@@ -583,6 +597,7 @@ public sealed partial class ConfigStore(string path)
                 var wu = wid;
                 for (var i = 2; !widgetIds.Add(wu); i++) wu = $"{wid}-{i}";
                 w.Id = wu;
+                SpeechWidgetSettings.NormalizeWidget(w);
                 widgets.Add(w);
             }
             p.Widgets = widgets;

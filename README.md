@@ -38,7 +38,7 @@ Windows, Linux and macOS. No root, PhoneBox account or cloud service required.</
 <sub>Example layouts with demo data.</sub></p>
 
 PhoneBox pairs a full-screen **Android app** with a small **desktop agent**. Build your panel in a browser-based
-visual editor: **117 widgets**, **30 templates**, multiple pages and a live preview. Connect several phones with
+visual editor: **118 widgets**, **30 templates**, multiple pages and a live preview. Connect several phones with
 their own layouts, or switch one phone between paired computers.
 
 ## What you can do
@@ -175,6 +175,7 @@ stay local. The phone requests configured actions by ID; commands and integratio
 PhoneBox has no telemetry, analytics or accounts of its own. Optional widgets and integrations contact external
 services for weather, quotas, GitHub and other data, and the agent checks GitHub for updates.
 Supported public feeds can fall back through the agent over USB when the phone has no internet.
+**Speech to text** is off by default (`Enable Speech to text` in **Settings › General**, plus `Allow recording from the phone` per widget) and requires on-device macOS Apple Speech recognition by default (turning that requirement off lets macOS send audio to Apple servers). Dictated transcripts and **Note** updates are shown on an always-on desk screen, so keep it off or restrict widget control when unattended and avoid dictating secrets.
 The [privacy policy](PRIVACY.md) lists outbound connections and how to disable them.
 Read the [security details](docs/GUIDE.md#security--privacy). To report a vulnerability, follow [SECURITY.md](SECURITY.md).
 
