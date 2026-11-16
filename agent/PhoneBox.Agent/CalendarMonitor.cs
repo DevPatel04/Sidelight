@@ -345,7 +345,7 @@ public static class Ics
     {
         // P1DT2H30M, PT45M, P1W
         d = TimeSpan.Zero;
-        var m = System.Text.RegularExpressions.Regex.Match(v, @"^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$");
+        var m = System.Text.RegularExpressions.Regex.Match(v, @"^([+-])?P(?:([0-9]+)W)?(?:([0-9]+)D)?(?:T(?:([0-9]+)H)?(?:([0-9]+)M)?(?:([0-9]+)S)?)?$");
         if (!m.Success) return false;
         int G(int i) => m.Groups[i].Success ? int.Parse(m.Groups[i].Value) : 0;
         try

@@ -61,6 +61,7 @@ public class IcsTests
     [InlineData("PT2147483648H")]
     [InlineData("P1000000000W")]
     [InlineData("P4000000D")]
+    [InlineData("PT\u0661H")]
     public void UnrepresentableDurationDoesNotDiscardTheCalendar(string duration)
     {
         var events = Ics.Parse(Cal(
