@@ -969,8 +969,18 @@ W.pomodoro = {
 W.countdown = {
   needs: ['tick'],
   create(box, { o }) {
-    const m = String(o.target || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/);
-    const target = m ? new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime() : NaN;
+    const m = String(o.target || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?$/);
+    let target = NaN;
+    if (m) {
+      const [, year, month, day, hour = '0', minute = '0'] = m;
+      const date = new Date(0);
+      date.setFullYear(+year, +month - 1, +day);
+      date.setHours(+hour, +minute, 0, 0);
+      if (date.getFullYear() === +year && date.getMonth() === +month - 1 &&
+          date.getDate() === +day && date.getHours() === +hour && date.getMinutes() === +minute) {
+        target = date.getTime();
+      }
+    }
     const big = h('div', 'cd-v'), sub = h('div', 'cd-s');
     box.append(h('div', 'cd-l', o.label || 'Countdown'), big, sub);
     if (Number.isNaN(target)) { big.textContent = '—'; sub.textContent = t('w.setDateFormat'); return {}; }
