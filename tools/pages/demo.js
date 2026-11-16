@@ -23,10 +23,22 @@
     'codexbar', 'devops', 'audio-deck', 'stream-deck', 'meeting-deck', 'development-deck', 'music-deck', 'system-deck'];
 
   let catalog = null;
+  const demoPlugins = () => store.get('pb-demo-plugins', []);
+  const plOverview = () => ({
+    pluginsDir: '~/.local/share/PhoneBox/plugins (demo)',
+    installed: demoPlugins().map((p) => {
+      const sec = new Set((p.settingsSchema || []).filter((o) => o.secret || o.type === 'password').map((o) => o.key));
+      return { ...p, active: !!p.enabled && !p.needsReapproval, osOk: true, agentVersionOk: true, permissions: [],
+        secretKeysSet: [...sec].filter((k) => p.settings?.[k]), settings: Object.fromEntries(Object.entries(p.settings || {}).filter(([k]) => !sec.has(k))) };
+    }),
+  });
   async function loadCatalog() {
-    if (catalog) return catalog;
-    const [widgets, templates] = await Promise.all([realFetch(ROOT + 'widgets.json').then((r) => r.json()), realFetch(ROOT + 'templates.json').then((r) => r.json())]);
-    return (catalog = { cols: 12, rows: 6, widgets, templates });
+    if (!catalog) {
+      const [widgets, templates] = await Promise.all([realFetch(ROOT + 'widgets.json').then((r) => r.json()), realFetch(ROOT + 'templates.json').then((r) => r.json())]);
+      catalog = { cols: 12, rows: 6, widgets, templates };
+    }
+    const extra = demoPlugins().filter((p) => p.enabled && !p.needsReapproval).flatMap((p) => p.widgets || []);
+    return { cols: 12, rows: 6, widgets: [...catalog.widgets, ...extra], templates: catalog.templates };
   }
 
   const store = {
@@ -638,6 +650,25 @@
     if (path === '/api/update') return json({ status: { agentVersion: VERSION, appVersion: VERSION, latest: VERSION, releaseUrl: 'https://github.com/ersinkoc/phonebox/releases/latest', agentUpdate: false, appUpdate: false,
       lastCheck: now() - 3600e3, state: 'idle', error: null }, auto: (await config()).updates?.auto !== false, installed: true });
     if (path === '/api/claude/hook') return json({ installed: false, path: '~/.claude/settings.json' });
+    if (path === '/api/plugins' || path === '/api/plugins/rescan') return json(plOverview());
+    if (path === '/api/plugins/install' && method === 'POST') {
+      const list = demoPlugins().filter((x) => x.id !== 'demo-card');
+      list.push({ id: 'demo-card', name: 'Demo Card', version: '1.0.0', description: 'Local declarative card', enabled: false, needsReapproval: false, sha256: 'demo0001',
+        settingsSchema: [{ key: 'label', label: 'Label', type: 'text', default: 'Ready' }, { key: 'token', label: 'Token', type: 'password', secret: true }], settings: { label: 'Ready' },
+        widgets: [{ type: 'plugin:demo-card', category: 'Plugins', name: 'Demo Card', icon: '🧩', desc: 'Local declarative card', w: 4, h: 2, minW: 2, minH: 2, ui: 'stat', options: [{ key: 'title', label: 'Title', type: 'text', default: 'Demo Card' }] }] });
+      store.set('pb-demo-plugins', list); emit('refresh'); return json({ ok: true, overview: plOverview() });
+    }
+    if (path.startsWith('/api/plugins/')) {
+      const [pid, sub] = path.slice(13).split('/').map(decodeURIComponent), list = demoPlugins(), p = list.find((x) => x.id === pid);
+      if (!p) return json({ error: 'plugin not installed' }, 404);
+      if (sub === 'toggle' && method === 'POST') { p.enabled = !!(parse(body) || {}).enabled; if (p.enabled) p.needsReapproval = false; store.set('pb-demo-plugins', list); emit('refresh'); return json({ ok: true, overview: plOverview() }); }
+      if (sub === 'settings' && method === 'PUT') { const inc = (parse(body) || {}).settings || {}, next = {}; for (const o of p.settingsSchema || []) { if (o.secret || o.type === 'password') { if (!(o.key in inc) || inc[o.key] === '__UNCHANGED__') { if (p.settings?.[o.key]) next[o.key] = p.settings[o.key]; } else if (inc[o.key]) next[o.key] = String(inc[o.key]); } else if (o.key in inc && inc[o.key] !== undefined) next[o.key] = inc[o.key]; } p.settings = next; store.set('pb-demo-plugins', list); emit('refresh'); return json({ ok: true, overview: plOverview() }); }
+      if (!sub && method === 'DELETE') { store.set('pb-demo-plugins', list.filter((x) => x.id !== pid)); emit('refresh'); return json({ ok: true, overview: plOverview() }); }
+    }
+    if (path.startsWith('/api/plugin/')) {
+      const [pid, sub] = path.slice(12).split('/').map(decodeURIComponent), p = demoPlugins().find((x) => x.id === pid);
+      if (sub === 'state' && method === 'GET') return json(!p ? { ok: false, status: 'missing', error: 'Plugin not installed' } : !p.enabled ? { ok: false, status: 'disabled', error: 'Plugin disabled' } : { ok: true, status: 'ready', ui: { kind: 'stat', name: p.name, icon: '🧩', html: null }, data: { title: p.name, value: p.settings?.label || 'Ready', sub: 'Local plugin' } });
+    }
     if (method !== 'GET') return json({ ok: true });
     return json({ error: 'not in the demo' }, 404);
   }
@@ -687,7 +718,7 @@
   }
 
   window.PhoneBoxDemo = { emit, ask,
-    reset() { localStorage.removeItem('pb-demo-config'); store.set('pb-demo-version', cfgVersion() + 1); },
+    reset() { localStorage.removeItem('pb-demo-config'); localStorage.removeItem('pb-demo-plugins'); store.set('pb-demo-version', cfgVersion() + 1); },
     // the agent restarted: PushStore keeps events in memory only, so its counter and backlog start over
     restart() { seq = 0; events.length = 0; } };
 })();

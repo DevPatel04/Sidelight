@@ -26,10 +26,14 @@ public static class AppPaths
         : Xdg("XDG_DATA_HOME", Path.Combine(".local", "share")), AppName);
 
     public static readonly string ConfigPath = Path.Combine(ConfigDir, "config.json");
+    public static readonly string PluginsStatePath = Path.Combine(ConfigDir, "plugins.json");
     public static readonly string LogPath = Path.Combine(LocalDir, "agent.log");
 
     /// <summary>Where install scripts put the agent; self-update only works for this copy.</summary>
     public static readonly string InstallDir = Path.Combine(LocalDir, "app");
+
+    /// <summary>Installed plugins directory; preserved across agent updates.</summary>
+    public static readonly string PluginsDir = Path.Combine(LocalDir, "plugins");
 
     /// <summary>"windows", "linux" or "macos".</summary>
     public static string Os => OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux";
@@ -58,6 +62,26 @@ public static class AppPaths
     }
 
     private const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+    private const UnixFileMode OwnerDirOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+
+    /// <summary>Creates a directory tree readable, writable and traversable only by its owner on macOS/Linux (0700).</summary>
+    public static void CreatePrivateDirectory(string path)
+    {
+        if (OperatingSystem.IsWindows()) { Directory.CreateDirectory(path); return; }
+        var full = Path.GetFullPath(path);
+        var missing = new Stack<string>();
+        for (var cur = full; !string.IsNullOrEmpty(cur) && !Directory.Exists(cur); cur = Path.GetDirectoryName(cur))
+            missing.Push(cur);
+        while (missing.Count > 0)
+        {
+            var dir = missing.Pop();
+            Directory.CreateDirectory(dir);
+            try { File.SetUnixFileMode(dir, OwnerDirOnly); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        try { if (Directory.Exists(full) && File.GetUnixFileMode(full) != OwnerDirOnly) File.SetUnixFileMode(full, OwnerDirOnly); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
 
     /// <summary>
     /// Tightens the settings file in use and its backup to owner only on macOS/Linux: older versions wrote them with the

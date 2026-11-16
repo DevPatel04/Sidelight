@@ -55,7 +55,7 @@ h2 { font-size: 20px; margin: 0 0 4px; }
 .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; min-width: 0; }
 .field label { font-size: 12.5px; color: var(--muted); font-weight: 600; }
 .field .hint { font-size: 12px; color: var(--muted); }
-input[type=text], input[type=number], input[type=time], select, textarea {
+input[type=text], input[type=number], input[type=time], input[type=password], select, textarea {
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; outline: none; min-width: 0;
 }
 input:focus, select:focus, textarea:focus { border-color: var(--accent); }
@@ -311,6 +311,21 @@ dd { margin: 0; word-break: break-all; }
   .grid2 { grid-template-columns: 1fr; }
   .deck { --cols: 3 !important; }
 }
+
+/* plugins */
+.pl-item { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--line); }
+.pl-item:first-child { border-top: 0; padding-top: 0; }
+.pl-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.pl-meta { display: flex; gap: 10px; align-items: flex-start; min-width: 0; flex: 1; }
+.pl-title { font-weight: 600; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pl-desc { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.pl-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.pl-tag { font-size: 11.5px; padding: 2px 8px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
+.pl-tag.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+.pl-tag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.pl-tag.err { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.pl-banner { padding: 10px 12px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 10%, var(--panel-2)); font-size: 13px; margin-top: 6px; }
+.pl-perm { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); margin-bottom: 8px; }
 </style>
 </head>
 <body>
@@ -333,6 +348,7 @@ dd { margin: 0; word-break: break-all; }
     <a href="#shortcuts" data-i18n="s.nav.shortcuts">Shortcuts</a>
     <a href="#rules" data-i18n="s.nav.rules">Rules</a>
     <a href="#webhooks" data-i18n="s.nav.webhooks">Webhooks</a>
+    <a href="#plugins" data-i18n="s.nav.plugins">Plugins</a>
     <a href="#general" data-i18n="s.nav.general">General</a>
     <a href="#advanced" data-i18n="s.nav.advanced">Advanced</a>
   </nav>
@@ -380,6 +396,26 @@ dd { margin: 0; word-break: break-all; }
         <button class="btn sm" id="rulesPauseBtn" data-i18n="s.rules.pause1h">Pause all rules for 1 hour</button>
       </div>
       <div id="ruleList"></div>
+    </section>
+
+    <section id="plugins">
+      <h2 data-i18n="s.nav.plugins">Plugins</h2>
+      <p class="lead" data-i18n="s.plugins.lead">Extend PhoneBox with local declarative cards and sandboxed static HTML widgets installed on this computer.</p>
+      <div class="card">
+        <h3 data-i18n="s.plugins.installTitle">Install local plugin</h3>
+        <div class="row" style="gap:8px;margin-bottom:10px">
+          <input type="file" id="plZipFile" accept=".zip" hidden>
+          <button class="btn primary" id="plPickZip" type="button" data-i18n="s.plugins.installZip">Install .zip…</button>
+          <input type="text" id="plLocalPath" data-i18n-placeholder="s.plugins.pathPlaceholder" placeholder="/path/to/plugin-folder or plugin.zip" spellcheck="false" style="flex:1;min-width:220px">
+          <button class="btn" id="plInstallPath" type="button" data-i18n="s.plugins.installPath">Install from path</button>
+          <button class="btn" id="plRescan" type="button" data-i18n="s.plugins.rescan">Rescan folder</button>
+        </div>
+        <p class="hint" style="margin:0"><span data-i18n="s.plugins.dirLabel">Plugins directory: </span><code id="plDir">—</code>. <span data-i18n="s.plugins.dirHint">Newly installed or updated plugins stay disabled until you review and enable them. Local-only mode blocks http, exec, and bridge permissions.</span></p>
+      </div>
+      <div class="card">
+        <h3 data-i18n="s.plugins.installedTitle">Installed plugins</h3>
+        <div id="plInstalled"><p class="hint" style="margin:0" data-i18n="s.plugins.none">No local plugins installed yet.</p></div>
+      </div>
     </section>
 
     <section id="general">
@@ -1422,6 +1458,8 @@ function optionField(w, o, onValChange) {
         set(o.key, cfg.shortcuts.map((x) => x.id).filter((id) => (id === s.id ? e.target.checked : cur().includes(id))));
       } }), `${s.icon} ${s.label}`))));
     }
+    case 'password':
+      return field(h('input', { type: 'password', autocomplete: 'new-password', value: v ?? '', oninput: (e) => set(o.key, e.target.value) }));
     default:
       return field(h('input', { type: 'text', value: v ?? '', oninput: (e) => set(o.key, e.target.value) }),
         w.type === 'push' && o.key === 'key' ? h('span', { class: 'hint' }, 'Send data with POST /api/push/<key> — see the Webhooks section.') : null);
@@ -2373,12 +2411,14 @@ function bindLanguage() {
   if (!I18n) return;
   const pref = cfg.display?.language || 'auto';
   applyLanguageUi(pref);
+  renderPlugins();
   const onPick = (val) => {
     cfg.display ??= {};
     cfg.display.language = val || 'auto';
     applyLanguageUi(cfg.display.language);
     renderAppearanceSettings();
     renderPages(); // the pages editor and inspector hold localized strings too
+    renderPlugins();
     if (typeof queuePreview === 'function') queuePreview();
     changed();
   };
@@ -2503,6 +2543,192 @@ function fillDefaults() {
   cfg.charge ??= { enabled: false, min: 50, max: 80, method: 'ha' };
 }
 
+async function reloadCatalog() {
+  try {
+    catalog = await (await fetch('/api/catalog')).json();
+    const ps = $('palSearch');
+    if (ps) ps.placeholder = `Search ${catalog.widgets.length} widgets…`;
+    renderPalette();
+    renderCanvas();
+    renderInspector();
+  } catch (_) {}
+}
+
+// ---------------------------------------------------------------- local plugins
+let pluginsOverview = null;
+
+async function loadPlugins() {
+  try {
+    const r = await fetch('/api/plugins');
+    if (!r.ok) return;
+    pluginsOverview = await r.json();
+    renderPlugins();
+  } catch (_) {}
+}
+
+async function installPlugin(init, failMsg) {
+  const r = await fetch('/api/plugins/install', init);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(j.error || failMsg, true); return false; }
+  pluginsOverview = j.overview;
+  renderPlugins();
+  await reloadCatalog();
+  const hasReapprove = (pluginsOverview?.installed || []).some((x) => x.needsReapproval);
+  toast(hasReapprove ? t('s.plugins.updatedToast') : t('s.plugins.installedToast'));
+  return true;
+}
+
+async function togglePlugin(id, enabled, approvedPermissions = null, approveChanges = false) {
+  const r = await fetch(`/api/plugins/${encodeURIComponent(id)}/toggle`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled, approvedPermissions, approveChanges }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(j.error || t('s.plugins.updateErr'), true); return false; }
+  pluginsOverview = j.overview;
+  renderPlugins();
+  await reloadCatalog();
+  return true;
+}
+
+async function uninstallPlugin(id, name) {
+  if (!confirm(t('s.plugins.uninstallConfirm', { name }))) return;
+  const r = await fetch(`/api/plugins/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { toast(j.error || t('s.plugins.uninstallErr'), true); return; }
+  pluginsOverview = j.overview;
+  renderPlugins();
+  await reloadCatalog();
+  toast(t('s.plugins.uninstalledToast'));
+}
+
+function openPluginReviewModal(p) {
+  const perms = p.permissions || [];
+  let busy = false;
+  const approveBtn = h('button', { class: 'btn primary', onclick: async () => {
+    if (busy) return;
+    busy = true; approveBtn.disabled = true; approveBtn.textContent = t('s.plugins.working');
+    const ok = await togglePlugin(p.id, true, perms, true);
+    busy = false; approveBtn.disabled = false; approveBtn.textContent = t('s.plugins.approveEnable');
+    if (ok) closeModal();
+  } }, t('s.plugins.approveEnable'));
+
+  $('modalBody').replaceChildren(
+    h('h3', {}, t('s.plugins.reviewTitle', { name: p.name })),
+    h('p', { class: 'hint' }, `${p.name} v${p.version}${p.author ? ' ' + t('s.plugins.byAuthor', { author: p.author }) : ''}${p.sha256 ? ' · SHA-256 ' + p.sha256.slice(0, 12) : ''}`),
+    p.changeSummary ? h('div', { class: 'pl-banner' }, h('b', {}, t('s.plugins.whatChanged')), p.changeSummary) : null,
+    h('h4', { style: { margin: '12px 0 8px' } }, t('s.plugins.manifestPerms')),
+    perms.length
+      ? h('div', { class: 'pl-perm' }, perms.join(', '))
+      : h('p', { class: 'hint' }, t('s.plugins.localOnlyPerms')),
+    h('div', { class: 'row', style: { justifyContent: 'flex-end', gap: '8px', marginTop: '12px' } },
+      h('button', { class: 'btn', onclick: closeModal }, t('s.cancel')), approveBtn));
+  $('modal').hidden = false;
+}
+
+function openPluginSettingsModal(p) {
+  const draft = { ...(p.settings || {}) };
+  const secretEdits = new Set(), secretSet = new Set(p.secretKeysSet || []);
+  const fakeW = { type: 'plugin', options: draft };
+  const fields = (p.settingsSchema || []).map((opt) => {
+    if (opt.secret || opt.type === 'password') {
+      const hasSaved = secretSet.has(opt.key);
+      const input = h('input', { type: 'password', autocomplete: 'new-password',
+        placeholder: hasSaved ? t('s.plugins.secretSavedPlaceholder') : t('s.plugins.secretNotSet'),
+        oninput: (e) => { draft[opt.key] = e.target.value; secretEdits.add(opt.key); } });
+      const clearBtn = hasSaved ? h('button', { type: 'button', class: 'btn sm', onclick: () => {
+        draft[opt.key] = ''; secretEdits.add(opt.key); input.value = ''; input.placeholder = t('s.plugins.clearedOnSave');
+      } }, t('s.plugins.clear')) : null;
+      return h('div', { class: 'field' }, h('label', {}, opt.label || opt.key),
+        h('div', { class: 'row', style: { gap: '8px' } }, h('div', { style: { flex: '1', display: 'grid' } }, input), clearBtn));
+    }
+    const def = opt.type === 'bool' && opt.default == null ? false : opt.default;
+    return optionField(fakeW, { ...opt, label: opt.label || opt.key, default: def }, (k, val) => { draft[k] = val; });
+  });
+
+  const saveBtn = h('button', { class: 'btn primary', onclick: async () => {
+    const payload = {};
+    for (const opt of p.settingsSchema || [])
+      payload[opt.key] = (opt.secret || opt.type === 'password') ? (secretEdits.has(opt.key) ? (draft[opt.key] ?? '') : '__UNCHANGED__') : draft[opt.key];
+    saveBtn.disabled = true;
+    const r = await fetch(`/api/plugins/${encodeURIComponent(p.id)}/settings`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: payload }),
+    });
+    const j = await r.json().catch(() => ({}));
+    saveBtn.disabled = false;
+    if (!r.ok) { toast(j.error || t('s.plugins.saveSettingsErr'), true); return; }
+    pluginsOverview = j.overview; renderPlugins(); await reloadCatalog(); closeModal(); toast(t('s.plugins.saveSettingsToast'));
+  } }, t('s.plugins.saveSettings'));
+
+  $('modalBody').replaceChildren(
+    h('h3', {}, t('s.plugins.settingsTitle', { name: p.name })),
+    h('p', { class: 'hint' }, t('s.plugins.settingsHint')),
+    ...(fields.length ? fields : [h('p', { class: 'hint' }, t('s.plugins.noSettings'))]),
+    h('div', { class: 'row', style: { justifyContent: 'flex-end', marginTop: '12px' } }, saveBtn));
+  $('modal').hidden = false;
+}
+
+function renderPlugins() {
+  if (!pluginsOverview) return;
+  $('plDir').textContent = pluginsOverview.pluginsDir || '—';
+  const installed = pluginsOverview.installed || [];
+  $('plInstalled').replaceChildren(...(installed.length
+    ? installed.map((p) => {
+        const statusTag = p.active ? h('span', { class: 'pl-tag ok' }, t('s.plugins.statusActive'))
+          : p.needsReapproval ? h('span', { class: 'pl-tag warn' }, t('s.plugins.statusNeedsReapproval'))
+          : !p.enabled ? h('span', { class: 'pl-tag' }, t('s.plugins.statusDisabled'))
+          : h('span', { class: 'pl-tag err' }, t('s.plugins.statusInactive'));
+        const toggleSwitch = h('label', { class: 'switch', title: p.enabled ? t('s.plugins.disablePlugin') : t('s.plugins.enablePlugin') },
+          h('input', { type: 'checkbox', checked: !!p.enabled, onchange: (e) => {
+            const want = e.target.checked;
+            if (want && p.needsReapproval) { e.target.checked = false; openPluginReviewModal(p); return; }
+            togglePlugin(p.id, want).then((ok) => { if (!ok) e.target.checked = !!p.enabled; });
+          } }), h('span'));
+        return h('div', { class: 'pl-item' },
+          h('div', { class: 'pl-top' },
+            h('div', { class: 'pl-meta' },
+              h('div', { style: { minWidth: '0', flex: '1' } },
+                h('div', { class: 'pl-title' }, `${p.name} `, h('span', { class: 'hint' }, `v${p.version}`), statusTag,
+                  p.sha256 ? h('span', { class: 'pl-tag' }, p.sha256.slice(0, 8)) : null),
+                p.description ? h('div', { class: 'pl-desc' }, p.description) : null,
+                h('div', { class: 'pl-tags' },
+                  ...(p.widgets || []).map((w) => h('span', { class: 'pl-tag' }, `${w.icon || '🧩'} ${w.name}`)),
+                  !p.osOk ? h('span', { class: 'pl-tag err' }, t('s.plugins.unsupportedOs')) : null,
+                  !p.agentVersionOk ? h('span', { class: 'pl-tag err' }, t('s.plugins.agentUpdateRequired')) : null,
+                  p.error ? h('span', { class: 'pl-tag err' }, p.error) : null))),
+            h('div', { class: 'row', style: { gap: '8px' } },
+              toggleSwitch,
+              p.needsReapproval ? h('button', { class: 'btn primary sm', onclick: () => openPluginReviewModal(p) }, t('s.plugins.reviewEnable')) : null,
+              p.settingsSchema?.length ? h('button', { class: 'btn sm', onclick: () => openPluginSettingsModal(p) }, t('s.plugins.settingsBtn')) : null,
+              h('button', { class: 'btn sm danger', onclick: () => uninstallPlugin(p.id, p.name) }, t('s.plugins.uninstallBtn')))),
+          p.needsReapproval ? h('div', { class: 'pl-banner' }, h('b', {}, t('s.plugins.reapprovalBanner')), p.changeSummary || t('s.plugins.filesChanged')) : null);
+      })
+    : [h('p', { class: 'hint', style: { margin: 0 }, 'data-i18n': 's.plugins.none' }, t('s.plugins.none'))]));
+}
+
+$('plPickZip').onclick = () => $('plZipFile').click();
+$('plZipFile').onchange = async () => {
+  const file = $('plZipFile').files?.[0];
+  $('plZipFile').value = '';
+  if (!file) return;
+  if (file.size > 8 * 1024 * 1024) { toast(t('s.plugins.archiveTooLarge'), true); return; }
+  await installPlugin({ method: 'POST', headers: { 'Content-Type': 'application/zip' }, body: file }, t('s.plugins.installZipErr'));
+};
+$('plInstallPath').onclick = async () => {
+  const path = $('plLocalPath').value.trim();
+  if (!path) { toast(t('s.plugins.enterPath'), true); return; }
+  if (await installPlugin({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path }) }, t('s.plugins.installPathErr')))
+    $('plLocalPath').value = '';
+};
+$('plRescan').onclick = async () => {
+  $('plRescan').disabled = true;
+  try {
+    const r = await fetch('/api/plugins/rescan', { method: 'POST' });
+    if (r.ok) { pluginsOverview = await r.json(); renderPlugins(); await reloadCatalog(); }
+  } catch (_) {}
+  $('plRescan').disabled = false;
+};
 async function load() {
   if (!catalog.widgets.length) catalog = await (await fetch('/api/catalog')).json();
   const res = await fetch('/api/settings');
@@ -2510,7 +2736,7 @@ async function load() {
   cfg = await res.json();
   fillDefaults();
   saved = JSON.stringify(cfg);
-  renderPages(); renderDeck(); renderRules(); renderCalendars(); renderCharge(); bindForm(); changed(); loadInfo(); loadPhones();
+  renderPages(); renderDeck(); renderRules(); renderCalendars(); renderCharge(); bindForm(); changed(); loadInfo(); loadPhones(); loadPlugins();
 }
 
 async function save() {
@@ -2610,7 +2836,7 @@ $('applyJson').onclick = () => {
     cfg = c;
     fillDefaults();
     $('jsonErr').textContent = '';
-    renderPages(); renderDeck(); renderRules(); renderCalendars(); renderPhones(); renderCharge(); bindForm(); changed(); toast(t('s.jsonLoaded'));
+    renderPages(); renderDeck(); renderRules(); renderCalendars(); renderPhones(); renderCharge(); bindForm(); changed(); loadPlugins(); toast(t('s.jsonLoaded'));
   }
   catch (e) { $('jsonErr').textContent = e.message; }
 };
@@ -2622,6 +2848,7 @@ function route() {
   document.querySelectorAll('section').forEach((s) => s.classList.toggle('on', s.id === id));
   document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
   if (id === 'webhooks') loadPushed();
+  if (id === 'plugins') loadPlugins();
 }
 window.addEventListener('hashchange', route);
 route();

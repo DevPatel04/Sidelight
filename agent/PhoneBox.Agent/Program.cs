@@ -79,9 +79,11 @@ AddMonitor<DiscordMonitor>(builder.Services);
 AddMonitor<BatteryMonitor>(builder.Services);
 AddMonitor<RuleEngine>(builder.Services);
 AddMonitor<ChargeGuard>(builder.Services);
+builder.Services.AddSingleton<PluginService>();
 builder.Services.AddHostedService<Tray>();
 
 var app = builder.Build();
+app.Services.GetRequiredService<PluginService>();
 
 app.MapGet("/api/controls/state", async (ControlDeck deck, CancellationToken ct) => Results.Json(await deck.Snapshot(ct)));
 app.MapPost("/api/controls/command/{kind}", async (string kind, string? id, string? op, int? value, bool? muted,
@@ -146,73 +148,12 @@ app.MapPost("/api/controls/radio-directory/check", async (HttpRequest req, Cance
 
 // The panel in a desktop browser (the layout editor's live preview, /panel/) calls the API as /agent/api/..., the same
 // path the phone uses; on the local port that is simply /api/... Routing runs after this, so it sees the new path.
-app.Use((ctx, next) =>
-{
-    if (ctx.Connection.LocalPort == Port && ctx.Request.Path.StartsWithSegments("/agent/api", out var rest))
-        ctx.Request.Path = "/api" + rest;
-    return next(ctx);
-});
-
 // Security:
 //  - Local port 8765 listens on 127.0.0.1 only; the Host check blocks DNS rebinding. The phone's USB proxy sends
 //    no Origin header; from browsers only the settings page itself (same origin) is accepted (no CSRF).
 //  - The optional Wi-Fi port only serves the phone API, only over TLS, and only with the paired token.
-app.UseRouting();
-app.Use(async (ctx, next) =>
-{
-    var origin = ctx.Request.Headers.Origin.ToString();
-    var keyless = false; // a Wi-Fi request let in without a key (pairing claim): it must not touch any phone state
-    if (lanCert is not null && ctx.Connection.LocalPort == lanCfg.Port)
-    {
-        // The phone's key opens the panel API; the separate webhook key opens only the webhook endpoints, in a header
-        // or, for senders that cannot set headers, in ?token= (URLs end up in logs, so it must not be the phone's key).
-        var lan = configStore.Get().Lan;
-        var keyed = Lan.Matches(ctx.Request.Headers.Authorization, lan.Token!)
-            || (Lan.IsWebhook(ctx.Request.Path) && (Lan.Matches(ctx.Request.Headers.Authorization, lan.WebhookToken!)
-                || Lan.MatchesQuery(ctx.Request.Query["token"], lan.WebhookToken!)));
-        // Pairing without USB: the phone has no key yet and trades a one-time code for it (checked by the endpoint).
-        keyless = !keyed && Lan.IsPairingClaim(ctx.Request.Method, ctx.Request.Path);
-        if (origin != "" || !Lan.AllowedOverLan(ctx.Request.Path) || !(keyed || keyless))
-        {
-            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return;
-        }
-        if (keyless)
-        {
-            // the code is all it may send: no phone registry, app version or "phone connected" updates
-            ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()!.MaxRequestBodySize = 1024;
-            ctx.Response.Headers.CacheControl = "no-store";
-            await next();
-            return;
-        }
-    }
-    else
-    {
-        var host = ctx.Request.Host.Host;
-        var spotifyCallback = ctx.Request.Method == "GET" && ctx.Request.Path == "/api/controls/spotify/callback"
-            && app.Services.GetRequiredService<SpotifyControl>().HasPendingState(ctx.Request.Query["state"]);
-        if ((host != "127.0.0.1" && host != "localhost") || (origin != "" && !SameOrigins.Contains(origin))
-            || (!spotifyCallback && BrowserGuard.IsForeign(ctx.Request.Headers["Sec-Fetch-Site"], ctx.Request.Headers["Sec-Fetch-Mode"], ctx.Request.Method, ctx.Request.Path)))
-        {
-            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return;
-        }
-    }
-    if (ctx.Request.Path.StartsWithSegments("/api/state") && ctx.Request.Headers.ContainsKey("X-PhoneBox-App"))
-        Interlocked.Exchange(ref ApprovalStore.PhoneLastSeen, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-    if (ctx.Request.Headers.TryGetValue("X-PhoneBox-Device", out var device))
-    {
-        var problem = PhoneRegistry.Touch(device.ToString(), ctx.Request.Headers["X-PhoneBox-Model"].ToString(),
-            ctx.Connection.LocalPort == Port ? "USB" : "Wi-Fi", ctx.Request.Headers["X-PhoneBox-WebView"].ToString());
-        if (problem is not null) app.Logger.LogWarning("WebView: {Problem}", problem);
-    }
-    if (ctx.Request.Headers.TryGetValue("X-PhoneBox-App", out var appVersion) && appVersion.ToString().Length is > 0 and < 32)
-        UpdateService.AppVersion = appVersion.ToString();
-    ctx.Response.Headers.CacheControl = "no-store";
-    // only the panel may be framed, and only by the settings page itself (the live preview)
-    ctx.Response.Headers["X-Frame-Options"] = ctx.Request.Path.StartsWithSegments("/panel") ? "SAMEORIGIN" : "DENY";
-    await next();
-});
+AgentHttp.UseSecurity(app, Port, lanCert is not null ? lanCfg.Port : null, SameOrigins, configStore,
+    state => app.Services.GetRequiredService<SpotifyControl>().HasPendingState(state));
 
 // ---------------------------------------------------------------- Wi-Fi pairing (local / USB only)
 // The phone calls this through the USB tunnel and stores everything it needs to connect over Wi-Fi.
@@ -376,9 +317,11 @@ app.MapGet("/api/info", (AdbReverse adb, ConfigStore cfg) => Results.Json(new
 
 app.MapPost("/api/phone/open", async (AdbReverse adb) => { await adb.OpenPanelAsync(); return Results.Ok(); });
 
-// Widget types and page templates for the settings page's layout editor.
-app.MapGet("/api/catalog", () => Results.Text($"{{\"cols\":{Catalog.Cols},\"rows\":{Catalog.Rows},\"widgets\":{Catalog.WidgetsJson},\"templates\":{Catalog.TemplatesJson}}}",
+// Widget types and page templates for the settings page's layout editor (including active local plugins).
+app.MapGet("/api/catalog", (PluginService plugins) => Results.Text(Catalog.CombinedJson(plugins),
     "application/json; charset=utf-8"));
+
+AgentHttp.MapPluginEndpoints(app);
 
 // ---------------------------------------------------------------- webhook API: push data and events into the panel
 // POST /api/push/{key}       body: JSON or plain text (or ?value=); optional ?ttl=seconds. Shown by "push" widgets.
@@ -713,3 +656,149 @@ static void AddMonitor<T>(IServiceCollection s) where T : class, IHostedService
 
 /// <summary>Body of POST /api/pair/claim.</summary>
 internal sealed record PairClaim(string? Code);
+
+internal static class AgentHttp
+{
+    public static void UseSecurity(
+        WebApplication app,
+        int localPort,
+        int? lanPort,
+        string[] sameOrigins,
+        ConfigStore configStore,
+        Func<string?, bool>? hasPendingSpotifyState = null)
+    {
+        app.Use((ctx, next) =>
+        {
+            if (ctx.Connection.LocalPort == localPort && ctx.Request.Path.StartsWithSegments("/agent/api", out var rest))
+                ctx.Request.Path = "/api" + rest;
+            return next(ctx);
+        });
+
+        app.UseRouting();
+        app.Use(async (ctx, next) =>
+        {
+            var origin = ctx.Request.Headers.Origin.ToString();
+            if (lanPort is int lp && ctx.Connection.LocalPort == lp)
+            {
+                var lan = configStore.Get().Lan;
+                var keyed = !string.IsNullOrEmpty(lan.Token) && Lan.Matches(ctx.Request.Headers.Authorization, lan.Token)
+                    || (!string.IsNullOrEmpty(lan.WebhookToken) && Lan.IsWebhook(ctx.Request.Path)
+                        && (Lan.Matches(ctx.Request.Headers.Authorization, lan.WebhookToken)
+                            || Lan.MatchesQuery(ctx.Request.Query["token"], lan.WebhookToken)));
+                var keyless = !keyed && Lan.IsPairingClaim(ctx.Request.Method, ctx.Request.Path);
+                if (origin != "" || !Lan.AllowedOverLan(ctx.Request.Path) || !(keyed || keyless))
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    return;
+                }
+                if (keyless)
+                {
+                    if (ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { } lim)
+                        lim.MaxRequestBodySize = 1024;
+                    ctx.Response.Headers.CacheControl = "no-store";
+                    await next();
+                    return;
+                }
+            }
+            else
+            {
+                var host = ctx.Request.Host.Host;
+                var spotifyCallback = ctx.Request.Method == "GET" && ctx.Request.Path == "/api/controls/spotify/callback"
+                    && (hasPendingSpotifyState?.Invoke(ctx.Request.Query["state"]) ?? false);
+                if ((host != "127.0.0.1" && host != "localhost") || (origin != "" && !sameOrigins.Contains(origin))
+                    || (!spotifyCallback && BrowserGuard.IsForeign(ctx.Request.Headers["Sec-Fetch-Site"], ctx.Request.Headers["Sec-Fetch-Mode"], ctx.Request.Method, ctx.Request.Path)))
+                {
+                    ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    return;
+                }
+            }
+            if (ctx.Request.Path.StartsWithSegments("/api/state") && ctx.Request.Headers.ContainsKey("X-PhoneBox-App"))
+                Interlocked.Exchange(ref ApprovalStore.PhoneLastSeen, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            if (ctx.Request.Headers.TryGetValue("X-PhoneBox-Device", out var device))
+            {
+                var problem = PhoneRegistry.Touch(device.ToString(), ctx.Request.Headers["X-PhoneBox-Model"].ToString(),
+                    ctx.Connection.LocalPort == localPort ? "USB" : "Wi-Fi", ctx.Request.Headers["X-PhoneBox-WebView"].ToString());
+                if (problem is not null) app.Logger.LogWarning("WebView: {Problem}", problem);
+            }
+            if (ctx.Request.Headers.TryGetValue("X-PhoneBox-App", out var appVersion) && appVersion.ToString().Length is > 0 and < 32)
+                UpdateService.AppVersion = appVersion.ToString();
+            ctx.Response.Headers.CacheControl = "no-store";
+            ctx.Response.Headers["X-Frame-Options"] = ctx.Request.Path.StartsWithSegments("/panel") ? "SAMEORIGIN" : "DENY";
+            await next();
+        });
+    }
+
+    public static void MapPluginEndpoints(IEndpointRouteBuilder app)
+    {
+        // Local-only management routes (/api/plugins/* stays off Lan.AllowedOverLan).
+        app.MapGet("/api/plugins", (PluginService plugins) => Results.Json(plugins.GetOverview()));
+        app.MapPost("/api/plugins/rescan", (PluginService plugins) =>
+        {
+            plugins.ReloadPluginsFromDisk();
+            return Results.Json(plugins.GetOverview());
+        });
+        app.MapPost("/api/plugins/install", async (HttpRequest req, PluginService plugins, CancellationToken ct) =>
+        {
+            if (req.HttpContext.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { } lim)
+                lim.MaxRequestBodySize = PluginService.MaxZipBytes + 128 * 1024;
+            string? err;
+            if (req.HasFormContentType)
+            {
+                var form = await req.ReadFormAsync(ct);
+                var file = form.Files.FirstOrDefault();
+                if (file is null) return Results.BadRequest(new { error = "plugin .zip file is required" });
+                if (file.Length > PluginService.MaxZipBytes) return Results.BadRequest(new { error = "plugin archive exceeds the 8 MB limit" });
+                await using var stream = file.OpenReadStream();
+                err = await plugins.InstallFromZipAsync(stream, ct);
+            }
+            else if (req.ContentType?.StartsWith("application/json", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                PluginInstallPathRequest? body;
+                try { body = await req.ReadFromJsonAsync<PluginInstallPathRequest>(new JsonSerializerOptions(JsonSerializerDefaults.Web), ct); }
+                catch (JsonException) { return Results.BadRequest(new { error = "invalid JSON payload" }); }
+                err = await plugins.InstallFromPathAsync(body?.Path, ct);
+            }
+            else if (req.ContentType?.StartsWith("application/zip", StringComparison.OrdinalIgnoreCase) == true
+                || req.ContentType?.StartsWith("application/x-zip", StringComparison.OrdinalIgnoreCase) == true
+                || req.ContentType?.StartsWith("application/octet-stream", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                err = await plugins.InstallFromZipAsync(req.Body, ct);
+            }
+            else
+            {
+                return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
+            }
+            return err is null ? Results.Json(new { ok = true, overview = plugins.GetOverview() }) : Results.BadRequest(new { error = err });
+        });
+        app.MapPost("/api/plugins/{id}/toggle", async (string id, HttpRequest req, PluginService plugins, CancellationToken ct) =>
+        {
+            PluginToggleRequest? body;
+            try { body = await req.ReadFromJsonAsync<PluginToggleRequest>(new JsonSerializerOptions(JsonSerializerDefaults.Web), ct); }
+            catch (JsonException) { return Results.BadRequest(new { error = "invalid JSON payload" }); }
+            if (body is null) return Results.BadRequest(new { error = "enabled flag is required" });
+            var err = await plugins.SetEnabledAsync(id, body.Enabled, body.ApprovedPermissions, body.ApproveChanges);
+            return err is null ? Results.Json(new { ok = true, overview = plugins.GetOverview() }) : Results.BadRequest(new { error = err });
+        });
+        app.MapPut("/api/plugins/{id}/settings", async (string id, HttpRequest req, PluginService plugins, CancellationToken ct) =>
+        {
+            PluginSettingsRequest? body;
+            try { body = await req.ReadFromJsonAsync<PluginSettingsRequest>(new JsonSerializerOptions(JsonSerializerDefaults.Web), ct); }
+            catch (JsonException) { return Results.BadRequest(new { error = "invalid JSON payload" }); }
+            var err = await plugins.SaveSettingsAsync(id, body?.Settings);
+            return err is null ? Results.Json(new { ok = true, overview = plugins.GetOverview() }) : Results.BadRequest(new { error = err });
+        });
+        app.MapDelete("/api/plugins/{id}", async (string id, PluginService plugins) =>
+        {
+            var err = await plugins.UninstallAsync(id);
+            return err is null ? Results.Json(new { ok = true, overview = plugins.GetOverview() }) : Results.BadRequest(new { error = err });
+        });
+
+        // Read-only panel widget state route (/api/plugin/{id}/state). No /act endpoint in Stage 1.
+        app.MapGet("/api/plugin/{id}/state", (string id, string? page, string? widget, HttpRequest req, PluginService plugins) =>
+        {
+            if (string.IsNullOrWhiteSpace(page) || string.IsNullOrWhiteSpace(widget))
+                return Results.Json(new { ok = false, status = "not_found", error = "Widget not found in settings" });
+            return Results.Json(plugins.GetWidgetState(id, page, widget, req.Headers["X-PhoneBox-Device"].ToString()));
+        });
+    }
+}
