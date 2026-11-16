@@ -4,7 +4,6 @@ using PhoneBox.Agent;
 
 var endpoint = AgentEndpoint.FromArgs(args);
 var Port = endpoint.Port;
-string[] SameOrigins = [$"http://127.0.0.1:{Port}", $"http://localhost:{Port}"];
 
 // Install scripts ask where the agent belongs (it differs per OS), then copy it there.
 if (args.Contains("--print-install-dir")) { Console.WriteLine(AppPaths.InstallDir); return; }
@@ -55,6 +54,7 @@ builder.Services.AddSingleton<AudioControl>();
 builder.Services.AddSingleton<AppCatalog>();
 builder.Services.AddSingleton<PairingCodes>();
 builder.Services.AddSingleton<SpotifyControl>();
+builder.Services.AddSingleton<CloudPhotoService>();
 builder.Services.AddSingleton<ControlDeck>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<ControlDeck>());
 builder.Services.AddSingleton<PushStore>();
@@ -146,73 +146,29 @@ app.MapPost("/api/controls/radio-directory/check", async (HttpRequest req, Cance
 
 // The panel in a desktop browser (the layout editor's live preview, /panel/) calls the API as /agent/api/..., the same
 // path the phone uses; on the local port that is simply /api/... Routing runs after this, so it sees the new path.
-app.Use((ctx, next) =>
-{
-    if (ctx.Connection.LocalPort == Port && ctx.Request.Path.StartsWithSegments("/agent/api", out var rest))
-        ctx.Request.Path = "/api" + rest;
-    return next(ctx);
-});
-
 // Security:
 //  - Local port 8765 listens on 127.0.0.1 only; the Host check blocks DNS rebinding. The phone's USB proxy sends
 //    no Origin header; from browsers only the settings page itself (same origin) is accepted (no CSRF).
 //  - The optional Wi-Fi port only serves the phone API, only over TLS, and only with the paired token.
-app.UseRouting();
-app.Use(async (ctx, next) =>
-{
-    var origin = ctx.Request.Headers.Origin.ToString();
-    var keyless = false; // a Wi-Fi request let in without a key (pairing claim): it must not touch any phone state
-    if (lanCert is not null && ctx.Connection.LocalPort == lanCfg.Port)
+PhotoEndpoints.UseSecurityGate(
+    app,
+    configStore,
+    () => Port,
+    () => lanCert is not null ? lanCfg.Port : null,
+    state => app.Services.GetRequiredService<SpotifyControl>().HasPendingState(state),
+    ctx =>
     {
-        // The phone's key opens the panel API; the separate webhook key opens only the webhook endpoints, in a header
-        // or, for senders that cannot set headers, in ?token= (URLs end up in logs, so it must not be the phone's key).
-        var lan = configStore.Get().Lan;
-        var keyed = Lan.Matches(ctx.Request.Headers.Authorization, lan.Token!)
-            || (Lan.IsWebhook(ctx.Request.Path) && (Lan.Matches(ctx.Request.Headers.Authorization, lan.WebhookToken!)
-                || Lan.MatchesQuery(ctx.Request.Query["token"], lan.WebhookToken!)));
-        // Pairing without USB: the phone has no key yet and trades a one-time code for it (checked by the endpoint).
-        keyless = !keyed && Lan.IsPairingClaim(ctx.Request.Method, ctx.Request.Path);
-        if (origin != "" || !Lan.AllowedOverLan(ctx.Request.Path) || !(keyed || keyless))
+        if (ctx.Request.Path.StartsWithSegments("/api/state") && ctx.Request.Headers.ContainsKey("X-PhoneBox-App"))
+            Interlocked.Exchange(ref ApprovalStore.PhoneLastSeen, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        if (ctx.Request.Headers.TryGetValue("X-PhoneBox-Device", out var device))
         {
-            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return;
+            var problem = PhoneRegistry.Touch(device.ToString(), ctx.Request.Headers["X-PhoneBox-Model"].ToString(),
+                ctx.Connection.LocalPort == Port ? "USB" : "Wi-Fi", ctx.Request.Headers["X-PhoneBox-WebView"].ToString());
+            if (problem is not null) app.Logger.LogWarning("WebView: {Problem}", problem);
         }
-        if (keyless)
-        {
-            // the code is all it may send: no phone registry, app version or "phone connected" updates
-            ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()!.MaxRequestBodySize = 1024;
-            ctx.Response.Headers.CacheControl = "no-store";
-            await next();
-            return;
-        }
-    }
-    else
-    {
-        var host = ctx.Request.Host.Host;
-        var spotifyCallback = ctx.Request.Method == "GET" && ctx.Request.Path == "/api/controls/spotify/callback"
-            && app.Services.GetRequiredService<SpotifyControl>().HasPendingState(ctx.Request.Query["state"]);
-        if ((host != "127.0.0.1" && host != "localhost") || (origin != "" && !SameOrigins.Contains(origin))
-            || (!spotifyCallback && BrowserGuard.IsForeign(ctx.Request.Headers["Sec-Fetch-Site"], ctx.Request.Headers["Sec-Fetch-Mode"], ctx.Request.Method, ctx.Request.Path)))
-        {
-            ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return;
-        }
-    }
-    if (ctx.Request.Path.StartsWithSegments("/api/state") && ctx.Request.Headers.ContainsKey("X-PhoneBox-App"))
-        Interlocked.Exchange(ref ApprovalStore.PhoneLastSeen, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-    if (ctx.Request.Headers.TryGetValue("X-PhoneBox-Device", out var device))
-    {
-        var problem = PhoneRegistry.Touch(device.ToString(), ctx.Request.Headers["X-PhoneBox-Model"].ToString(),
-            ctx.Connection.LocalPort == Port ? "USB" : "Wi-Fi", ctx.Request.Headers["X-PhoneBox-WebView"].ToString());
-        if (problem is not null) app.Logger.LogWarning("WebView: {Problem}", problem);
-    }
-    if (ctx.Request.Headers.TryGetValue("X-PhoneBox-App", out var appVersion) && appVersion.ToString().Length is > 0 and < 32)
-        UpdateService.AppVersion = appVersion.ToString();
-    ctx.Response.Headers.CacheControl = "no-store";
-    // only the panel may be framed, and only by the settings page itself (the live preview)
-    ctx.Response.Headers["X-Frame-Options"] = ctx.Request.Path.StartsWithSegments("/panel") ? "SAMEORIGIN" : "DENY";
-    await next();
-});
+        if (ctx.Request.Headers.TryGetValue("X-PhoneBox-App", out var appVersion) && appVersion.ToString().Length is > 0 and < 32)
+            UpdateService.AppVersion = appVersion.ToString();
+    });
 
 // ---------------------------------------------------------------- Wi-Fi pairing (local / USB only)
 // The phone calls this through the USB tunnel and stores everything it needs to connect over Wi-Fi.
@@ -446,6 +402,9 @@ object State(IServiceProvider sp, long? ev)
 
 // Upcoming calendar events (Agenda widget); the feed URLs stay here.
 app.MapGet("/api/calendar", (CalendarMonitor cal) => Results.Json(cal.Snapshot()));
+
+// Photo frame widget (local & desktop-synced folders only; feed & images work over USB and paired LAN; browse/test stay local-only).
+PhotoEndpoints.Map(app, () => lanCert is not null ? lanCfg.Port : null);
 
 // Docker / Podman containers (Docker widget); start / stop / restart only if a widget allows it.
 app.MapGet("/api/docker", async (DockerMonitor docker, CancellationToken ct) =>

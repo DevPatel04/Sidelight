@@ -58,6 +58,23 @@ public static class AppPaths
     }
 
     private const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+    private const UnixFileMode OwnerDir = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+
+    /// <summary>Creates a directory readable, writable and enterable only by its owner on macOS/Linux (0700).</summary>
+    public static void CreateDirectoryPrivate(string path)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(path);
+            return;
+        }
+        var parent = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
+        if (!Directory.Exists(path))
+            Directory.CreateDirectory(path, OwnerDir);
+        try { if (File.GetUnixFileMode(path) != OwnerDir) File.SetUnixFileMode(path, OwnerDir); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
 
     /// <summary>
     /// Tightens the settings file in use and its backup to owner only on macOS/Linux: older versions wrote them with the

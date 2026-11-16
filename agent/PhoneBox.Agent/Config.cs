@@ -32,6 +32,8 @@ public sealed class AgentConfig
     public ObsConfig Obs { get; set; } = new();
     /// <summary>Discord desktop app (local IPC): the developer application's client id and secret (the secret never goes to the phone).</summary>
     public DiscordConfig Discord { get; set; } = new();
+    /// <summary>Photo frame widget disk cache settings (local &amp; desktop-synced folders only).</summary>
+    public CloudPhotosConfig CloudPhotos { get; set; } = new();
 
     /// <summary>The pages a phone shows: its own selection (Settings › Phones), or all of them.</summary>
     public IEnumerable<PageConfig> PagesFor(string? deviceId)
@@ -501,6 +503,8 @@ public sealed partial class ConfigStore(string path)
         c.Discord.ClientId = string.IsNullOrWhiteSpace(c.Discord.ClientId) ? null : c.Discord.ClientId.Trim();
         c.Discord.ClientSecret = string.IsNullOrWhiteSpace(c.Discord.ClientSecret) ? null : c.Discord.ClientSecret.Trim();
         if (string.IsNullOrWhiteSpace(c.Obs.Url)) c.Obs.Url = "ws://127.0.0.1:4455";
+        c.CloudPhotos ??= new();
+        c.CloudPhotos.Normalize();
         c.HomeAssistant ??= new();
         c.HomeAssistant.Url = string.IsNullOrWhiteSpace(c.HomeAssistant.Url) ? null : c.HomeAssistant.Url.Trim().TrimEnd('/');
         c.HomeAssistant.Token = string.IsNullOrWhiteSpace(c.HomeAssistant.Token) ? null : c.HomeAssistant.Token.Trim();
@@ -583,6 +587,7 @@ public sealed partial class ConfigStore(string path)
                 var wu = wid;
                 for (var i = 2; !widgetIds.Add(wu); i++) wu = $"{wid}-{i}";
                 w.Id = wu;
+                PhotoWidgetOptions.NormalizeWidget(w);
                 widgets.Add(w);
             }
             p.Widgets = widgets;
