@@ -51,4 +51,51 @@ public sealed class QuotaConnectTests
         await Assert.ThrowsAsync<HttpRequestException>(async () =>
             await QuotaMonitor.ConnectIpv4First(new DnsEndPoint("127.0.0.1", port), cts.Token));
     }
+
+    [Fact]
+    public async Task DeadAddressesLeaveTimeForTheLastOne()
+    {
+        // three addresses that never answer, then one that does: before, each took a fixed share of the request
+        // timeout, so the working one was never reached. Every address is IPv4 so the order stays as given.
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var addresses = new[]
+        {
+            IPAddress.Parse("10.255.255.1"), IPAddress.Parse("10.255.255.2"), IPAddress.Parse("10.255.255.3"), IPAddress.Loopback,
+        };
+        var tried = new List<IPAddress>();
+
+        var budget = TimeSpan.FromSeconds(4);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        await using var stream = await QuotaMonitor.ConnectInOrder(addresses, port, budget, async (socket, endpoint, token) =>
+        {
+            tried.Add(endpoint.Address);
+            if (IPAddress.IsLoopback(endpoint.Address)) await socket.ConnectAsync(endpoint, token);
+            else await Task.Delay(Timeout.Infinite, token); // pending until this attempt's share of the budget ends
+        }, CancellationToken.None);
+
+        Assert.Equal(addresses, tried);
+        Assert.InRange(clock.Elapsed, TimeSpan.Zero, budget);
+    }
+
+    [Fact]
+    public async Task TheSocketIsDisposedWhenTheCallerCancels()
+    {
+        Socket? attempted = null;
+        var started = new TaskCompletionSource();
+        using var cts = new CancellationTokenSource();
+
+        var connecting = QuotaMonitor.ConnectInOrder([IPAddress.Loopback], 9, TimeSpan.FromSeconds(30), async (socket, _, token) =>
+        {
+            attempted = socket;
+            started.SetResult();
+            await Task.Delay(Timeout.Infinite, token);
+        }, cts.Token).AsTask();
+        await started.Task;
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => connecting);
+        Assert.Throws<ObjectDisposedException>(() => attempted!.Available);
+    }
 }
