@@ -627,8 +627,14 @@ public sealed partial class ConfigStore(string path)
     /// <summary>Makes sure the generated Wi-Fi token is written to disk so it stays stable across restarts.</summary>
     public void PersistGenerated()
     {
-        var c = Get();
-        var version = _stamp.Ticks;
+        AgentConfig c;
+        long version;
+        lock (_lock)
+        {
+            c = Get();
+            // The first save needs the missing-file stamp. For existing files, only overwrite a snapshot we read.
+            version = (_stamp == DateTime.MinValue && !File.Exists(path) ? _seen : _stamp).Ticks;
+        }
         try
         {
             var onDisk = JsonSerializer.Deserialize<AgentConfig>(File.ReadAllText(path), ReadOpts);

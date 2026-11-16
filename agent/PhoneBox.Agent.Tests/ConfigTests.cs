@@ -231,6 +231,29 @@ public class ConfigConcurrencyTests
     }
 
     [Fact]
+    public void GeneratedKeysPersistForANewConfigWithoutReplacingUnreadableFiles()
+    {
+        var dir = Directory.CreateTempSubdirectory("phonebox-config-");
+        try
+        {
+            var path = Path.Combine(dir.FullName, "config.json");
+            var store = new ConfigStore(path);
+            var generated = store.Get().Lan;
+            store.PersistGenerated();
+            Assert.True(File.Exists(path));
+            var restarted = new ConfigStore(path).Get().Lan;
+            Assert.Equal(generated.Token, restarted.Token);
+            Assert.Equal(generated.WebhookToken, restarted.WebhookToken);
+
+            const string invalid = "{ incomplete";
+            File.WriteAllText(path, invalid);
+            new ConfigStore(path).PersistGenerated();
+            Assert.Equal(invalid, File.ReadAllText(path));
+        }
+        finally { dir.Delete(recursive: true); }
+    }
+
+    [Fact]
     public void DeletingSettingsInvalidatesTheVersionHeldByOpenTabs()
     {
         var (store, path) = NewStore();
