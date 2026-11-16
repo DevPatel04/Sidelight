@@ -158,6 +158,7 @@ release builds. See the [full compatibility table](docs/SETUP.md#what-works-wher
 | [User guide](docs/GUIDE.md) | Template gallery, widgets, AI integrations, editor, Claude Code prompts, webhooks and automation rules |
 | [Appearance](docs/APPEARANCE.md) | Fonts, surfaces, presets, inheritance and live preview |
 | [Control Deck](docs/CONTROL-DECK.md) | Audio, media, OBS, shortcuts, tasks, protocols, dependencies and platform limits |
+| [Discord widget](docs/DISCORD.md) | Creating the Discord application, connecting it, controls and troubleshooting |
 | [Development](docs/DEVELOPMENT.md) | Architecture, local demo, builds, tests, widget sources and isolated agent runs |
 | [Contributing](CONTRIBUTING.md) | Contribution scope, review expectations, privacy and required checks |
 | [Changelog](CHANGELOG.md) | Release history and unreleased changes |
