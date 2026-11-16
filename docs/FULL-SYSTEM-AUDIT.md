@@ -11,7 +11,7 @@ they do not certify every external integration or every possible hardware config
 ### Toolchain
 
 - .NET 10 and xUnit: `agent/PhoneBox.Agent/PhoneBox.Agent.csproj` and the adjacent test project.
-- Kotlin/Android Gradle, minimum API 24: `android/app/build.gradle.kts`.
+- Kotlin/Android Gradle, minimum API 28: `android/app/build.gradle.kts`.
 - Playwright 1.65: `tools/ui-tests/package.json`; real panel/settings code with simulated integration data.
 - Existing release, installer and native API checks: `tools/` and `.github/workflows/`.
 - No additional dependency, test runner, coverage collector or race detector was installed.
