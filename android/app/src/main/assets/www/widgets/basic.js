@@ -266,7 +266,9 @@ W.gauge = {
 W.chart = {
   needs: ['state'],
   create(box, { o }) {
+    // a list of only unknown names falls back like no list at all (the stat/gauge widgets do the same lookup-safe)
     const keys = (Array.isArray(o.metrics) && o.metrics.length ? o.metrics : ['cpu']).filter((k) => METRICS[k]);
+    if (!keys.length) keys.push('cpu');
     const single = keys.length === 1 ? METRICS[keys[0]] : null;
     const isNet = keys.every((k) => k === 'down' || k === 'up');
     const label = single ? single.name : isNet ? 'Network' : keys.map((k) => METRICS[k].name).join(' · ');
