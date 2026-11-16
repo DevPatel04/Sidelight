@@ -16,25 +16,37 @@ async function show(page, widgets) {
 }
 
 test('a small agenda shows relative times in the panel language', async ({ page }) => {
-  await show(page, [{ id: 'ag', type: 'agenda', x: 0, y: 0, w: 12, h: 1, options: {} }]);
-  await page.evaluate(() => {
-    const realFetch = window.fetch;
-    const t = Date.now();
-    // only a timed event still ahead today, so the compact agenda takes the "in N min" branch
-    window.fetch = (input, init) => {
-      const url = typeof input === 'string' ? input : input.url;
-      if (url.includes('/api/calendar')) {
-        return Promise.resolve(new Response(JSON.stringify({
-          updated: t, errors: [],
-          events: [{ title: 'Review', start: t + 35 * 60e3, end: t + 65 * 60e3, allDay: false, calendar: 'Work', color: '#60a5fa' }],
-        }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
-      }
-      return realFetch(input, init);
+  await page.addInitScript(() => {
+    // pin the run to local noon so "today" cannot roll over mid-test, and answer /api/calendar
+    // with the fixture before the demo installs its own fetch mock (the setter keeps it as fallback)
+    const noon = new Date(); noon.setHours(12, 0, 0, 0);
+    const FIXED = noon.getTime();
+    const RealDate = Date;
+    window.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [FIXED])); }
+      static now() { return FIXED; }
     };
-    window.PhoneBoxDemo.emit('refresh');
+    const cal = JSON.stringify({
+      updated: FIXED, errors: [],
+      events: [{ title: 'Review', start: FIXED + 35 * 60e3, end: FIXED + 65 * 60e3, allDay: false, calendar: 'Work', color: '#60a5fa' }],
+    });
+    let inner = window.fetch;
+    Object.defineProperty(window, 'fetch', {
+      configurable: true,
+      get: () => (input, init) => {
+        const url = typeof input === 'string' ? input : input.url;
+        if (url.includes('/api/calendar')) {
+          return Promise.resolve(new Response(cal, { status: 200, headers: { 'Content-Type': 'application/json' } }));
+        }
+        return inner(input, init);
+      },
+      set: (v) => { inner = v; },
+    });
   });
+  await show(page, [{ id: 'ag', type: 'agenda', x: 0, y: 0, w: 12, h: 1, options: {} }]);
+  await page.evaluate(() => window.PhoneBoxDemo.emit('refresh'));
   const sub = page.locator('.ag-big-s').first();
-  await expect(sub).toHaveText(/^in \d+ Min/); // German "in 35 Min · 14:30", not "Heute · 14:30"
+  await expect(sub).toHaveText(/^in \d+ Min/); // German "in 35 Min · 12:35", not "Heute · 12:35"
   await expect(sub).not.toHaveText(/Heute/);
 });
 

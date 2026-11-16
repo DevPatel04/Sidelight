@@ -1494,7 +1494,7 @@ function renderPhones() {
   cfg.phones ??= [];
   const ago = (ms) => { if (!ms) return 'not seen since the agent started'; const s = (Date.now() - ms) / 1000; return s < 15 ? 'connected now' : s < 3600 ? `seen ${Math.round(s / 60)} min ago` : `seen ${Math.round(s / 3600)} h ago`; };
   const list = phonesSeen.length ? phonesSeen : [];
-  if (!list.length) { $('phoneList').replaceChildren(h('p', { class: 'hint' }, t('s.phones.empty'))); return; }
+  if (!list.length) { $('phoneList').replaceChildren(h('p', { class: 'hint', 'data-i18n': 's.phones.empty' }, t('s.phones.empty'))); return; }
   const entry = (id) => { let e = cfg.phones.find((x) => x.id === id); if (!e) { e = { id, name: '', pages: null }; cfg.phones.push(e); } return e; };
   $('phoneList').replaceChildren(...list.map((ph) => {
     const conf = cfg.phones.find((x) => x.id === ph.id);
@@ -2450,7 +2450,8 @@ async function loadInfo() {
     renderWebhooks(lan);
     const hk = await (await fetch('/api/claude/hook')).json();
     $('hookState').textContent = hk.installed ? 'Installed in ' + hk.path : 'Not installed';
-    $('hookBtn').textContent = hk.installed ? t('s.claude.removeHook') : t('s.claude.installHook');
+    $('hookBtn').dataset.i18n = hk.installed ? 's.claude.removeHook' : 's.claude.installHook';
+    $('hookBtn').textContent = t($('hookBtn').dataset.i18n);
     $('hookBtn').dataset.installed = hk.installed ? '1' : '';
     $('info').replaceChildren(
       h('dt', {}, 'Version'), h('dd', {}, i.version),
