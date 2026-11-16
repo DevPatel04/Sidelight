@@ -337,6 +337,7 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
         if (_claudeCredsReadAt > nowMs) _claudeCredsReadAt = 0;
         if (_claudeAwaitingToken ? nowMs - _claudeCredsReadAt < ClaudeTokenRecheckMs : nowMs < _claudeNextAt) return;
         _claudeCredsReadAt = nowMs;
+        var clock = System.Diagnostics.Stopwatch.StartNew(); // the reads below (the Keychain, the shared files) take time too
 
         // Claude Code may be rewriting the file right now: try again on the next pass
         string? json = null;
@@ -392,7 +393,6 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
         if (nowMs < _claudeNextAt) return;
         if (AdoptShared(plan, print, nowMs) || nowMs < _claudeNextAt) return;
 
-        var clock = System.Diagnostics.Stopwatch.StartNew();
         var (result, retryAfter) = await FetchClaude(plan, token, nowMs, ct);
         var answeredMs = nowMs + clock.ElapsedMilliseconds;
         long next;
@@ -424,12 +424,20 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
                     _claude = Keep(plan, $"Anthropic is limiting quota checks; trying again at {DateTimeOffset.FromUnixTimeMilliseconds(next).ToLocalTime():HH:mm}");
                 break;
         }
-        // another agent may have been told to wait longer while this request ran: keep the longer wait
+        // Another agent may have written the schedule while this request ran: keep a longer wait it was given, and a
+        // refusal it got, unless this request just showed that very token works.
         var error = _claude?.Error;
-        if (ReadClaudeSchedule() is { } other && other.NextAt > next && other.NextAt - nowMs <= ClaudeMaxWaitMs)
-            (next, error) = (other.NextAt, other.Error ?? error);
+        var (refused, refusedAt) = (_claudeRefused, _claudeRefusedAt);
+        if (ReadClaudeSchedule() is { } other)
+        {
+            if (other.NextAt > next && other.NextAt - nowMs <= ClaudeMaxWaitMs)
+                (next, error) = (other.NextAt, other.Error ?? error);
+            if (other.Refused is { } theirs && theirs != refused && answeredMs - other.RefusedAt is >= 0 and < ClaudeRefusedRetryMs
+                && !(result == ClaudeResult.Ok && theirs == print))
+                (refused, refusedAt) = (theirs, other.RefusedAt);
+        }
         _claudeNextAt = next;
-        SaveClaudeSchedule(new ClaudeSchedule(next, _claudeFailures, error, _claudeRefused, _claudeRefusedAt));
+        SaveClaudeSchedule(new ClaudeSchedule(next, _claudeFailures, error, refused, refusedAt));
     }
 
     private const string RefusedMessage = "Anthropic did not accept the sign-in; it will refresh when Claude Code runs";

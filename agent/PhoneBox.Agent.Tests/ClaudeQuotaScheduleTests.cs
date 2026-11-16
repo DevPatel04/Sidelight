@@ -318,6 +318,24 @@ public sealed class ClaudeQuotaScheduleTests : IDisposable
         Assert.Equal(2, _api.Calls);
     }
 
+    [Fact]
+    public async Task ARefusalAnotherAgentGotMeanwhileIsNotOverwritten()
+    {
+        SignIn("revoked", _t0 + 7_200_000);
+        _api.Respond(HttpStatusCode.ServiceUnavailable, "");
+        var agent = Agent();
+        // while this request runs, another agent sends the same token and gets a 401
+        var print = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes("revoked")))[..16];
+        _api.OnSend = () => File.WriteAllText(agent.ClaudeSchedulePath,
+            $$"""{"nextAt":{{_t0 + 60_000}},"failures":0,"refused":"{{print}}","refusedAt":{{_t0}}}""");
+        await agent.ClaudeTickAsync(_t0, default);
+        _api.OnSend = null;
+
+        var restarted = Agent();
+        for (var t = _t0 + 10 * Minute; t < _t0 + 30 * Minute; t += 30_000) await restarted.ClaudeTickAsync(t, default);
+        Assert.Equal(1, _api.Calls);
+    }
+
     private sealed class FakeAnthropic : HttpMessageHandler
     {
         private Func<HttpResponseMessage> _next = () => new HttpResponseMessage(HttpStatusCode.InternalServerError);
