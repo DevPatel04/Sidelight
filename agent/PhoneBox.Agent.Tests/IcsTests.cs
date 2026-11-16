@@ -147,6 +147,18 @@ public class IcsTests
         Assert.Equal(new DateTime(2026, 11, 10, 15, 0, 0), Utc(e.Start));
     }
 
+    [Theory]
+    [InlineData("DAILY", "20261130", "2026-11-30,2027-11-01")]
+    [InlineData("WEEKLY", "20261130", "2026-11-30,2027-11-01")]
+    [InlineData("MONTHLY", "20261101", "2026-11-01,2027-11-01")]
+    public void MonthFiltersLimitNonYearlyRulesBeforeCount(string frequency, string start, string expected)
+    {
+        var from = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
+        var events = Ics.Parse(Cal($"UID:x\nDTSTART;VALUE=DATE:{start}\nRRULE:FREQ={frequency};BYMONTH=11;COUNT=2"),
+            from, from.AddYears(2));
+        Assert.Equal(expected, string.Join(",", events.Select(e => Utc(e.Start).ToString("yyyy-MM-dd"))));
+    }
+
     [Fact]
     public void YearlyByMonthAndByDayPicksTheRightDay()
     {

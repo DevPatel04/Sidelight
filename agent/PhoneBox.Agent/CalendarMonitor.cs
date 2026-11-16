@@ -220,6 +220,9 @@ public static class Ics
                 "YEARLY" => n <= 9999 - local.Year && local.AddYears((int)n) is var year && year.Day == local.Day ? [year] : [],
                 _ => period == 0 ? [local] : [],
             };
+            // YEARLY uses BYMONTH to generate candidates. For faster rules it limits them.
+            if (byMonth.Count > 0 && freq is ("DAILY" or "WEEKLY" or "MONTHLY"))
+                candidates = candidates.Where(date => byMonth.Contains(date.Month));
             var set = candidates.OrderBy(x => x).ToList();
             // BYSETPOS picks from each period's set: "the last weekday of the month" (Outlook) is BYDAY=MO,…,FR;BYSETPOS=-1
             if (bySetPos.Count > 0)
