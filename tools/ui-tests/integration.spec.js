@@ -30,6 +30,16 @@ for (const viewport of [{ width: 780, height: 360 }, { width: 360, height: 780 }
   });
 }
 
+test('a stack with rotation interval 0 changes only when swiped (#171)', async ({ page }) => {
+  await page.clock.install();
+  await layout(page, [widget('stack', { interval: 0, widgets: [{ type: 'clock' }, { type: 'weather' }] })]);
+  await expect(page.locator('.stack-item.active .w-clock')).toHaveCount(1);
+  await page.clock.runFor(5 * 60_000);
+  await expect(page.locator('.stack-item.active .w-clock')).toHaveCount(1);
+  await page.getByRole('button', { name: 'weather', exact: true }).click();
+  await expect(page.locator('.stack-item.active .w-weather')).toHaveCount(1);
+});
+
 test('stack rotates with the panel clock and an empty stack stays empty', async ({ page }) => {
   await page.clock.install();
   await layout(page, [widget('stack', { interval: 3, widgets: [{ type: 'clock' }, { type: 'weather' }] })]);
