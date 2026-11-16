@@ -319,11 +319,14 @@ function Install-PhoneBox {
     # Smart App Control (Windows 11) blocks programs that are neither signed nor known to Microsoft: 1 on, 2 evaluation
     $smartAppControl = 0
     try { $smartAppControl = [int](Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -ErrorAction Stop).VerifiedAndReputablePolicyState } catch { }
-    if ($smartAppControl -eq 1 -or $smartAppControl -eq 2) {
-        Write-Caution "Smart App Control is $(if ($smartAppControl -eq 1) { 'on' } else { 'in evaluation mode' }). It blocks programs that are neither signed nor known"
-        Write-Caution 'to Microsoft, and PhoneBoxAgent.exe is not code-signed yet (signing through SignPath Foundation is pending:'
+    if ($smartAppControl -eq 1) {
+        Write-Caution 'Smart App Control is on. It blocks programs that are neither signed nor known to Microsoft, and'
+        Write-Caution 'PhoneBoxAgent.exe is not code-signed yet (signing through SignPath Foundation is pending:'
         Write-Caution "https://github.com/$Repo/issues/56), so Windows will probably refuse to start it. Setup still installs it."
-        Write-Caution 'Do not turn Smart App Control off just for PhoneBox: it cannot be turned back on without resetting Windows.'
+        Write-Caution 'Please keep Smart App Control on: on older Windows builds it cannot be turned back on without resetting Windows.'
+    } elseif ($smartAppControl -eq 2) {
+        Write-Caution 'Smart App Control is in evaluation mode: it blocks nothing yet. If Windows turns it on later, it will block'
+        Write-Caution "PhoneBoxAgent.exe until the agent is code-signed (pending: https://github.com/$Repo/issues/56)."
     }
 
     Write-Step 'Finding the release'
@@ -461,13 +464,19 @@ function Install-PhoneBox {
                 # Smart App Control and other App Control / AppLocker policies refuse the file (Win32 errors 4551 and 1260).
                 # Start-Process keeps only the message, in the system language, so compare it with the system's own text.
                 $why = "$($_.Exception.Message)"
-                $policy = @(4551, 1260) | ForEach-Object { ([ComponentModel.Win32Exception]::new($_).Message).Trim().TrimEnd('.') }
-                if (-not ($policy | Where-Object { $_ -and $why.Contains($_) })) { throw }
+                $says = { param($code) $text = ([ComponentModel.Win32Exception]::new($code).Message).Trim().TrimEnd('.'); $text -and $why.Contains($text) }
+                $appControl = & $says 4551   # App Control for Business, which Smart App Control uses
+                $groupPolicy = & $says 1260  # AppLocker or a software restriction policy
+                if (-not ($appControl -or $groupPolicy)) { throw }
                 $blocked = $true
                 Write-Caution "Windows did not let PhoneBoxAgent.exe start: $why"
-                Write-Caution 'PhoneBox is installed, but it cannot run while Smart App Control (or the policy that blocked it) is on,'
-                Write-Caution "because the agent is not code-signed yet. Signing is pending: https://github.com/$Repo/issues/56."
-                Write-Caution 'Do not turn Smart App Control off just for PhoneBox: it cannot be turned back on without resetting Windows.'
+                if ($appControl -and $smartAppControl -eq 1) {
+                    Write-Caution 'PhoneBox is installed, but Smart App Control will not run it until the agent is code-signed.'
+                    Write-Caution "Signing is pending: https://github.com/$Repo/issues/56. Please keep Smart App Control on."
+                } else {
+                    Write-Caution 'PhoneBox is installed, but a policy on this computer does not allow it to run. On a work or school'
+                    Write-Caution 'computer, ask its administrator to allow PhoneBoxAgent.exe.'
+                }
             }
             $up = $false
             for ($i = 0; $i -lt 30 -and -not $up -and -not $blocked; $i++) {
