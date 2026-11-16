@@ -295,7 +295,12 @@ test('multi option preserves saved unlisted quota provider IDs when toggling cho
 // (pages, display, night…) threw inside renderPages and left cfg broken until a reload.
 test('Apply JSON fills defaults for a partial config instead of breaking the editor', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
-  await page.goto('/settings/#advanced');
+  await page.goto('/settings/#general');
+  // move away from the defaults first, so the checks below prove Apply JSON put them back
+  await page.locator('input[data-bind="night.brightness"]').fill('0.1');
+  await expect(page.locator('#nbv')).toHaveText('10%');
+  await page.locator('input[data-bind="display.showSeconds"]').setChecked(false, { force: true });
+  await page.locator('a[href="#advanced"]').click();
   await page.locator('#json').fill('{"display": {"theme": "midnight"}}');
   await page.locator('#applyJson').click();
   await expect(page.locator('#jsonErr')).toHaveText('');
@@ -305,6 +310,7 @@ test('Apply JSON fills defaults for a partial config instead of breaking the edi
   // and the form keeps answering: the night screen slider read its (defaulted) section without throwing
   await page.locator('a[href="#general"]').click();
   await expect(page.locator('#nbv')).toHaveText('2%'); // the agent's NightConfig default, not NaN%
+  await expect(page.locator('input[data-bind="display.showSeconds"]')).toBeChecked(); // DisplayConfig.ShowSeconds
 });
 
 // PRIVACY.md: the phone sends the weather location to Open-Meteo only while a page has a widget that uses the weather.
