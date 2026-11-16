@@ -3,8 +3,8 @@
 ## Unreleased
 
 **New widget**
-- **News feeds**: headlines from your RSS and Atom feeds; tap one to open the article in the computer's browser
-  (#108, asked for by [Vampie](https://github.com/Vampie)). Add the feeds in Settings › General. The agent fetches
+- **News feeds**: headlines from your RSS and Atom feeds; with the widget's "Open articles on the PC" option on, tap
+  one to open the article in the computer's browser (#108, asked for by [Vampie](https://github.com/Vampie)). Add the feeds in Settings › General. The agent fetches
   each at most every 15 minutes and only while a page shows the widget; the addresses stay on the computer.
 
 **Panel**

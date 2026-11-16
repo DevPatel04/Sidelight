@@ -177,10 +177,13 @@ public sealed class FeedHttpTests
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        using var http = new HttpClient(FeedHttp.CreateHandler());
+        using var http = new HttpClient(FeedHttp.CreateHandler(allowPrivate: true));
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() =>
-            FeedHttp.GetAsync(http, $"http://127.0.0.1:{port}/feed", null, null, CancellationToken.None));
+            FeedHttp.GetAsync(_ => http, $"http://127.0.0.1:{port}/feed", null, null, CancellationToken.None));
         Assert.Contains("refused", ex.Message);
+        // and the handler itself, for a name that resolves to this computer (the connect callback, not the literal check)
+        var ex2 = await Assert.ThrowsAsync<HttpRequestException>(() => http.GetAsync($"http://localhost:{port}/feed"));
+        Assert.Contains("refused", ex2.ToString());
         Assert.False(listener.Pending()); // nothing reached the socket
     }
 
@@ -192,7 +195,7 @@ public sealed class FeedHttpTests
             : new HttpResponseMessage(HttpStatusCode.OK));
         using var http = new HttpClient(handler);
         var ex = await Assert.ThrowsAsync<HttpRequestException>(() =>
-            FeedHttp.GetAsync(http, "https://feeds.example/rss", null, null, CancellationToken.None));
+            FeedHttp.GetAsync(_ => http, "https://feeds.example/rss", null, null, CancellationToken.None));
         Assert.Contains("refused", ex.Message);
         Assert.Single(handler.Seen);
     }
@@ -203,12 +206,12 @@ public sealed class FeedHttpTests
         var hops = 0;
         var handler = new Fake(_ => ++hops <= 3 ? Redirect($"https://feeds.example/{hops}") : Ok("<rss/>"));
         using var http = new HttpClient(handler);
-        var r = await FeedHttp.GetAsync(http, "https://feeds.example/rss", null, null, CancellationToken.None);
+        var r = await FeedHttp.GetAsync(_ => http, "https://feeds.example/rss", null, null, CancellationToken.None);
         Assert.Equal("https://feeds.example/3", r.FinalUri!.AbsoluteUri);
 
         var loop = new Fake(_ => Redirect("https://feeds.example/again"));
         using var http2 = new HttpClient(loop);
-        await Assert.ThrowsAsync<HttpRequestException>(() => FeedHttp.GetAsync(http2, "https://feeds.example/rss", null, null, CancellationToken.None));
+        await Assert.ThrowsAsync<HttpRequestException>(() => FeedHttp.GetAsync(_ => http2, "https://feeds.example/rss", null, null, CancellationToken.None));
         Assert.Equal(6, loop.Seen.Count);
     }
 
@@ -219,7 +222,7 @@ public sealed class FeedHttpTests
         // no Content-Length: the cap must hold while reading
         var handler = new Fake(_ => new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new MemoryStream(big)) });
         using var http = new HttpClient(handler);
-        await Assert.ThrowsAsync<HttpRequestException>(() => FeedHttp.GetAsync(http, "https://feeds.example/rss", null, null, CancellationToken.None));
+        await Assert.ThrowsAsync<HttpRequestException>(() => FeedHttp.GetAsync(_ => http, "https://feeds.example/rss", null, null, CancellationToken.None));
     }
 
     [Fact]
@@ -231,7 +234,7 @@ public sealed class FeedHttpTests
             return new HttpResponseMessage(HttpStatusCode.NotModified);
         });
         using var http = new HttpClient(handler);
-        var r = await FeedHttp.GetAsync(http, "https://feeds.example/rss", "\"v1\"", null, CancellationToken.None);
+        var r = await FeedHttp.GetAsync(_ => http, "https://feeds.example/rss", "\"v1\"", null, CancellationToken.None);
         Assert.True(r.NotModified);
     }
 
@@ -253,25 +256,26 @@ public sealed class FeedHttpTests
     [InlineData("http://nas.local/feed", true)]
     public async Task PrivateAddressesOnlyForLocalHosts(string url, bool allowPrivate)
     {
-        bool? seen = null;
-        var handler = new Fake(req => { seen = req.Options.TryGetValue(FeedHttp.AllowPrivate, out var p) && p; return Ok("<rss/>"); });
-        using var http = new HttpClient(handler);
-        await FeedHttp.GetAsync(http, url, null, null, CancellationToken.None);
-        Assert.Equal(allowPrivate, seen);
+        var local = new Fake(_ => Ok("<rss/>"));
+        var pub = new Fake(_ => Ok("<rss/>"));
+        using var localHttp = new HttpClient(local);
+        using var publicHttp = new HttpClient(pub);
+        await FeedHttp.GetAsync(p => p ? localHttp : publicHttp, url, null, null, CancellationToken.None);
+        Assert.Equal(allowPrivate ? 1 : 0, local.Seen.Count);
+        Assert.Equal(allowPrivate ? 0 : 1, pub.Seen.Count);
     }
 
     [Fact]
     public async Task ARedirectFromALocalHostToAnotherHostIsPublicOnly()
     {
-        var allowed = new List<bool>();
-        var handler = new Fake(req =>
-        {
-            allowed.Add(req.Options.TryGetValue(FeedHttp.AllowPrivate, out var p) && p);
-            return req.RequestUri!.Host == "nas.local" ? Redirect("http://other.local/feed") : Ok("<rss/>");
-        });
-        using var http = new HttpClient(handler);
-        await FeedHttp.GetAsync(http, "http://nas.local/feed", null, null, CancellationToken.None);
-        Assert.Equal([true, false], allowed);
+        // separate clients, so a pooled connection to a local host can never carry a request that must stay public
+        var local = new Fake(_ => Redirect("http://other.local/feed"));
+        var pub = new Fake(_ => Ok("<rss/>"));
+        using var localHttp = new HttpClient(local);
+        using var publicHttp = new HttpClient(pub);
+        await FeedHttp.GetAsync(p => p ? localHttp : publicHttp, "http://nas.local/feed", null, null, CancellationToken.None);
+        Assert.Equal(["nas.local"], local.Seen.Select(u => u.Host).ToArray());
+        Assert.Equal(["other.local"], pub.Seen.Select(u => u.Host).ToArray());
     }
 
     [Fact]
@@ -306,10 +310,10 @@ public sealed class FeedMonitorTests : IDisposable
     public FeedMonitorTests() => Directory.CreateDirectory(_dir);
     public void Dispose() { try { Directory.Delete(_dir, true); } catch { } }
 
-    private ConfigStore Config(string widgetType = "feeds", bool pageEnabled = true, string feeds = """[{"name":"Blog","url":"https://feeds.example/rss"}]""")
+    private ConfigStore Config(string widgetType = "feeds", bool pageEnabled = true, string feeds = """[{"name":"Blog","url":"https://feeds.example/rss"}]""", bool open = true)
     {
         var path = Path.Combine(_dir, "config.json");
-        File.WriteAllText(path, $$"""{"feeds":{{feeds}},"pages":[{"id":"p","title":"P","enabled":{{(pageEnabled ? "true" : "false")}},"widgets":[{"id":"w","type":"{{widgetType}}","x":0,"y":0,"w":6,"h":4}]},{"id":"q","title":"Q","widgets":[{"id":"c","type":"clock","x":0,"y":0,"w":6,"h":4}]}]}""");
+        File.WriteAllText(path, $$"""{"feeds":{{feeds}},"pages":[{"id":"p","title":"P","enabled":{{(pageEnabled ? "true" : "false")}},"widgets":[{"id":"w","type":"{{widgetType}}","x":0,"y":0,"w":6,"h":4,"options":{"open":{{(open ? "true" : "false")}} } }]},{"id":"q","title":"Q","widgets":[{"id":"c","type":"clock","x":0,"y":0,"w":6,"h":4}]}]}""");
         return new ConfigStore(path);
     }
 
@@ -396,6 +400,36 @@ public sealed class FeedMonitorTests : IDisposable
         Assert.False(m.OpenAllowed());
         Assert.NotNull(m.Open(id));
         Assert.Empty(opened);
+    }
+
+    [Fact]
+    public async Task OpeningIsOffUntilTheWidgetAllowsIt()
+    {
+        var opened = new List<Uri>();
+        var handler = new FeedHttpTests.Fake(_ => FeedHttpTests.Ok(Rss));
+        using var m = Monitor(Config(open: false), handler, opened);
+        await m.TickAsync(CancellationToken.None);
+        Assert.True(m.Shown()); // the headlines are still fetched and shown
+        Assert.False(m.OpenAllowed());
+        Assert.NotNull(m.Open(m.Snapshot().Items[0].Id));
+        Assert.Empty(opened);
+    }
+
+    [Fact]
+    public async Task NoFetchStartsAfterTheWidgetIsRemoved()
+    {
+        var path = Path.Combine(_dir, "config.json");
+        var cfg = Config(feeds: """[{"name":"A","url":"https://a.example/rss"},{"name":"B","url":"https://b.example/rss"}]""");
+        var handler = new FeedHttpTests.Fake(req =>
+        {
+            // while the first feed is being fetched, the page with the widget is hidden
+            File.WriteAllText(path, File.ReadAllText(path).Replace("\"enabled\":true", "\"enabled\":false"));
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(1));
+            return FeedHttpTests.Ok(Rss);
+        });
+        using var m = Monitor(cfg, handler);
+        await m.TickAsync(CancellationToken.None);
+        Assert.Equal(["a.example"], handler.Seen.Select(u => u.Host).ToArray());
     }
 
     [Fact]

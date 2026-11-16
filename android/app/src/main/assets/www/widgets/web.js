@@ -47,20 +47,23 @@ W.feeds = {
     let data = null, lastKey = '', busy = null;
     const open = async (it) => {
       if (!it.openable || busy) return;
-      if (!data?.canOpen) { toast(t('w.feeds.needsWidget'), 'err'); return; }
+      if (!data?.canOpen) { toast(t('w.feeds.openOff'), 'err'); return; }
       haptic();
       busy = it.id;
+      // one deadline for the request and its body, so a stalled answer can't leave the widget refusing taps
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 8000);
       try {
-        const r = await fetch(`${API}/feeds/open?id=${encodeURIComponent(it.id)}`, { method: 'POST', cache: 'no-store', headers: PANEL_HEADERS });
+        const r = await fetch(`${API}/feeds/open?id=${encodeURIComponent(it.id)}`, { method: 'POST', cache: 'no-store', headers: PANEL_HEADERS, signal: ctl.signal });
         const j = await r.json().catch(() => ({}));
         if (r.ok) toast(t('w.feeds.opening'), 'ok'); else toast(j.error || t('w.feeds.openFailed'), 'err');
       } catch (_) { toast(t('panel.pcNoAnswer'), 'err'); }
-      busy = null;
+      finally { clearTimeout(timer); busy = null; }
     };
     const render = () => {
       const items = (data?.items || []).filter((i) => !only || i.source.toLowerCase() === only);
       const rows = Math.max(1, Math.floor((box.clientHeight - (o.title !== '' ? 30 : 6)) / 33));
-      const key = JSON.stringify([!!data, items.slice(0, rows).map((i) => i.id), data?.errors, rows, Math.floor(Date.now() / 60_000)]);
+      const key = JSON.stringify([!!data, data?.canOpen, items.slice(0, rows).map((i) => i.id), data?.errors, rows, Math.floor(Date.now() / 60_000)]);
       if (key === lastKey) return;
       lastKey = key;
       const err = (data?.errors || []).filter((e) => !only || e.toLowerCase().startsWith(only + ':'));
@@ -73,7 +76,7 @@ W.feeds = {
       }
       list.replaceChildren(...items.slice(0, rows).map((it) => {
         const meta = [showSource ? it.source : '', showTime && it.published ? ago(it.published) : ''].filter(Boolean).join(' · ');
-        const row = h('div', 'fd-i' + (it.openable ? ' link' : ''), h('div', 'fd-t', it.title), meta ? h('div', 'fd-m', meta) : null);
+        const row = h('div', 'fd-i' + (it.openable && data.canOpen ? ' link' : ''), h('div', 'fd-t', it.title), meta ? h('div', 'fd-m', meta) : null);
         row.onclick = () => open(it);
         return row;
       }));

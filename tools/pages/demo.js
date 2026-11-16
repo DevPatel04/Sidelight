@@ -548,9 +548,9 @@
       { name: 'MX Keys', level: 18, kind: 'keyboard', charging: null },
       { name: 'Xbox Wireless Controller', level: 40, kind: 'controller', charging: null },
     ] });
-    if (path === '/api/feeds') { const c = await config(); return json({ items: DEMO_FEEDS(), updated: now(), errors: [], canOpen: widgets(c).some((w) => w.type === 'feeds') }); }
+    if (path === '/api/feeds') { const c = await config(); return json({ items: DEMO_FEEDS(), updated: now(), errors: [], canOpen: widgets(c).some((w) => w.type === 'feeds' && w.options?.open === true) }); }
     if (path === '/api/feeds/open' && method === 'POST') {
-      if (!widgets(await config()).some((w) => w.type === 'feeds')) return json({ error: 'Add a News feeds widget to a page to open articles from the phone' }, 400);
+      if (!widgets(await config()).some((w) => w.type === 'feeds' && w.options?.open === true)) return json({ error: 'Opening articles is off: turn on "Open articles on the PC" in the News feeds widget\'s settings' }, 400);
       return DEMO_FEEDS().some((i) => i.id === q.get('id') && i.openable) ? json({ ok: true }) : json({ error: 'That headline is no longer in the list' }, 400);
     }
     if (path === '/api/apps') { const c = await config(); return json({ supported: true, canOpen: widgets(c).some((w) => w.type === 'apps'), apps: DEMO_APPS }); }

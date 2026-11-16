@@ -35,16 +35,18 @@ public sealed class FeedMonitor(ConfigStore config, ILogger<FeedMonitor> log) : 
     private readonly Dictionary<string, FeedState> _feeds = [];
     private volatile FeedSnapshot _snap = new([], 0, []);
 
-    /// <summary>Test seam: the HTTP handler behind the fetches (the real one refuses loopback and, on redirects, private addresses).</summary>
+    /// <summary>Test seam: the HTTP handler behind the fetches (the real ones refuse loopback, and private addresses except for local hosts).</summary>
     internal HttpMessageHandler? Handler { get; init; }
     /// <summary>Test seam: opens an article on this computer.</summary>
     internal Action<Uri> Opener { get; init; } = OpenInBrowser;
     /// <summary>Test seam: the clock, in Unix milliseconds.</summary>
     internal Func<long> Now { get; init; } = () => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-    private HttpClient? _http;
-    private HttpClient Http => _http ??= new HttpClient(Handler ?? FeedHttp.CreateHandler(), disposeHandler: Handler is null)
-        { Timeout = Timeout.InfiniteTimeSpan };
+    // two clients, so a pooled connection opened for a local host can never serve a request that must stay public
+    private HttpClient? _public, _local;
+    private HttpClient Client(bool local) => local
+        ? _local ??= new HttpClient(Handler ?? FeedHttp.CreateHandler(allowPrivate: true), disposeHandler: Handler is null) { Timeout = Timeout.InfiniteTimeSpan }
+        : _public ??= new HttpClient(Handler ?? FeedHttp.CreateHandler(allowPrivate: false), disposeHandler: Handler is null) { Timeout = Timeout.InfiniteTimeSpan };
 
     private sealed class FeedState
     {
@@ -57,7 +59,11 @@ public sealed class FeedMonitor(ConfigStore config, ILogger<FeedMonitor> log) : 
 
     public FeedSnapshot Snapshot() => _snap;
 
-    public bool OpenAllowed() => config.Get().Widgets(enabledPagesOnly: true).Any(w => w.Type == WidgetType);
+    /// <summary>Feeds are fetched only while an enabled page (or an enabled Smart Stack child) shows the widget.</summary>
+    public bool Shown() => config.Get().Widgets(enabledPagesOnly: true).Any(w => w.Type == WidgetType);
+
+    /// <summary>Opening an article starts the browser on this computer: only with the widget's "open" option on (off by default).</summary>
+    public bool OpenAllowed() => config.Get().Widgets(enabledPagesOnly: true).Any(w => w.Type == WidgetType && w.Bool("open") == true);
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
@@ -75,10 +81,13 @@ public sealed class FeedMonitor(ConfigStore config, ILogger<FeedMonitor> log) : 
         var sources = Sources();
         lock (_gate)
             foreach (var gone in _feeds.Keys.Except(sources.Select(s => s.Url)).ToList()) _feeds.Remove(gone);
-        if (sources.Count == 0 || !OpenAllowed()) { Publish(sources); return; }
+        if (sources.Count == 0 || !Shown()) { Publish(sources); return; }
 
         foreach (var src in sources)
         {
+            // a fetch can take seconds: the widget or the feed may have been removed while the previous one ran
+            if (!Shown()) break;
+            if (!Sources().Any(x => x.Url == src.Url)) continue;
             FeedState st;
             lock (_gate)
             {
@@ -101,7 +110,7 @@ public sealed class FeedMonitor(ConfigStore config, ILogger<FeedMonitor> log) : 
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(20));
-            var r = await FeedHttp.GetAsync(Http, src.Url, st.ETag, st.LastModified, timeout.Token);
+            var r = await FeedHttp.GetAsync(Client, src.Url, st.ETag, st.LastModified, timeout.Token);
             if (r.NotModified) { lock (_gate) st.Error = null; return; }
             var items = FeedParser.Parse(r.Body!, r.FinalUri!, src.Url, MaxPerFeed);
             lock (_gate) { st.Items = items; st.Error = null; st.ETag = r.ETag; st.LastModified = r.LastModified; }
@@ -138,7 +147,7 @@ public sealed class FeedMonitor(ConfigStore config, ILogger<FeedMonitor> log) : 
     /// <summary>Opens a headline from the current list on this computer; returns an error message, or null when it worked.</summary>
     public string? Open(string? id)
     {
-        if (!OpenAllowed()) return "Add a News feeds widget to a page to open articles from the phone";
+        if (!OpenAllowed()) return "Opening articles is off: turn on \"Open articles on the PC\" in the News feeds widget's settings";
         if (string.IsNullOrEmpty(id) || _snap.Items.FirstOrDefault(i => i.Id == id) is not { } item) return "That headline is no longer in the list";
         if (FeedParser.SafeLink(item.Link) is not { } uri) return "This headline has no link";
         try { Opener(uri); }
@@ -147,12 +156,33 @@ public sealed class FeedMonitor(ConfigStore config, ILogger<FeedMonitor> log) : 
         return null;
     }
 
-    private static void OpenInBrowser(Uri uri) =>
-        Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true })?.Dispose();
+    /// <summary>
+    /// Hands the address to the default browser without a shell: explorer.exe on Windows, open(1) on macOS, xdg-open on
+    /// Linux, with the address as one argument. explorer and open pass it on and exit, so one that hangs is ended after
+    /// 15 s; xdg-open can become the browser itself on some desktops, so it is left running.
+    /// </summary>
+    private static void OpenInBrowser(Uri uri)
+    {
+        var psi = new ProcessStartInfo(OperatingSystem.IsWindows() ? "explorer.exe" : OperatingSystem.IsMacOS() ? "/usr/bin/open" : "xdg-open")
+            { UseShellExecute = false, CreateNoWindow = true };
+        psi.ArgumentList.Add(uri.AbsoluteUri);
+        var p = Process.Start(psi) ?? throw new InvalidOperationException("the browser launcher did not start");
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS()) { p.Dispose(); return; }
+        _ = Task.Run(async () =>
+        {
+            using (p)
+            {
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                try { await p.WaitForExitAsync(cts.Token); }
+                catch (OperationCanceledException) { try { p.Kill(); } catch { } }
+            }
+        });
+    }
 
     public override void Dispose()
     {
-        _http?.Dispose();
+        _public?.Dispose();
+        _local?.Dispose();
         base.Dispose();
     }
 }
@@ -168,21 +198,19 @@ internal static class FeedHttp
 {
     internal const int MaxBytes = 4 * 1024 * 1024;
     private const int MaxRedirects = 5;
-    internal static readonly HttpRequestOptionsKey<bool> AllowPrivate = new("PhoneBox.AllowPrivate");
 
     internal sealed record Response(byte[]? Body, Uri? FinalUri, bool NotModified, string? ETag, string? LastModified);
 
-    internal static SocketsHttpHandler CreateHandler() => new()
+    /// <summary>A handler whose connections only go to allowed addresses; <paramref name="allowPrivate"/> is fixed per handler, so per pool.</summary>
+    internal static SocketsHttpHandler CreateHandler(bool allowPrivate) => new()
     {
         AllowAutoRedirect = false,
         UseCookies = false,
         UseProxy = false,
         AutomaticDecompression = DecompressionMethods.All,
         ConnectTimeout = TimeSpan.FromSeconds(10),
-        // pooled connections are keyed by host, and whether private addresses are allowed depends only on the host
         ConnectCallback = async (ctx, token) =>
         {
-            var allowPrivate = ctx.InitialRequestMessage.Options.TryGetValue(AllowPrivate, out var p) && p;
             var addresses = IPAddress.TryParse(ctx.DnsEndPoint.Host, out var literal)
                 ? [literal]
                 : await Dns.GetHostAddressesAsync(ctx.DnsEndPoint.Host, token);
@@ -242,7 +270,8 @@ internal static class FeedHttp
         return string.IsNullOrEmpty(u.UserInfo) ? u : null;
     }
 
-    internal static async Task<Response> GetAsync(HttpClient http, string configured, string? etag, string? lastModified, CancellationToken ct)
+    /// <param name="client">The client for a hop: <c>client(true)</c> may reach private addresses, <c>client(false)</c> only public ones.</param>
+    internal static async Task<Response> GetAsync(Func<bool, HttpClient> client, string configured, string? etag, string? lastModified, CancellationToken ct)
     {
         var first = ParseTarget(configured) ?? throw new HttpRequestException("the address must start with http:// or https://");
         var uri = first;
@@ -253,12 +282,11 @@ internal static class FeedHttp
             if (IPAddress.TryParse(uri.Host, out var lit) && !Allowed(lit, allowPrivate))
                 throw new HttpRequestException($"refused: {uri.Host} is not a public address");
             using var req = new HttpRequestMessage(HttpMethod.Get, uri);
-            req.Options.Set(AllowPrivate, allowPrivate);
             req.Headers.UserAgent.ParseAdd($"PhoneBox/{AppPaths.Version}");
             req.Headers.Accept.ParseAdd("application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.8, */*;q=0.1");
             if (hop == 0 && etag is not null) req.Headers.TryAddWithoutValidation("If-None-Match", etag);
             if (hop == 0 && lastModified is not null) req.Headers.TryAddWithoutValidation("If-Modified-Since", lastModified);
-            using var res = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            using var res = await client(allowPrivate).SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
             var code = (int)res.StatusCode;
             if (code is 301 or 302 or 303 or 307 or 308)
             {

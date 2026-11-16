@@ -437,7 +437,7 @@ test('the charge guard serves the battery the phone reports', async ({ page }) =
 
 // The agent sends headlines without their links; a tap asks the agent to open the article by its id.
 test('news feeds list headlines and open one on the PC by its id', async ({ page }) => {
-  await layout(page, [widget('feeds', { title: 'News', feed: '', showSource: true, showTime: true })]);
+  await layout(page, [widget('feeds', { title: 'News', feed: '', showSource: true, showTime: true, open: true })]);
   // the demo answers inside the page, so the call is recorded there
   await page.evaluate(() => {
     const real = window.fetch;
@@ -453,6 +453,18 @@ test('news feeds list headlines and open one on the PC by its id', async ({ page
   await rows.first().click();
   await expect.poll(() => page.evaluate(() => window.__opened)).toEqual([{ id: 'f1', method: 'POST' }]);
   await expect(page.locator('#toast')).toContainText('Opening on the PC');
+
+  // opening is off until the widget allows it: a tap asks nothing of the PC
+  await layout(page, [widget('feeds', { title: 'News', open: false })]);
+  await page.evaluate(() => {
+    const real = window.fetch;
+    window.__opened = [];
+    window.fetch = (url, init) => { if (String(url).includes('/feeds/open')) window.__opened.push(String(url)); return real(url, init); };
+  });
+  await expect(page.locator('.w-feeds .fd-i.link')).toHaveCount(0);
+  await page.locator('.w-feeds .fd-i').first().click();
+  await expect(page.locator('#toast')).toContainText('Open articles on the PC');
+  expect(await page.evaluate(() => window.__opened)).toEqual([]);
 
   // one feed only, by its name
   await layout(page, [widget('feeds', { title: 'Tech', feed: 'tech news', showSource: false, showTime: false })]);
