@@ -494,6 +494,36 @@ test('clicking a RAM widget navigates to the Processes page sorted by RAM', asyn
   await expect(procHead.locator('.p-sum')).toContainText('Total RAM');
 });
 
+test('session details show last prompt and reply only when opted in', async ({ page }) => {
+  await page.goto('/panel/');
+  await expect(page.locator('.w').first()).toBeVisible();
+  await page.evaluate(() => {
+    const pages = [{ id: 'sess', title: 'Sessions', icon: '🤖', enabled: true,
+      widgets: [{ id: 's1', type: 'sessions', x: 0, y: 0, w: 7, h: 6, options: {} }] }];
+    const cfg = JSON.parse(localStorage.getItem('pb-demo-config') || 'null');
+    localStorage.setItem('pb-demo-config', JSON.stringify({ ...(cfg || {}), night: { enabled: false }, pages, shortcuts: cfg?.shortcuts || [] }));
+  });
+  await page.reload();
+  await page.locator('.sess').first().click();
+  let dialog = page.locator('.session-panel');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).not.toContainText('Last prompt');
+  await page.getByRole('button', { name: 'Close session details' }).click();
+
+  await page.evaluate(() => {
+    const cfg = JSON.parse(localStorage.getItem('pb-demo-config') || 'null');
+    cfg.pages[0].widgets[0].options = { showMessages: true };
+    localStorage.setItem('pb-demo-config', JSON.stringify(cfg));
+  });
+  await page.reload();
+  await page.locator('.sess').first().click();
+  dialog = page.locator('.session-panel');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('Last prompt');
+  await expect(dialog).toContainText('Last reply');
+  await expect(dialog).toContainText('Summarize the failing check');
+});
+
 test('the landing page embeds the panel', async ({ page }) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1200, height: 900 });

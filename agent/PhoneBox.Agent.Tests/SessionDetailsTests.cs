@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using PhoneBox.Agent;
 using Xunit;
@@ -623,6 +624,286 @@ public sealed class SessionDetailsTests : IDisposable
         var procs = new ProcessMonitor(NullLogger<ProcessMonitor>.Instance, _monitor);
         var detail = procs.Detail("phonebox-nonexistent-process-name");
         Assert.Empty(detail.Instances);
+    }
+
+    [Fact]
+    public void ChatReadersExtractLastPromptAndReplySafelyAndTruncateLongText()
+    {
+        var claudeProjects = Path.Combine(_root, ".claude", "projects", "work");
+        Directory.CreateDirectory(claudeProjects);
+        var longPrompt = new string('p', 1700);
+        File.WriteAllText(Path.Combine(claudeProjects, "sess-1.jsonl"), string.Join("\n",
+            JsonSerializer.Serialize(new { type = "user", message = new { content = longPrompt } }),
+            JsonSerializer.Serialize(new { type = "assistant", message = new { content = new[] { new { type = "text", text = "All checks green." } } } })));
+
+        var (claudePrompt, claudeReply) = SessionMonitor.ReadClaudeChat(_root, "sess-1");
+        Assert.NotNull(claudePrompt);
+        Assert.Equal(1501, claudePrompt!.Length);
+        Assert.EndsWith("…", claudePrompt);
+        Assert.Equal("All checks green.", claudeReply);
+        Assert.Equal((null, null), SessionMonitor.ReadClaudeChat(_root, "../etc/passwd"));
+
+        var codexFile = Rollout();
+        File.AppendAllText(codexFile,
+            Line("event_msg", new { type = "user_message", message = "Fix the build warning" }) +
+            Line("event_msg", new { type = "agent_message", message = "Updated the nullable annotation." }));
+        var codexHome = Path.Combine(_root, "codex-home");
+        var codexSessDir = Path.Combine(codexHome, ".codex", "sessions", "2026", "11", "13");
+        Directory.CreateDirectory(codexSessDir);
+        File.Copy(codexFile, Path.Combine(codexSessDir, "rollout-test-1.jsonl"));
+        var (cPrompt, cReply) = SessionMonitor.ReadCodexChat(codexHome, "rollout-test-1.jsonl");
+        Assert.Equal("Fix the build warning", cPrompt);
+        Assert.Equal("Updated the nullable annotation.", cReply);
+        Assert.Equal((null, null), SessionMonitor.ReadCodexChat(codexHome, "../*.jsonl"));
+
+        var agyLogDir = Path.Combine(_root, ".gemini", "antigravity", "brain", "conv-1", ".system_generated", "logs");
+        Directory.CreateDirectory(agyLogDir);
+        File.WriteAllText(Path.Combine(agyLogDir, "transcript.jsonl"), string.Join("\n",
+            JsonSerializer.Serialize(new { type = "USER_INPUT", content = "Open PRs for remaining features" }),
+            JsonSerializer.Serialize(new { type = "PLANNER_RESPONSE", content = "Prepared PR branch cleanly." })));
+        var (agyPrompt, agyReply) = SessionMonitor.ReadAntigravityChat(_root);
+        Assert.Equal("Open PRs for remaining features", agyPrompt);
+        Assert.Equal("Prepared PR branch cleanly.", agyReply);
+    }
+
+    [Fact]
+    public void ClaudeChat_PrefersLastPromptAndSkipsMetaCommandAndInterruptedEntries()
+    {
+        var claudeProjects = Path.Combine(_root, ".claude", "projects", "meta-test");
+        Directory.CreateDirectory(claudeProjects);
+
+        // When no last-prompt entry exists, skips isMeta, [Request interrupted by user], <command-*, <local-command-*, <system-reminder>.
+        File.WriteAllText(Path.Combine(claudeProjects, "sess-meta.jsonl"), string.Join("\n",
+            JsonSerializer.Serialize(new { type = "user", message = new { content = "Real user prompt" } }),
+            JsonSerializer.Serialize(new { type = "assistant", message = new { content = new[] { new { type = "text", text = "Clean assistant reply" } } } }),
+            JsonSerializer.Serialize(new { type = "user", isMeta = true, message = new { content = "Hidden meta line" } }),
+            JsonSerializer.Serialize(new { type = "user", message = new { content = "<command-name>/clear</command-name>" } }),
+            JsonSerializer.Serialize(new { type = "user", message = new { content = "<local-command-stdout>Set model</local-command-stdout>" } }),
+            JsonSerializer.Serialize(new { type = "user", message = new { content = "<system-reminder>Context note</system-reminder>" } }),
+            JsonSerializer.Serialize(new { type = "user", message = new { content = "[Request interrupted by user]" } }),
+            JsonSerializer.Serialize(new { type = "user", message = new { content = "[Request interrupted by user for tool use]" } })));
+
+        var (p1, r1) = SessionMonitor.ReadClaudeChat(_root, "sess-meta");
+        Assert.Equal("Real user prompt", p1);
+        Assert.Equal("Clean assistant reply", r1);
+
+        // Explicit type == "last-prompt" wins even when generic trailing user entries follow it.
+        File.WriteAllText(Path.Combine(claudeProjects, "sess-lp.jsonl"), string.Join("\n",
+            JsonSerializer.Serialize(new { type = "user", message = new { content = "Earlier prompt" } }),
+            JsonSerializer.Serialize(new { type = "assistant", message = new { content = "Reply text" } }),
+            JsonSerializer.Serialize(new { type = "last-prompt", lastPrompt = "Explicit last prompt" }),
+            JsonSerializer.Serialize(new { type = "user", message = new { content = "Trailing generic user line" } })));
+
+        var (p2, r2) = SessionMonitor.ReadClaudeChat(_root, "sess-lp");
+        Assert.Equal("Explicit last prompt", p2);
+        Assert.Equal("Reply text", r2);
+    }
+
+    [Fact]
+    public void AntigravityChat_ChecksSessionIdAndRejectsStaleBrainWhenConversationsPbIsNewer()
+    {
+        var agyDir = Path.Combine(_root, ".gemini", "antigravity");
+        var brain1 = Path.Combine(agyDir, "brain", "conv-1", ".system_generated", "logs");
+        var convDir = Path.Combine(agyDir, "conversations");
+        Directory.CreateDirectory(brain1);
+        Directory.CreateDirectory(convDir);
+
+        var t1 = Path.Combine(brain1, "transcript.jsonl");
+        File.WriteAllText(t1, string.Join("\n",
+            JsonSerializer.Serialize(new { type = "USER_INPUT", content = "Old conversation prompt" }),
+            JsonSerializer.Serialize(new { type = "PLANNER_RESPONSE", content = "Old conversation reply" })));
+        File.SetLastWriteTimeUtc(t1, DateTime.UtcNow.AddMinutes(-2));
+
+        // Explicit session ID matches only conv-1 and rejects mismatched or unsafe IDs.
+        Assert.Equal(("Old conversation prompt", "Old conversation reply"), SessionMonitor.ReadAntigravityChat(_root, "antigravity:conv-1"));
+        Assert.Equal((null, null), SessionMonitor.ReadAntigravityChat(_root, "conv-2"));
+        Assert.Equal((null, null), SessionMonitor.ReadAntigravityChat(_root, "../conv-1"));
+
+        // A newer opaque conversations/*.pb file for another conversation prevents returning stale brain/conv-1 messages.
+        var pb2 = Path.Combine(convDir, "conv-2.pb");
+        File.WriteAllBytes(pb2, [1, 2, 3]);
+        File.SetLastWriteTimeUtc(pb2, DateTime.UtcNow);
+        Assert.Equal((null, null), SessionMonitor.ReadAntigravityChat(_root, "antigravity:main"));
+        Assert.Equal((null, null), SessionMonitor.ReadAntigravityChat(_root));
+
+        // Once conv-2's brain transcript catches up, main resolves to conv-2.
+        var brain2 = Path.Combine(agyDir, "brain", "conv-2", ".system_generated", "logs");
+        Directory.CreateDirectory(brain2);
+        var t2 = Path.Combine(brain2, "transcript.jsonl");
+        File.WriteAllText(t2, string.Join("\n",
+            JsonSerializer.Serialize(new { type = "USER_INPUT", content = "New conversation prompt" }),
+            JsonSerializer.Serialize(new { type = "PLANNER_RESPONSE", content = "New conversation reply" })));
+        File.SetLastWriteTimeUtc(t2, DateTime.UtcNow.AddSeconds(1));
+        Assert.Equal(("New conversation prompt", "New conversation reply"), SessionMonitor.ReadAntigravityChat(_root, "antigravity:main"));
+    }
+
+    [Fact]
+    public void ChatReaders_CacheTranscriptPathWithTtlAndFileExistsInvalidation()
+    {
+        var projectsDir = Path.Combine(_root, ".claude", "projects", "cache-proj");
+        Directory.CreateDirectory(projectsDir);
+        var path = Path.Combine(projectsDir, "sess-cache.jsonl");
+        File.WriteAllText(path, JsonSerializer.Serialize(new { type = "user", message = new { content = "Cached prompt" } }));
+
+        long now = 1_000_000;
+        var scans = 0;
+        var (p1, _) = SessionMonitor.ReadClaudeChat(_root, "sess-cache", () => now, () => scans++);
+        Assert.Equal("Cached prompt", p1);
+        Assert.Equal(1, scans);
+
+        // Within 5-minute TTL, cached path is reused without scanning directories.
+        now += 60_000;
+        var (p2, _) = SessionMonitor.ReadClaudeChat(_root, "sess-cache", () => now, () => scans++);
+        Assert.Equal("Cached prompt", p2);
+        Assert.Equal(1, scans);
+
+        // If the cached file disappears, File.Exists fails and forces a rescan.
+        File.Delete(path);
+        now += 10_000;
+        var (p3, _) = SessionMonitor.ReadClaudeChat(_root, "sess-cache", () => now, () => scans++);
+        Assert.Null(p3);
+        Assert.Equal(2, scans);
+
+        // Re-creating and advancing past the 5-minute TTL forces a fresh scan after expiration.
+        File.WriteAllText(path, JsonSerializer.Serialize(new { type = "user", message = new { content = "Fresh after TTL" } }));
+        var (p4, _) = SessionMonitor.ReadClaudeChat(_root, "sess-cache", () => now, () => scans++);
+        Assert.Equal("Fresh after TTL", p4);
+        Assert.Equal(3, scans);
+
+        now += 5 * 60_000L;
+        var (p5, _) = SessionMonitor.ReadClaudeChat(_root, "sess-cache", () => now, () => scans++);
+        Assert.Equal("Fresh after TTL", p5);
+        Assert.Equal(4, scans);
+
+        // Bounded cache handles >128 entries cleanly without throwing or unbounded growth.
+        for (var i = 0; i < 140; i++)
+        {
+            var id = $"sess-bulk-{i}";
+            File.WriteAllText(Path.Combine(projectsDir, id + ".jsonl"),
+                JsonSerializer.Serialize(new { type = "user", message = new { content = "bulk " + i } }));
+            var (bp, _) = SessionMonitor.ReadClaudeChat(_root, id, () => now + i);
+            Assert.Equal("bulk " + i, bp);
+        }
+    }
+
+    [Fact]
+    public void TruncateMessage_DoesNotSplitSurrogatePairs()
+    {
+        // High surrogate at index 1499 + low surrogate at index 1500 -> steps back to 1499 before appending ellipsis.
+        var splitInput = new string('a', 1499) + "😀";
+        var splitResult = SessionMonitor.TruncateMessage(splitInput);
+        Assert.NotNull(splitResult);
+        Assert.Equal(1500, splitResult!.Length);
+        Assert.EndsWith("…", splitResult);
+        Assert.False(char.IsHighSurrogate(splitResult[^2]));
+
+        // Full surrogate pair fits within 1500 chars (indices 1498..1499) -> keeps the emoji intact.
+        var intactInput = new string('a', 1498) + "😀" + "tail";
+        var intactResult = SessionMonitor.TruncateMessage(intactInput);
+        Assert.NotNull(intactResult);
+        Assert.Equal(1501, intactResult!.Length);
+        Assert.EndsWith("😀…", intactResult);
+    }
+
+    [Fact]
+    public void AllowSessionMessages_IsOffByDefaultAndLanEndpointIsBlocked()
+    {
+        Directory.CreateDirectory(_root);
+        var cfgPath = Path.Combine(_root, "config.json");
+        File.WriteAllText(cfgPath, "{}");
+        Assert.False(new ConfigStore(cfgPath).Get().AllowSessionMessages());
+
+        File.WriteAllText(cfgPath, """{"pages":[{"id":"w","title":"Work","enabled":true,"widgets":[{"type":"sessions","options":{}}]}]}""");
+        Assert.False(new ConfigStore(cfgPath).Get().AllowSessionMessages());
+
+        File.WriteAllText(cfgPath, """{"pages":[{"id":"home","title":"Home","enabled":true,"widgets":[]},{"id":"w","title":"Work","enabled":false,"widgets":[{"type":"sessions","options":{"showMessages":true}}]}]}""");
+        Assert.False(new ConfigStore(cfgPath).Get().AllowSessionMessages());
+
+        File.WriteAllText(cfgPath, """{"pages":[{"id":"w","title":"Work","enabled":true,"widgets":[{"type":"sessions","options":{"showMessages":true}}]}]}""");
+        Assert.True(new ConfigStore(cfgPath).Get().AllowSessionMessages());
+
+        File.WriteAllText(cfgPath, """{"pages":[{"id":"w","title":"Work","enabled":true,"widgets":[{"type":"stack","options":{"widgets":[{"type":"sessions","enabled":true,"options":{"showMessages":true}}]}}]}]}""");
+        Assert.True(new ConfigStore(cfgPath).Get().AllowSessionMessages());
+
+        Assert.False(Lan.AllowedOverLan(new PathString("/api/sessions/detail")));
+    }
+
+    [Fact]
+    public void ChatReaders_PreserveAllMultiBlockClaudeAndCodexMessagesInOrder()
+    {
+        var claudeProjects = Path.Combine(_root, ".claude", "projects", "multi-block");
+        Directory.CreateDirectory(claudeProjects);
+        File.WriteAllText(Path.Combine(claudeProjects, "sess-multi.jsonl"), string.Join("\n",
+            JsonSerializer.Serialize(new
+            {
+                type = "user",
+                message = new
+                {
+                    content = new object[]
+                    {
+                        new { type = "text", text = "Fix authentication." },
+                        new { type = "text", text = "" },
+                        new { type = "image", source = "ignored" },
+                        new { type = "text", text = "Keep the API unchanged." },
+                    }
+                }
+            }),
+            JsonSerializer.Serialize(new
+            {
+                type = "assistant",
+                message = new
+                {
+                    content = new object[]
+                    {
+                        new { type = "thinking", thinking = "hidden" },
+                        new { type = "text", text = "Updated token validation." },
+                        new { type = "text", text = "All endpoint signatures remain unchanged." },
+                    }
+                }
+            })));
+
+        var (claudePrompt, claudeReply) = SessionMonitor.ReadClaudeChat(_root, "sess-multi");
+        Assert.Equal("Fix authentication.\nKeep the API unchanged.", claudePrompt);
+        Assert.Equal("Updated token validation.\nAll endpoint signatures remain unchanged.", claudeReply);
+
+        var codexSessDir = Path.Combine(_root, "codex-multi", ".codex", "sessions", "2026", "11", "16");
+        Directory.CreateDirectory(codexSessDir);
+        File.WriteAllText(Path.Combine(codexSessDir, "rollout-multi-1.jsonl"), string.Join("\n",
+            JsonSerializer.Serialize(new
+            {
+                type = "response_item",
+                timestamp = DateTimeOffset.UtcNow,
+                payload = new
+                {
+                    type = "message",
+                    role = "user",
+                    content = new object[]
+                    {
+                        new { type = "input_text", text = "Part one of prompt." },
+                        new { type = "input_text", text = "" },
+                        new { type = "text", text = "Part two of prompt." },
+                    }
+                }
+            }),
+            JsonSerializer.Serialize(new
+            {
+                type = "response_item",
+                timestamp = DateTimeOffset.UtcNow,
+                payload = new
+                {
+                    type = "message",
+                    role = "assistant",
+                    content = new object[]
+                    {
+                        new { type = "output_text", text = "First assistant paragraph." },
+                        new { type = "text", text = "Second assistant paragraph." },
+                    }
+                }
+            })));
+
+        var (codexPrompt, codexReply) = SessionMonitor.ReadCodexChat(Path.Combine(_root, "codex-multi"), "rollout-multi-1.jsonl");
+        Assert.Equal("Part one of prompt.\nPart two of prompt.", codexPrompt);
+        Assert.Equal("First assistant paragraph.\nSecond assistant paragraph.", codexReply);
     }
 
     public void Dispose() { if (Directory.Exists(_root)) Directory.Delete(_root, true); }

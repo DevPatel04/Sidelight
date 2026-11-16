@@ -14,6 +14,9 @@ public sealed record AgentSession(string Id, string Tool, string Name, string Pr
     long? LastInputTokens = null, long? ContextWindow = null, long? TurnStartedAt = null,
     string? Outcome = null, string? LastTool = null);
 
+public sealed record AgentSessionDetail(string Id, string Tool, string Name, string Project, string Status,
+    string? WaitingFor, long Since, long StartedAt, string? LastPrompt, string? LastResponse, int? Pid = null);
+
 internal readonly record struct AntigravityProcessCandidate(
     int Pid,
     string Name,
@@ -50,6 +53,10 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
         "language_server_linux_x64", "language_server_linux_arm",
     ];
     private static readonly long DaemonStartToleranceTicks = TimeSpan.FromSeconds(30).Ticks;
+    private const int MaxTranscriptCacheEntries = 128;
+    private const long TranscriptCacheTtlMs = 5 * 60_000L;
+    private static readonly object TranscriptCacheLock = new();
+    private static readonly Dictionary<string, (string Path, long CachedAtMs)> TranscriptCache = new(StringComparer.Ordinal);
 
     private readonly ConcurrentDictionary<string, string> _codexCwd = new();
     private readonly ConcurrentDictionary<string, (DateTime LastWrite, long Length, CodexDetails Details)> _codexDetails = new();
@@ -879,6 +886,332 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
             StartedAt: startedAt,
             Pid: agyPid,
             Outcome: status == "busy" ? null : transcriptOutcome);
+    }
+
+    public AgentSessionDetail? GetDetail(string id, string? homeDir = null)
+    {
+        var s = _sessions.FirstOrDefault(x => x.Id == id);
+        if (s is null) return null;
+        var (prompt, response) = ReadSessionDetail(s.Tool, s.Id, homeDir);
+        return new AgentSessionDetail(s.Id, s.Tool, s.Name, s.Project, s.Status,
+            s.WaitingFor, s.Since, s.StartedAt, prompt, response, s.Pid);
+    }
+
+    internal static (string? prompt, string? response) ReadSessionDetail(string tool, string sessionId, string? homeDir = null)
+    {
+        var home = homeDir ?? Home;
+        try
+        {
+            return tool switch
+            {
+                "claude" => ReadClaudeChat(home, StripPrefix(sessionId, "claude:")),
+                "codex" => ReadCodexChat(home, StripPrefix(sessionId, "codex:")),
+                "antigravity" => ReadAntigravityChat(home, StripPrefix(sessionId, "antigravity:")),
+                _ => (null, null),
+            };
+        }
+        catch { return (null, null); }
+    }
+
+    private static string StripPrefix(string value, string prefix) =>
+        value.StartsWith(prefix, StringComparison.Ordinal) ? value[prefix.Length..] : value;
+
+    internal static bool IsSafeSessionToken(string? token)
+    {
+        if (string.IsNullOrWhiteSpace(token) || token.Contains("..", StringComparison.Ordinal)) return false;
+        foreach (var ch in token)
+            if (!char.IsLetterOrDigit(ch) && ch is not ('-' or '_' or '.'))
+                return false;
+        return true;
+    }
+
+    private static string? ResolveCachedTranscriptPath(
+        string tool, string home, string sessionId, string searchRoot, string targetFileName,
+        Func<long>? getNowMs, Action? onScan)
+    {
+        var nowMs = (getNowMs ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))();
+        var cacheKey = $"{tool}\0{home}\0{sessionId}";
+        lock (TranscriptCacheLock)
+        {
+            if (TranscriptCache.TryGetValue(cacheKey, out var cached))
+            {
+                if (nowMs - cached.CachedAtMs < TranscriptCacheTtlMs && File.Exists(cached.Path))
+                    return cached.Path;
+                TranscriptCache.Remove(cacheKey);
+            }
+        }
+
+        if (!Directory.Exists(searchRoot)) return null;
+        onScan?.Invoke();
+        var match = new DirectoryInfo(searchRoot)
+            .EnumerateFiles(targetFileName, SearchOption.AllDirectories)
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .FirstOrDefault();
+        if (match is null) return null;
+
+        lock (TranscriptCacheLock)
+        {
+            if (!TranscriptCache.ContainsKey(cacheKey) && TranscriptCache.Count >= MaxTranscriptCacheEntries)
+            {
+                foreach (var expired in TranscriptCache.Where(kv => nowMs - kv.Value.CachedAtMs >= TranscriptCacheTtlMs).Select(kv => kv.Key).ToArray())
+                    TranscriptCache.Remove(expired);
+                if (TranscriptCache.Count >= MaxTranscriptCacheEntries)
+                {
+                    var oldest = TranscriptCache.MinBy(kv => kv.Value.CachedAtMs).Key;
+                    TranscriptCache.Remove(oldest);
+                }
+            }
+            TranscriptCache[cacheKey] = (match.FullName, nowMs);
+        }
+        return match.FullName;
+    }
+
+    internal static (string? prompt, string? response) ReadClaudeChat(
+        string home, string sessionId, Func<long>? getNowMs = null, Action? onScan = null)
+    {
+        if (!IsSafeSessionToken(sessionId)) return (null, null);
+        try
+        {
+            var projectsDir = Path.Combine(home, ".claude", "projects");
+            var path = ResolveCachedTranscriptPath("claude", home, sessionId, projectsDir, sessionId + ".jsonl", getNowMs, onScan);
+            return path is not null ? ReadJsonlChat(path, "claude") : (null, null);
+        }
+        catch { return (null, null); }
+    }
+
+    internal static (string? prompt, string? response) ReadCodexChat(
+        string home, string rolloutName, Func<long>? getNowMs = null, Action? onScan = null)
+    {
+        if (!IsSafeSessionToken(rolloutName) || !rolloutName.StartsWith("rollout-", StringComparison.Ordinal))
+            return (null, null);
+        try
+        {
+            var root = Path.Combine(home, ".codex", "sessions");
+            var targetName = rolloutName.EndsWith(".jsonl", StringComparison.OrdinalIgnoreCase)
+                ? rolloutName
+                : rolloutName + ".jsonl";
+            var path = ResolveCachedTranscriptPath("codex", home, rolloutName, root, targetName, getNowMs, onScan);
+            return path is not null ? ReadJsonlChat(path, "codex") : (null, null);
+        }
+        catch { return (null, null); }
+    }
+
+    private static string? AntigravityConversationId(string fileName)
+    {
+        if (fileName.EndsWith(".pb", StringComparison.OrdinalIgnoreCase)) return fileName[..^3];
+        if (fileName.EndsWith(".db-wal", StringComparison.OrdinalIgnoreCase)) return fileName[..^7];
+        if (fileName.EndsWith(".db", StringComparison.OrdinalIgnoreCase)) return fileName[..^3];
+        return null;
+    }
+
+    private static bool IsAntigravityConversationStale(string convDir, string convId, DateTime transcriptWriteUtc)
+    {
+        if (!Directory.Exists(convDir)) return false;
+        foreach (var ext in new[] { ".pb", ".db", ".db-wal" })
+        {
+            var p = Path.Combine(convDir, convId + ext);
+            if (!File.Exists(p)) continue;
+            if (File.GetLastWriteTimeUtc(p) - transcriptWriteUtc > TimeSpan.FromSeconds(5))
+                return true;
+        }
+        return false;
+    }
+
+    internal static (string? prompt, string? response) ReadAntigravityChat(string home, string? sessionId = null)
+    {
+        try
+        {
+            var agyDir = Path.Combine(home, ".gemini", "antigravity");
+            var brainDir = Path.Combine(agyDir, "brain");
+            var convDir = Path.Combine(agyDir, "conversations");
+            var id = sessionId is not null ? StripPrefix(sessionId, "antigravity:") : null;
+
+            if (!string.IsNullOrWhiteSpace(id) && !string.Equals(id, "main", StringComparison.Ordinal))
+            {
+                if (!IsSafeSessionToken(id)) return (null, null);
+                var path = Path.Combine(brainDir, id, ".system_generated", "logs", "transcript.jsonl");
+                if (!File.Exists(path)) return (null, null);
+                var wt = File.GetLastWriteTimeUtc(path);
+                return IsAntigravityConversationStale(convDir, id, wt) ? (null, null) : ReadJsonlChat(path, "antigravity");
+            }
+
+            FileInfo? bestTranscript = null;
+            string? bestTranscriptId = null;
+            if (Directory.Exists(brainDir))
+            {
+                foreach (var dir in new DirectoryInfo(brainDir).EnumerateDirectories())
+                {
+                    var candidate = Path.Combine(dir.FullName, ".system_generated", "logs", "transcript.jsonl");
+                    if (!File.Exists(candidate)) continue;
+                    var fi = new FileInfo(candidate);
+                    if (bestTranscript is null || fi.LastWriteTimeUtc > bestTranscript.LastWriteTimeUtc)
+                    {
+                        bestTranscript = fi;
+                        bestTranscriptId = dir.Name;
+                    }
+                }
+            }
+
+            if (bestTranscript is null || bestTranscriptId is null) return (null, null);
+
+            if (Directory.Exists(convDir))
+            {
+                FileInfo? bestConv = null;
+                string? bestConvId = null;
+                foreach (var fi in new DirectoryInfo(convDir).EnumerateFiles())
+                {
+                    var convId = AntigravityConversationId(fi.Name);
+                    if (convId is null) continue;
+                    if (bestConv is null || fi.LastWriteTimeUtc > bestConv.LastWriteTimeUtc)
+                    {
+                        bestConv = fi;
+                        bestConvId = convId;
+                    }
+                }
+                if (bestConv is not null)
+                {
+                    var sameId = string.Equals(bestConvId, bestTranscriptId, StringComparison.OrdinalIgnoreCase);
+                    if ((!sameId && bestConv.LastWriteTimeUtc > bestTranscript.LastWriteTimeUtc)
+                        || (sameId && bestConv.LastWriteTimeUtc - bestTranscript.LastWriteTimeUtc > TimeSpan.FromSeconds(5)))
+                        return (null, null);
+                }
+            }
+
+            return ReadJsonlChat(bestTranscript.FullName, "antigravity");
+        }
+        catch { return (null, null); }
+    }
+
+    private static (string? prompt, string? response) ReadJsonlChat(string path, string tool)
+    {
+        string? prompt = null;
+        string? response = null;
+        string? claudeLastPrompt = null;
+        string? claudeFallbackPrompt = null;
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var len = Math.Min(fs.Length, 512 * 1024);
+            if (fs.Length > len) fs.Seek(-len, SeekOrigin.End);
+            using var sr = new StreamReader(fs, Encoding.UTF8);
+            var lines = sr.ReadToEnd().Split('\n');
+            for (var i = lines.Length - 1; i >= 0; i--)
+            {
+                var l = lines[i].Trim();
+                if (string.IsNullOrEmpty(l)) continue;
+                try
+                {
+                    using var doc = JsonDocument.Parse(l);
+                    var root = doc.RootElement;
+                    if (tool == "claude")
+                    {
+                        var type = Str(root, "type");
+                        var isMeta = root.ValueKind == JsonValueKind.Object
+                            && root.TryGetProperty("isMeta", out var meta)
+                            && meta.ValueKind == JsonValueKind.True;
+                        if (claudeLastPrompt is null && type == "last-prompt")
+                        {
+                            var lp = Str(root, "lastPrompt");
+                            if (!string.IsNullOrWhiteSpace(lp)) claudeLastPrompt = lp;
+                        }
+                        if (claudeFallbackPrompt is null && !isMeta && type == "user" && root.TryGetProperty("message", out var userMsg))
+                        {
+                            var candidate = ExtractClaudeText(userMsg);
+                            if (!IsIgnoredClaudePrompt(candidate)) claudeFallbackPrompt = candidate;
+                        }
+                        if (response is null && !isMeta && type == "assistant" && root.TryGetProperty("message", out var assistantMsg))
+                            response = ExtractClaudeText(assistantMsg);
+                        if (claudeLastPrompt is not null && response is not null) break;
+                    }
+                    else if (tool == "antigravity")
+                    {
+                        var type = Str(root, "type");
+                        if (response is null && type == "PLANNER_RESPONSE")
+                            response = Str(root, "content");
+                        if (prompt is null && type == "USER_INPUT")
+                            prompt = Str(root, "content");
+                        if (prompt is not null && response is not null) break;
+                    }
+                    else if (tool == "codex" && root.TryGetProperty("payload", out var payload))
+                    {
+                        var rootType = Str(root, "type");
+                        var eventType = Str(payload, "type");
+                        if (rootType == "event_msg")
+                        {
+                            if (prompt is null && eventType == "user_message")
+                                prompt = Str(payload, "message");
+                            if (response is null && eventType == "agent_message")
+                                response = Str(payload, "message");
+                        }
+                        else if (rootType == "response_item" && eventType == "message")
+                        {
+                            var role = Str(payload, "role");
+                            if (prompt is null && role == "user")
+                                prompt = ExtractCodexMessageText(payload);
+                            if (response is null && role == "assistant")
+                                response = ExtractCodexMessageText(payload);
+                        }
+                        if (prompt is not null && response is not null) break;
+                    }
+                }
+                catch { }
+            }
+            if (tool == "claude") prompt = claudeLastPrompt ?? claudeFallbackPrompt;
+        }
+        catch { }
+        return (TruncateMessage(prompt), TruncateMessage(response));
+    }
+
+    private static bool IsIgnoredClaudePrompt(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return true;
+        var trimmed = text.TrimStart();
+        return trimmed.StartsWith("[Request interrupted by user", StringComparison.Ordinal)
+            || trimmed.StartsWith("<command-", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("<local-command-", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("<system-reminder", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? ExtractClaudeText(JsonElement message)
+    {
+        if (message.ValueKind != JsonValueKind.Object) return null;
+        if (message.TryGetProperty("content", out var content))
+        {
+            if (content.ValueKind == JsonValueKind.String) return content.GetString();
+            if (content.ValueKind == JsonValueKind.Array)
+            {
+                var parts = new List<string>();
+                foreach (var item in content.EnumerateArray())
+                    if (Str(item, "type") == "text" && Str(item, "text") is { Length: > 0 } t)
+                        parts.Add(t);
+                return parts.Count == 0 ? null : string.Join("\n", parts);
+            }
+        }
+        return null;
+    }
+
+    private static string? ExtractCodexMessageText(JsonElement payload)
+    {
+        if (!payload.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
+            return null;
+        var parts = new List<string>();
+        foreach (var item in content.EnumerateArray())
+        {
+            var kind = Str(item, "type");
+            if (kind is "input_text" or "output_text" or "text" && Str(item, "text") is { Length: > 0 } t)
+                parts.Add(t);
+        }
+        return parts.Count == 0 ? null : string.Join("\n", parts);
+    }
+
+    internal static string? TruncateMessage(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var trimmed = value.Trim();
+        if (trimmed.Length <= 1500) return trimmed;
+        var len = 1500;
+        if (char.IsHighSurrogate(trimmed[len - 1])) len--;
+        return string.Concat(trimmed.AsSpan(0, len), "…");
     }
 
     private static string? Str(JsonElement e, string p) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
