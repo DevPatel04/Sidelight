@@ -39,8 +39,8 @@ public sealed partial class PushStore
         try
         {
             if (File.Exists(_dataPath))
-                foreach (var (k, v) in JsonSerializer.Deserialize<Dictionary<string, PushItem>>(File.ReadAllText(_dataPath)) ?? [])
-                    if (ValidKey(k)) _items[k] = v;
+                foreach (var (k, v) in JsonSerializer.Deserialize<Dictionary<string, PushItem?>>(File.ReadAllText(_dataPath)) ?? [])
+                    if (ValidKey(k) && v is not null && v.Data.ValueKind != JsonValueKind.Undefined) _items[k] = v;
         }
         catch (Exception ex) { log.LogWarning("could not read {Path}: {Msg}", _dataPath, ex.Message); }
     }
