@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.Text;
 using System.Text.Json;
 
 namespace PhoneBox.Agent;
@@ -10,7 +9,12 @@ public sealed partial class SessionMonitor
     private const long OpenClawDiscoveryIntervalMs = 30_000;
     private const int OpenClawMaxLockBytes = 64 * 1024;
 
-    internal readonly record struct OpenClawProcessInfo(int Pid, string Name, string? CommandLine, long? StartMs);
+    /// <summary>A candidate process. <paramref name="Argv"/> keeps the exact argument boundaries when the OS gives them;
+    /// otherwise <paramref name="CommandLine"/> is split with the Windows command-line rules.</summary>
+    internal readonly record struct OpenClawProcessInfo(int Pid, string Name, string? CommandLine, long? StartMs, IReadOnlyList<string>? Argv = null)
+    {
+        public IReadOnlyList<string> Args => Argv ?? (string.IsNullOrWhiteSpace(CommandLine) ? [] : ProcessCommandLine.SplitWindows(CommandLine));
+    }
     private readonly record struct OpenClawGatewayMatch(int Pid, long? StartMs, long? LockTimeMs);
 
     private static readonly HashSet<string> OpenClawCliSubcommands = new(StringComparer.OrdinalIgnoreCase)
@@ -32,6 +36,7 @@ public sealed partial class SessionMonitor
     private long? _openClawCachedStartMs;
     private long _openClawNextProcDiscovery = long.MinValue;
     private (int Pid, long StartMs)? _openClawVerifiedIdentity;
+    private (int Pid, long StartMs, long RetryAt)? _openClawRejectedIdentity;
 
     /// <summary>True when at least one enabled page (or enabled Smart Stack child) opts in to OpenClaw sessions.</summary>
     internal bool IsOpenClawEnabled() => config?.Get().ShowOpenClawSessions() == true;
@@ -47,6 +52,7 @@ public sealed partial class SessionMonitor
         _openClawCachedStartMs = null;
         _openClawNextProcDiscovery = long.MinValue;
         _openClawVerifiedIdentity = null;
+        _openClawRejectedIdentity = null;
     }
 
     /// <summary>
@@ -162,7 +168,7 @@ public sealed partial class SessionMonitor
                 var procStartMs = startLookup(pid);
                 if (procStartMs is { } ps)
                 {
-                    if (SameStartMs(ps, lockWriteMs, lockCreatedMs, () => VerifyOpenClawProcess(pid, ps, verifyListProcesses)))
+                    if (SameStartMs(ps, lockWriteMs, lockCreatedMs, () => VerifyOpenClawProcess(pid, ps, verifyListProcesses, tickNow)))
                         return new OpenClawGatewayMatch(pid, ps, lockTimeMs);
                 }
                 else
@@ -338,7 +344,9 @@ public sealed partial class SessionMonitor
         return verifyIdentity?.Invoke() == true;
     }
 
-    private bool VerifyOpenClawProcess(int pid, long procStartMs, Func<IReadOnlyList<OpenClawProcessInfo>>? listProcesses)
+    /// <summary>Checks once per (pid, start) pair: a verified pair is remembered, a rejected one is not re-checked until the
+    /// next 30 s discovery window, so a renewed lock never starts a process read (on macOS <c>/bin/ps</c>) on every poll.</summary>
+    private bool VerifyOpenClawProcess(int pid, long procStartMs, Func<IReadOnlyList<OpenClawProcessInfo>>? listProcesses, long tickNow)
     {
         if (_openClawVerifiedIdentity is { } verified
             && verified.Pid == pid
@@ -347,14 +355,24 @@ public sealed partial class SessionMonitor
             return true;
         }
 
+        if (_openClawRejectedIdentity is { } rejected
+            && rejected.Pid == pid
+            && Math.Abs(rejected.StartMs - procStartMs) < 1_000
+            && tickNow < rejected.RetryAt)
+        {
+            return false;
+        }
+
         if (IsOpenClawProcessPid(pid, listProcesses))
         {
             _openClawVerifiedIdentity = (pid, procStartMs);
+            _openClawRejectedIdentity = null;
             return true;
         }
 
         if (_openClawVerifiedIdentity is { } prev && prev.Pid == pid)
             _openClawVerifiedIdentity = null;
+        _openClawRejectedIdentity = (pid, procStartMs, tickNow + OpenClawDiscoveryIntervalMs);
         return false;
     }
 
@@ -374,8 +392,8 @@ public sealed partial class SessionMonitor
             if (IsDirectGatewayProcessName(name)) return true;
             if (!name.Equals("openclaw", StringComparison.OrdinalIgnoreCase) && !IsNodeLikeRuntime(name))
                 return false;
-            var cmd = ProcessCommandLine.Read(pid);
-            return IsOpenClawProcessMatch(new OpenClawProcessInfo(pid, name, cmd, null));
+            var argv = ProcessCommandLine.ReadArgv(pid);
+            return IsOpenClawProcessMatch(new OpenClawProcessInfo(pid, name, null, null, argv));
         }
         catch
         {
@@ -394,7 +412,7 @@ public sealed partial class SessionMonitor
                 return p;
             if (cliCandidate is null && p.Name.Equals("openclaw", StringComparison.OrdinalIgnoreCase) && IsOpenClawProcessMatch(p))
                 cliCandidate = p;
-            else if (runtimeCandidate is null && IsNodeLikeRuntime(p.Name) && IsOpenClawGatewayCommandLine(p.CommandLine))
+            else if (runtimeCandidate is null && IsNodeLikeRuntime(p.Name) && IsOpenClawGatewayArgv(p.Args))
                 runtimeCandidate = p;
         }
         return cliCandidate ?? runtimeCandidate;
@@ -413,40 +431,56 @@ public sealed partial class SessionMonitor
     private static bool IsOpenClawProcessMatch(OpenClawProcessInfo p)
     {
         if (IsDirectGatewayProcessName(p.Name)) return true;
+        var args = p.Args;
         if (p.Name.Equals("openclaw", StringComparison.OrdinalIgnoreCase))
         {
-            if (string.IsNullOrWhiteSpace(p.CommandLine)) return true;
-            var args = SplitArgs(p.CommandLine);
+            if (args.Count == 0) return true;
             if (args.Count == 1 && args[0].Replace('\\', '/').TrimEnd('/').EndsWith("openclaw", StringComparison.OrdinalIgnoreCase))
                 return true;
-            return IsOpenClawGatewayCommandLine(p.CommandLine);
+            return IsOpenClawGatewayArgv(args);
         }
-        return IsNodeLikeRuntime(p.Name) && IsOpenClawGatewayCommandLine(p.CommandLine);
+        return IsNodeLikeRuntime(p.Name) && IsOpenClawGatewayArgv(args);
     }
 
-    internal static bool IsOpenClawGatewayCommandLine(string? cmd)
+    /// <summary>Classifies a command-line string split with the Windows rules (an apostrophe stays literal).</summary>
+    internal static bool IsOpenClawGatewayCommandLine(string? cmd) =>
+        !string.IsNullOrWhiteSpace(cmd) && IsOpenClawGatewayArgv(ProcessCommandLine.SplitWindows(cmd));
+
+    private static readonly string[] OpenClawDistEntrypoints = ["index.js", "index.mjs", "entry.js", "entry.mjs"];
+
+    /// <summary>
+    /// True for an OpenClaw CLI entrypoint only: the <c>openclaw</c> launcher (<c>openclaw</c>, <c>openclaw.mjs</c>,
+    /// <c>openclaw.exe</c>, …) or the package's own <c>openclaw/dist/{index,entry}.{js,mjs}</c>. Any other script inside a
+    /// folder that merely contains "openclaw" (e.g. <c>/work/openclaw/scripts/test.js</c>) does not count.
+    /// </summary>
+    internal static bool IsOpenClawEntrypoint(string token)
     {
-        if (string.IsNullOrWhiteSpace(cmd)) return false;
-        var args = SplitArgs(cmd);
-        if (args.Count == 0) return false;
+        if (string.IsNullOrWhiteSpace(token) || token.StartsWith('-')) return false;
+        if (OpenClawBaseName(token).Equals("openclaw", StringComparison.OrdinalIgnoreCase)) return true;
+        var parts = token.Replace('\\', '/').TrimEnd('/').Split('/');
+        return parts.Length >= 3
+            && OpenClawDistEntrypoints.Contains(parts[^1], StringComparer.OrdinalIgnoreCase)
+            && parts[^2].Equals("dist", StringComparison.OrdinalIgnoreCase)
+            && parts[^3].Equals("openclaw", StringComparison.OrdinalIgnoreCase);
+    }
 
-        static string BaseName(string token)
+    private static string OpenClawBaseName(string token)
+    {
+        var norm = token.Replace('\\', '/').TrimEnd('/');
+        var slash = norm.LastIndexOf('/');
+        var name = slash >= 0 ? norm[(slash + 1)..] : norm;
+        foreach (var ext in new[] { ".exe", ".cmd", ".bat", ".mjs", ".js" })
         {
-            var norm = token.Replace('\\', '/').TrimEnd('/');
-            var slash = norm.LastIndexOf('/');
-            var name = slash >= 0 ? norm[(slash + 1)..] : norm;
-            foreach (var ext in new[] { ".exe", ".cmd", ".bat", ".mjs", ".js" })
-            {
-                if (name.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
-                {
-                    name = name[..^ext.Length];
-                    break;
-                }
-            }
-            return name;
+            if (name.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
+                return name[..^ext.Length];
         }
+        return name;
+    }
 
-        if (BaseName(args[0]).Equals("openclaw-gateway", StringComparison.OrdinalIgnoreCase))
+    internal static bool IsOpenClawGatewayArgv(IReadOnlyList<string> args)
+    {
+        if (args.Count == 0) return false;
+        if (OpenClawBaseName(args[0]).Equals("openclaw-gateway", StringComparison.OrdinalIgnoreCase))
             return true;
 
         var hasOpenClawEntry = false;
@@ -454,8 +488,7 @@ public sealed partial class SessionMonitor
         for (var i = 0; i < args.Count; i++)
         {
             var token = args[i];
-            var norm = token.Replace('\\', '/');
-            var baseName = BaseName(token);
+            var baseName = OpenClawBaseName(token);
             if (i <= 1 && !token.StartsWith('-') && baseName.Equals("openclaw-gateway", StringComparison.OrdinalIgnoreCase))
                 return true;
 
@@ -473,11 +506,7 @@ public sealed partial class SessionMonitor
                 continue;
             }
 
-            if (!token.StartsWith('-')
-                && (baseName.Equals("openclaw", StringComparison.OrdinalIgnoreCase)
-                    || norm.Contains("/openclaw/", StringComparison.OrdinalIgnoreCase)
-                    || norm.EndsWith("/openclaw.mjs", StringComparison.OrdinalIgnoreCase)
-                    || norm.Equals("openclaw.mjs", StringComparison.OrdinalIgnoreCase)))
+            if (IsOpenClawEntrypoint(token))
             {
                 hasOpenClawEntry = true;
             }
@@ -487,38 +516,6 @@ public sealed partial class SessionMonitor
             }
         }
         return hasOpenClawEntry && gatewayIdx >= 0;
-    }
-
-    private static List<string> SplitArgs(string cmd)
-    {
-        var args = new List<string>();
-        var sb = new StringBuilder();
-        char quote = '\0';
-        var inToken = false;
-        foreach (var ch in cmd)
-        {
-            if (quote != '\0')
-            {
-                if (ch == quote) quote = '\0';
-                else sb.Append(ch);
-            }
-            else if (ch is '"' or '\'')
-            {
-                quote = ch;
-                inToken = true;
-            }
-            else if (char.IsWhiteSpace(ch))
-            {
-                if (inToken) { args.Add(sb.ToString()); sb.Clear(); inToken = false; }
-            }
-            else
-            {
-                sb.Append(ch);
-                inToken = true;
-            }
-        }
-        if (inToken) args.Add(sb.ToString());
-        return args;
     }
 
     private static IReadOnlyList<OpenClawProcessInfo> ScanOpenClawCandidateProcesses()
@@ -559,9 +556,9 @@ public sealed partial class SessionMonitor
 
         if (needCmdline.Count > 0)
         {
-            var cmds = ProcessCommandLine.ReadMany(needCmdline.Select(x => x.Pid).ToArray());
+            var argvs = ProcessCommandLine.ReadManyArgv(needCmdline.Select(x => x.Pid).ToArray());
             foreach (var c in needCmdline)
-                results.Add(new OpenClawProcessInfo(c.Pid, c.Name, cmds.GetValueOrDefault(c.Pid), c.StartMs));
+                results.Add(new OpenClawProcessInfo(c.Pid, c.Name, null, c.StartMs, argvs.GetValueOrDefault(c.Pid)));
         }
         return results;
     }
@@ -666,7 +663,10 @@ public sealed partial class SessionMonitor
                 continue;
             }
 
-            if (!_openClawDirCache.TryGetValue(sessionsPath, out var cached)
+            // An append to an existing transcript does not change the folder's mtime, so a file that was older than the
+            // cutoff at the last listing would stay unseen: re-list every folder once per 30 s discovery window too.
+            if (fallbackElapsed
+                || !_openClawDirCache.TryGetValue(sessionsPath, out var cached)
                 || cached.DirWriteUtc != dirWriteUtc)
             {
                 onEnumerateSessionsDir?.Invoke(sessionsPath);

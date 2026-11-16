@@ -103,7 +103,7 @@ public static class UnixProc
     public static string? Args(int pid)
     {
         string? cmd = OperatingSystem.IsLinux()
-            ? Sh.ReadFile($"/proc/{pid}/cmdline")?.Replace('\0', ' ').Trim()
+            ? ProcessCommandLine.Read(pid)
             : Ps().GetValueOrDefault(pid)?.Args;
         if (string.IsNullOrWhiteSpace(cmd)) return null;
         var i = cmd.IndexOf(' ');

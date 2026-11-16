@@ -707,6 +707,14 @@ public sealed class OpenClawSessionTests : IDisposable
         Assert.True(many.TryGetValue(selfPid, out var fromMany));
         Assert.Equal(single, fromMany);
 
+        var argv = ProcessCommandLine.ReadArgv(selfPid);
+        Assert.NotNull(argv);
+        Assert.NotEmpty(argv);
+        Assert.True(ProcessCommandLine.ReadManyArgv(batchInput).ContainsKey(selfPid));
+        if (OperatingSystem.IsLinux())
+            Assert.Equal(single, string.Join(' ', argv));
+
+        Assert.Null(ProcessCommandLine.ReadArgv(0));
         Assert.Null(ProcessCommandLine.Read(0));
         Assert.Null(ProcessCommandLine.Read(-1));
         Assert.Empty(ProcessCommandLine.ReadMany([]));
@@ -717,6 +725,11 @@ public sealed class OpenClawSessionTests : IDisposable
     [InlineData("/usr/local/bin/openclaw-gateway --port 18789", true)]
     [InlineData("/Users/x/.openclaw/runtime/current/bin/bun /Users/x/.openclaw/runtime/current/lib/node_modules/openclaw/openclaw.mjs gateway", true)]
     [InlineData("\"C:\\Program Files\\nodejs\\node.exe\" \"C:\\Users\\x\\npm\\node_modules\\openclaw\\dist\\index.js\" gateway", true)]
+    [InlineData("\"C:\\Program Files\\nodejs\\node.exe\" \"C:\\Users\\o'brien\\npm\\node_modules\\openclaw\\openclaw.mjs\" gateway", true)]
+    [InlineData("node /opt/openclaw/dist/entry.js gateway --port 18789", true)]
+    [InlineData("node /work/openclaw/scripts/test.js gateway", false)]
+    [InlineData("node /work/openclaw/dist/other.js gateway", false)]
+    [InlineData("node /work/my-openclaw/dist/index.js gateway", false)]
     [InlineData("openclaw gateway", true)]
     [InlineData("openclaw gateway run", true)]
     [InlineData("openclaw gateway start", true)]
@@ -745,5 +758,111 @@ public sealed class OpenClawSessionTests : IDisposable
     public void CommandLineClassifierMatchesOnlyOpenClawGateway(string cmd, bool expected)
     {
         Assert.Equal(expected, SessionMonitor.IsOpenClawGatewayCommandLine(cmd));
+    }
+
+    [Fact]
+    public void LinuxCmdlineKeepsArgvBoundariesForPathsWithQuotesAndSpaces()
+    {
+        // /proc/<pid>/cmdline is NUL-separated; an apostrophe or a space inside an argument must stay inside it
+        var raw = System.Text.Encoding.UTF8.GetBytes(
+            "/usr/bin/node\0/home/o'brien/My Tools/node_modules/openclaw/openclaw.mjs\0gateway\0--port\018789\0");
+        var argv = ProcessCommandLine.SplitNul(raw);
+        Assert.Equal(["/usr/bin/node", "/home/o'brien/My Tools/node_modules/openclaw/openclaw.mjs", "gateway", "--port", "18789"], argv);
+        Assert.True(SessionMonitor.IsOpenClawGatewayArgv(argv));
+
+        // The same argv for a non-OpenClaw script stays rejected
+        var other = ProcessCommandLine.SplitNul(System.Text.Encoding.UTF8.GetBytes("node\0/work/openclaw/scripts/test.js\0gateway\0"));
+        Assert.Equal(3, other.Length);
+        Assert.False(SessionMonitor.IsOpenClawGatewayArgv(other));
+
+        // A discovered process carries its argv through the real process-selection path
+        var now = new DateTime(2026, 11, 16, 14, 0, 0, DateTimeKind.Utc);
+        var startMs = new DateTimeOffset(now.AddMinutes(-10)).ToUnixTimeMilliseconds();
+        var monitor = OptedInMonitor();
+        var session = Assert.Single(monitor.ReadOpenClaw(
+            _root, isAlive: pid => pid == 303, getProcessStartMs: _ => startMs,
+            listProcesses: () => [new(303, "node", null, startMs, argv)], utcNow: () => now, getTicksMs: () => 1_000));
+        Assert.Equal(303, session.Pid);
+    }
+
+    [Fact]
+    public void WindowsSplitterTreatsApostropheAsLiteralAndHonoursEscapedQuotes()
+    {
+        Assert.Equal(["C:\\Program Files\\node.exe", "C:\\Users\\o'brien\\openclaw.mjs", "gateway"],
+            ProcessCommandLine.SplitWindows("\"C:\\Program Files\\node.exe\" C:\\Users\\o'brien\\openclaw.mjs gateway"));
+        Assert.Equal(["a\"b", "c\\", "d"], ProcessCommandLine.SplitWindows("a\\\"b \"c\\\\\" d"));
+    }
+
+    [Fact]
+    public void AppendToOlderTranscriptIsFoundOnTheFallbackRefreshWithoutFolderChange()
+    {
+        var now = new DateTime(2026, 11, 16, 12, 0, 0, DateTimeKind.Utc);
+        var procStartMs = new DateTimeOffset(now.AddHours(-6)).ToUnixTimeMilliseconds();
+        WriteGatewayPid(5566, now.AddHours(-6));
+
+        var sessionsDir = Directory.CreateDirectory(Path.Combine(_clawDir, "agents", "main", "sessions")).FullName;
+        var newer = Path.Combine(sessionsDir, "newer.jsonl");
+        var older = Path.Combine(sessionsDir, "older.jsonl");
+        File.WriteAllText(newer, "{}\n");
+        File.WriteAllText(older, "{}\n");
+        File.SetLastWriteTimeUtc(newer, now.AddMinutes(-30));
+        File.SetLastWriteTimeUtc(older, now.AddHours(-5)); // older than the 3 h cutoff and not the newest: not a candidate
+        var dirWrite = now.AddMinutes(-30);
+        Directory.SetLastWriteTimeUtc(sessionsDir, dirWrite);
+
+        var monitor = OptedInMonitor();
+        var enumerated = 0;
+        AgentSession Poll(DateTime at, long ticks) => Assert.Single(monitor.ReadOpenClaw(
+            _root, isAlive: pid => pid == 5566, getProcessStartMs: _ => procStartMs, listProcesses: () => [],
+            utcNow: () => at, getTicksMs: () => ticks, onEnumerateSessionsDir: _ => enumerated++));
+
+        Assert.Equal("idle", Poll(now, 1_000).Status);
+        Assert.Equal(1, enumerated);
+
+        // OpenClaw appends to the older transcript; appending does not change the folder's mtime
+        var t1 = now.AddSeconds(2);
+        File.AppendAllText(older, "{}\n");
+        File.SetLastWriteTimeUtc(older, t1);
+        Directory.SetLastWriteTimeUtc(sessionsDir, dirWrite);
+
+        // Inside the 30 s window the folder is not re-listed
+        Assert.Equal("idle", Poll(t1, 3_000).Status);
+        Assert.Equal(1, enumerated);
+
+        // The fallback refresh re-lists the folder and finds the write
+        var t2 = now.AddSeconds(31);
+        var busy = Poll(t2, 31_000);
+        Assert.Equal(2, enumerated);
+        Assert.Equal("busy", busy.Status);
+        Assert.Equal(new DateTimeOffset(t1).ToUnixTimeMilliseconds(), busy.Since);
+    }
+
+    [Fact]
+    public void RejectedIdentityIsNotRecheckedOnEveryPoll()
+    {
+        var now = new DateTime(2026, 11, 16, 12, 0, 0, DateTimeKind.Utc);
+        var procStartMs = new DateTimeOffset(now.AddHours(-2)).ToUnixTimeMilliseconds();
+        // gateway.pid without createdAt, renewed long after the process started -> needs an identity check
+        WriteGatewayPid(6161, now);
+
+        var monitor = OptedInMonitor();
+        var reads = 0;
+        IReadOnlyList<SessionMonitor.OpenClawProcessInfo> Scan()
+        {
+            reads++;
+            return [new(6161, "bash", "bash", procStartMs)];
+        }
+
+        Assert.Empty(monitor.ReadOpenClaw(_root, isAlive: pid => pid == 6161, getProcessStartMs: _ => procStartMs, listProcesses: Scan, utcNow: () => now, getTicksMs: () => 1_000));
+        Assert.Equal(1, reads);
+
+        // Polls inside the same 30 s window neither re-verify nor re-scan
+        Assert.Empty(monitor.ReadOpenClaw(_root, isAlive: pid => pid == 6161, getProcessStartMs: _ => procStartMs, listProcesses: Scan, utcNow: () => now.AddSeconds(2), getTicksMs: () => 3_000));
+        Assert.Empty(monitor.ReadOpenClaw(_root, isAlive: pid => pid == 6161, getProcessStartMs: _ => procStartMs, listProcesses: Scan, utcNow: () => now.AddSeconds(4), getTicksMs: () => 5_000));
+        Assert.Equal(1, reads);
+
+        // The next window checks once more
+        Assert.Empty(monitor.ReadOpenClaw(_root, isAlive: pid => pid == 6161, getProcessStartMs: _ => procStartMs, listProcesses: Scan, utcNow: () => now.AddSeconds(31), getTicksMs: () => 31_000));
+        Assert.Equal(2, reads);
     }
 }

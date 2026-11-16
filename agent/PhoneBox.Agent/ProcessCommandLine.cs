@@ -20,6 +20,41 @@ internal static class ProcessCommandLine
         return null;
     }
 
+    /// <summary>
+    /// Reads a process's arguments with their boundaries kept: exact NUL-separated argv on Linux, the Windows
+    /// command-line parsing rules on Windows, and whitespace-separated <c>ps</c> output on macOS (ps does not quote).
+    /// </summary>
+    public static string[]? ReadArgv(int pid)
+    {
+        if (pid <= 0) return null;
+        if (OperatingSystem.IsLinux()) return ReadLinuxArgv(pid);
+        if (OperatingSystem.IsWindows()) return ReadWindows(pid) is { } cmd ? SplitWindows(cmd) : null;
+        if (OperatingSystem.IsMacOS()) return ReadMacSingle(pid) is { } mac ? SplitWhitespace(mac) : null;
+        return null;
+    }
+
+    /// <summary>Batched <see cref="ReadArgv"/> (one <c>ps</c> call per 64 processes on macOS).</summary>
+    public static Dictionary<int, string[]> ReadManyArgv(IReadOnlyList<int> pids)
+    {
+        var map = new Dictionary<int, string[]>();
+        if (OperatingSystem.IsLinux())
+        {
+            foreach (var pid in pids.Where(p => p > 0).Distinct())
+            {
+                if (ReadLinuxArgv(pid) is { Length: > 0 } argv)
+                    map[pid] = argv;
+            }
+            return map;
+        }
+
+        foreach (var (pid, cmd) in ReadMany(pids))
+        {
+            var argv = OperatingSystem.IsWindows() ? SplitWindows(cmd) : SplitWhitespace(cmd);
+            if (argv.Length > 0) map[pid] = argv;
+        }
+        return map;
+    }
+
     public static Dictionary<int, string> ReadMany(IReadOnlyList<int> pids)
     {
         var map = new Dictionary<int, string>();
@@ -78,7 +113,10 @@ internal static class ProcessCommandLine
         return map;
     }
 
-    private static string? ReadLinux(int pid)
+    private static string? ReadLinux(int pid) =>
+        ReadLinuxArgv(pid) is { Length: > 0 } argv ? string.Join(' ', argv) : null;
+
+    private static string[]? ReadLinuxArgv(int pid)
     {
         try
         {
@@ -93,16 +131,79 @@ internal static class ProcessCommandLine
                 if (n <= 0) break;
                 total += n;
             }
-            if (total == 0) return null;
-            for (var i = 0; i < total; i++)
-            {
-                if (buf[i] == 0) buf[i] = (byte)' ';
-            }
-            var cmd = Encoding.UTF8.GetString(buf, 0, total).Trim();
-            return cmd.Length > 0 ? cmd : null;
+            var argv = SplitNul(buf.AsSpan(0, total));
+            return argv.Length > 0 ? argv : null;
         }
         catch { return null; }
     }
+
+    /// <summary>Splits a Linux /proc/&lt;pid&gt;/cmdline buffer at its NUL separators, so spaces and quotes inside an argument stay inside it.</summary>
+    internal static string[] SplitNul(ReadOnlySpan<byte> raw)
+    {
+        var args = new List<string>();
+        while (raw.Length > 0)
+        {
+            var end = raw.IndexOf((byte)0);
+            var part = end < 0 ? raw : raw[..end];
+            args.Add(Encoding.UTF8.GetString(part));
+            if (end < 0) break;
+            raw = raw[(end + 1)..];
+        }
+        while (args.Count > 0 && args[^1].Length == 0) args.RemoveAt(args.Count - 1);
+        return args.ToArray();
+    }
+
+    /// <summary>Splits a command line with the Windows (CommandLineToArgvW) rules: only double quotes group, an apostrophe is
+    /// literal, <c>2n</c> backslashes before a quote become <c>n</c> and toggle quoting, <c>2n+1</c> become <c>n</c> plus a literal quote.</summary>
+    internal static string[] SplitWindows(string cmd)
+    {
+        var args = new List<string>();
+        var sb = new StringBuilder();
+        var inQuotes = false;
+        var inToken = false;
+        for (var i = 0; i < cmd.Length; i++)
+        {
+            var ch = cmd[i];
+            if (ch == '\\')
+            {
+                var start = i;
+                while (i < cmd.Length && cmd[i] == '\\') i++;
+                var count = i - start;
+                if (i < cmd.Length && cmd[i] == '"')
+                {
+                    sb.Append('\\', count / 2);
+                    if (count % 2 == 1) sb.Append('"');
+                    else inQuotes = !inQuotes;
+                }
+                else
+                {
+                    sb.Append('\\', count);
+                    i--;
+                }
+                inToken = true;
+            }
+            else if (ch == '"')
+            {
+                if (inQuotes && i + 1 < cmd.Length && cmd[i + 1] == '"') { sb.Append('"'); i++; }
+                else inQuotes = !inQuotes;
+                inToken = true;
+            }
+            else if (!inQuotes && char.IsWhiteSpace(ch))
+            {
+                if (inToken) { args.Add(sb.ToString()); sb.Clear(); inToken = false; }
+            }
+            else
+            {
+                sb.Append(ch);
+                inToken = true;
+            }
+        }
+        if (inToken) args.Add(sb.ToString());
+        return args.ToArray();
+    }
+
+    private static string[] SplitWhitespace(string cmd) =>
+        cmd.Split([' ', '\t', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries);
 
     private static string? ReadMacSingle(int pid)
     {
