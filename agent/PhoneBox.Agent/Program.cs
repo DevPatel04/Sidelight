@@ -484,6 +484,8 @@ app.MapGet("/api/ha/states", async (string? ids, HomeAssistant ha) =>
     Results.Json(await ha.StatesAsync((ids ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))));
 app.MapPost("/api/ha/toggle/{id}", async (string id, HomeAssistant ha) =>
     await ha.ToggleAsync(id) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true }));
+// Settings › widget › Home Assistant entities: the picker's list (local only, not on the Wi-Fi allow-list)
+app.MapGet("/api/ha/entities", async (HomeAssistant ha) => Results.Json(await ha.ListEntitiesAsync()));
 // Settings › General › Home Assistant › Test (local only)
 app.MapPost("/api/ha/test", async (HomeAssistantConfig body) =>
     Results.Json(new { result = await HomeAssistant.TestAsync(body.Url ?? "", body.Token ?? "") }));
