@@ -156,7 +156,7 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         var t = new Tokens(cfg.ClientId!, j?["access_token"]?.GetValue<string>() ?? "", j?["refresh_token"]?.GetValue<string>() ?? "",
             DateTimeOffset.UtcNow.ToUnixTimeSeconds() + (j?["expires_in"]?.GetValue<long>() ?? 3600));
         if (t.Access == "") return null;
-        try { Directory.CreateDirectory(AppPaths.ConfigDir); File.WriteAllText(TokenPath, JsonSerializer.Serialize(t)); } catch (Exception ex) { log.LogDebug(ex, "discord: could not save the login"); }
+        try { Directory.CreateDirectory(AppPaths.ConfigDir); AppPaths.WriteAllTextPrivate(TokenPath, JsonSerializer.Serialize(t)); } catch (Exception ex) { log.LogDebug(ex, "discord: could not save the login"); }
         return t;
     }
 
@@ -258,27 +258,37 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         _pending[id] = tcs;
         var msg = new JsonObject { ["cmd"] = cmd, ["nonce"] = id, ["args"] = args ?? new JsonObject() };
         if (evt is not null) msg["evt"] = evt;
-        await _send.WaitAsync(ct);
-        try { await WriteFrame(io, 1, msg, ct); } finally { _send.Release(); }
+        // The deadline covers waiting for the send lock, the write and the answer, so a stalled pipe cannot block forever.
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(wait ?? TimeSpan.FromSeconds(5));
-        await using var _ = timeout.Token.Register(() => { if (_pending.TryRemove(id, out var t)) t.TrySetException(new TimeoutException("Discord did not answer")); });
-        return await tcs.Task;
+        await using var registration = timeout.Token.Register(() => { if (_pending.TryRemove(id, out var t)) t.TrySetException(new TimeoutException("Discord did not answer")); });
+        try
+        {
+            await _send.WaitAsync(timeout.Token);
+            try { await WriteFrame(io, 1, msg, timeout.Token); } finally { _send.Release(); }
+            return await tcs.Task;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { throw new TimeoutException("Discord did not answer"); }
+        finally { _pending.TryRemove(id, out _); }
     }
+
+    // One button press at a time, so two quick toggles each start from the state the previous one produced.
+    private readonly SemaphoreSlim _act = new(1, 1);
 
     /// <summary>The widget's buttons: mute, deafen, leave, join (a voice channel id from the list the agent already sent).</summary>
     public async Task<string?> ActAsync(string action, string? channel)
     {
-        if (!config.Get().Widgets().Any(w => w.Type == "discord" && w.Bool("control") == true))
+        if (!ControlAllowed(config.Get()))
             return "controlling Discord is turned off in the widget's settings";
-        var s = _snap;
-        if (!s.Connected) return "Discord is not connected";
+        await _act.WaitAsync();
         try
         {
+            var s = _snap;
+            if (!s.Connected) return "Discord is not connected";
             switch (action)
             {
-                case "mute": await Request("SET_VOICE_SETTINGS", new JsonObject { ["mute"] = !s.Muted }, null, CancellationToken.None); break;
-                case "deafen": await Request("SET_VOICE_SETTINGS", new JsonObject { ["deaf"] = !s.Deafened }, null, CancellationToken.None); break;
+                case "mute": ApplyVoice(await Request("SET_VOICE_SETTINGS", new JsonObject { ["mute"] = !s.Muted }, null, CancellationToken.None)); break;
+                case "deafen": ApplyVoice(await Request("SET_VOICE_SETTINGS", new JsonObject { ["deaf"] = !s.Deafened }, null, CancellationToken.None)); break;
                 case "leave": await Request("SELECT_VOICE_CHANNEL", new JsonObject { ["channel_id"] = null }, null, CancellationToken.None); break;
                 case "join" when !string.IsNullOrEmpty(channel) && s.Channels.Any(c => c.Id == channel):
                     await Request("SELECT_VOICE_CHANNEL", new JsonObject { ["channel_id"] = channel, ["force"] = true }, null, CancellationToken.None); break;
@@ -288,6 +298,22 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
             return null;
         }
         catch (Exception ex) { return ex.Message; }
+        finally { _act.Release(); }
+    }
+
+    /// <summary>Control needs a Discord widget with the control option on, on a page that is enabled.</summary>
+    public static bool ControlAllowed(AgentConfig cfg) =>
+        cfg.Widgets(enabledPagesOnly: true).Any(w => w.Type == "discord" && w.Bool("control") == true);
+
+    // Discord answers a settings change with the new settings; take the state from that, not from the next poll.
+    private void ApplyVoice(JsonNode? vs)
+    {
+        if (vs is null) return;
+        lock (_lock)
+        {
+            var s = _snap;
+            _snap = s with { Muted = vs["mute"]?.GetValue<bool>() ?? s.Muted, Deafened = vs["deaf"]?.GetValue<bool>() ?? s.Deafened };
+        }
     }
 
     // ---- IPC transport: 4-byte opcode + 4-byte length (little endian) + UTF-8 JSON ----

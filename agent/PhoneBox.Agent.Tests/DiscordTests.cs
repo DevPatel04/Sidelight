@@ -10,15 +10,35 @@ public sealed class DiscordTests : IDisposable
 
     public void Dispose() { try { File.Delete(_configPath); } catch { } }
 
-    private DiscordMonitor Monitor(bool? control)
+    private DiscordMonitor Monitor(bool? control, bool pageEnabled = true)
     {
         object options = control is null ? new { } : new { control };
         File.WriteAllText(_configPath, JsonSerializer.Serialize(new
         {
             discord = new { enabled = true, clientId = "1", clientSecret = "s" },
-            pages = new[] { new { id = "p", title = "P", widgets = new object[] { new { id = "d", type = "discord", x = 0, y = 0, w = 4, h = 5, options } } } },
+            // At least one page must stay enabled (the config repairs an all-disabled list), so a second page holds no widgets.
+            pages = new[]
+            {
+                new { id = "p", title = "P", enabled = pageEnabled, widgets = new object[] { new { id = "d", type = "discord", x = 0, y = 0, w = 4, h = 5, options } } },
+                new { id = "q", title = "Q", enabled = true, widgets = Array.Empty<object>() },
+            },
         }));
         return new DiscordMonitor(new ConfigStore(_configPath), NullLogger<DiscordMonitor>.Instance);
+    }
+
+    [Fact]
+    public async Task A_widget_on_a_disabled_page_does_not_allow_control()
+    {
+        var error = await Monitor(control: true, pageEnabled: false).ActAsync("mute", null);
+        Assert.Contains("turned off", error);
+        Assert.False(DiscordMonitor.ControlAllowed(new ConfigStore(_configPath).Get()));
+    }
+
+    [Fact]
+    public void Control_is_allowed_for_an_enabled_page_with_the_option_on()
+    {
+        Monitor(control: true);
+        Assert.True(DiscordMonitor.ControlAllowed(new ConfigStore(_configPath).Get()));
     }
 
     [Theory]

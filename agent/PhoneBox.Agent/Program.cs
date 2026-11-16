@@ -476,7 +476,7 @@ app.MapGet("/api/discord", (DiscordMonitor dc, ConfigStore cfg) => Results.Json(
 {
     enabled = cfg.Get().Discord.Enabled,
     snapshot = dc.Snapshot(),
-    control = cfg.Get().Widgets().Any(w => w.Type == "discord" && w.Bool("control") == true),
+    control = DiscordMonitor.ControlAllowed(cfg.Get()),
 }));
 app.MapGet("/api/discord/img/{kind}/{id}/{hash}", async (string kind, string id, string hash, CancellationToken ct) =>
     await DiscordMonitor.ImageAsync(kind, id, hash, ct) is { } img
