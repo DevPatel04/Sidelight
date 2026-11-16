@@ -37,10 +37,24 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     private static readonly string Home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     // IPv4 first: on networks where IPv6 is advertised but not routable, the default connect fails with
     // "Socket is not connected" instead of falling back, which breaks the quota checks.
-    private readonly HttpClient _http = new(new SocketsHttpHandler { ConnectCallback = (ctx, ct) => ConnectIpv4First(ctx.DnsEndPoint, ct) })
+    private HttpClient? _httpClient;
+    private HttpClient Http => _httpClient ??= NewHttpClient(HttpHandler
+        ?? new SocketsHttpHandler { ConnectCallback = (ctx, ct) => ConnectIpv4First(ctx.DnsEndPoint, ct) });
+
+    /// <summary>For tests: a fake handler instead of the network.</summary>
+    internal HttpMessageHandler? HttpHandler { get; init; }
+
+    private static HttpClient NewHttpClient(HttpMessageHandler handler)
     {
-        Timeout = TimeSpan.FromSeconds(15),
-    };
+        var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("PhoneBox/" + AppPaths.Version);
+        return http;
+    }
+
+    private static readonly string DefaultCredentialsPath = Path.Combine(Home, ".claude", ".credentials.json");
+
+    /// <summary>Claude Code's credentials file (read only). Tests point it at a file of their own.</summary>
+    internal string CredentialsPath { get; init; } = DefaultCredentialsPath;
 
     /// <summary>The addresses in the order to try them: IPv4 first, each family keeping its resolver order.</summary>
     internal static IEnumerable<IPAddress> Ipv4First(IEnumerable<IPAddress> addresses) =>
@@ -98,7 +112,7 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     private volatile QuotaProvider? _claude;
     private volatile QuotaProvider? _codex;
     private volatile QuotaProvider? _antigravity;
-    private long _nextClaude;
+    private long _claudeNextAt;           // wall-clock ms of the next Claude check
     private int _claudeFailures;          // consecutive failed checks, for the back-off
     private TimeSpan? _claudeRetryAfter;  // what the last 429 / 503 asked for (Retry-After)
     private long _nextCodexBar;
@@ -155,7 +169,6 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     /// </summary>
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("PhoneBox/" + AppPaths.Version);
         await Task.WhenAll(RunUsageLoopAsync(ct), RunOverviewLoopAsync(ct));
     }
 
@@ -275,8 +288,7 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
                     _nextCodexBar = Environment.TickCount64 + 60_000;
                 }
             }
-            try { _codex = ReadCodex(); }
-            catch (Exception ex) { _codex = Fail("codex", "Codex", ex.Message); }
+            CodexTick();
 
             if (Environment.TickCount64 >= _nextAntigravity)
             {
@@ -284,29 +296,33 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
                 _nextAntigravity = Environment.TickCount64 + (ok ? 60_000 : 30_000);
             }
 
-            if (Environment.TickCount64 >= _nextClaude)
-            {
-                // Every 3 minutes when healthy; on errors back off, and never ask again sooner than a 429 says.
-                var ok = await RefreshClaude(ct);
-                _claudeFailures = ok ? 0 : _claudeFailures + 1;
-                _nextClaude = Environment.TickCount64 + (long)ClaudeDelay(ok, _claudeFailures, _claudeRetryAfter).TotalMilliseconds;
-                _claudeRetryAfter = null;
-            }
+            await ClaudeTickAsync(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ct);
             await Wake.Delay(TimeSpan.FromSeconds(30), ct);
         }
     }
 
     // ------------------------------------------------------------------ Claude
-    private async Task<bool> RefreshClaude(CancellationToken ct)
+    /// <summary>One pass of the usage loop for Claude, at wall-clock time <paramref name="nowMs"/>.</summary>
+    internal async Task ClaudeTickAsync(long nowMs, CancellationToken ct)
     {
-        var path = Path.Combine(Home, ".claude", ".credentials.json");
+        if (nowMs < _claudeNextAt) return;
+        // Every 3 minutes when healthy; on errors back off, and never ask again sooner than a 429 says.
+        var ok = await RefreshClaude(nowMs, ct);
+        _claudeFailures = ok ? 0 : _claudeFailures + 1;
+        _claudeNextAt = nowMs + (long)ClaudeDelay(ok, _claudeFailures, _claudeRetryAfter).TotalMilliseconds;
+        _claudeRetryAfter = null;
+    }
+
+    private async Task<bool> RefreshClaude(long nowMs, CancellationToken ct)
+    {
+        var path = CredentialsPath;
         string? json = null;
         // Claude Code may be rewriting the file right now: try again on the next round instead of ending the service
         try { if (File.Exists(path)) json = await File.ReadAllTextAsync(path, ct); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
 #if !WINDOWS
         // macOS: Claude Code stores the credentials in the login Keychain instead of a file (read-only access).
-        if (json is null && OperatingSystem.IsMacOS()) json = Sh.Run("security", "find-generic-password", "-s", "Claude Code-credentials", "-w")?.Trim();
+        if (json is null && OperatingSystem.IsMacOS() && path == DefaultCredentialsPath) json = Sh.Run("security", "find-generic-password", "-s", "Claude Code-credentials", "-w")?.Trim();
 #endif
         if (string.IsNullOrEmpty(json)) { _claude = null; return true; }
 
@@ -320,7 +336,7 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
             var expires = o.TryGetProperty("expiresAt", out var e) && e.TryGetInt64(out var ms) ? ms : 0;
 
             if (string.IsNullOrEmpty(token)) { _claude = Keep(plan, "Not signed in to Claude Code"); return false; }
-            if (expires > 0 && expires < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
+            if (expires > 0 && expires < nowMs)
             {
                 _claude = Keep(plan, "Token expired; it will refresh when Claude Code runs");
                 return false;
@@ -329,13 +345,13 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
             using var req = new HttpRequestMessage(HttpMethod.Get, "https://api.anthropic.com/api/oauth/usage");
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             req.Headers.Add("anthropic-beta", "oauth-2025-04-20");
-            using var res = await _http.SendAsync(req, ct);
+            using var res = await Http.SendAsync(req, ct);
             if (res.StatusCode is System.Net.HttpStatusCode.TooManyRequests or System.Net.HttpStatusCode.ServiceUnavailable)
             {
                 // The usage endpoint is rate limited per account (Claude Code and other tools use it too). Asking again
                 // before Retry-After only keeps the limit in place, so wait at least that long.
                 _claudeRetryAfter = RetryAfter(res.Headers.RetryAfter) ?? TimeSpan.FromMinutes(5);
-                var at = DateTime.Now + ClaudeDelay(false, _claudeFailures + 1, _claudeRetryAfter);
+                var at = DateTimeOffset.FromUnixTimeMilliseconds(nowMs).ToLocalTime() + ClaudeDelay(false, _claudeFailures + 1, _claudeRetryAfter);
                 _claude = Keep(plan, $"Anthropic is limiting quota checks; trying again at {at:HH:mm}");
                 return false;
             }
@@ -346,7 +362,7 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
             }
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
             _claude = new QuotaProvider("claude", "Claude", plan, ParseClaudeLimits(doc.RootElement),
-                ClaudeExtra(doc.RootElement), DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), null);
+                ClaudeExtra(doc.RootElement), nowMs, null);
             SaveClaudeCache(_claude);
             return true;
         }
@@ -432,9 +448,19 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     private static partial Regex MaxTier();
 
     // ------------------------------------------------------------------ Codex
-    private static QuotaProvider? ReadCodex()
+    /// <summary>Codex's session logs (read only). Tests point it at a folder of their own.</summary>
+    internal string CodexSessionsRoot { get; init; } = Path.Combine(Home, ".codex", "sessions");
+
+    /// <summary>One pass of the usage loop for Codex.</summary>
+    internal void CodexTick()
     {
-        var root = Path.Combine(Home, ".codex", "sessions");
+        try { _codex = ReadCodex(); }
+        catch (Exception ex) { _codex = Fail("codex", "Codex", ex.Message); }
+    }
+
+    private QuotaProvider? ReadCodex()
+    {
+        var root = CodexSessionsRoot;
         if (!Directory.Exists(root)) return null;
 
         var files = new DirectoryInfo(root).EnumerateFiles("rollout-*.jsonl", SearchOption.AllDirectories);
