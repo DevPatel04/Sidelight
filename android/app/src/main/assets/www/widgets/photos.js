@@ -1,4 +1,4 @@
-import { API, PANEL_HEADERS, PREVIEW, LOCALE, h, haptic, online, pad } from '../main.js';
+import { API, PANEL_HEADERS, PREVIEW, LOCALE, h, haptic, online, pad, t } from '../main.js';
 import { W } from '../registry.js';
 
 function resolveApiUrl(pathOrUrl) {
@@ -84,7 +84,7 @@ W.photos = {
     const metaCap = h('div', 'ph-cap');
     const metaSub = h('div', 'ph-sub');
     const meta = h('div', 'ph-meta', metaCap, metaSub);
-    const emptyEl = h('div', 'empty', 'Loading photos…');
+    const emptyEl = h('div', 'empty', t('w.photos.loading'));
 
     stage.append(bgImg, layers[0], layers[1], badges, clockEl, meta, emptyEl);
     box.append(stage);
@@ -102,9 +102,9 @@ W.photos = {
       titleBadge.hidden = !titleText;
 
       let stateText = '';
-      if (paused) stateText = 'Paused';
-      else if (downloadingCloud) stateText = 'Downloading from cloud…';
-      else if (feed?.stale) stateText = online === false ? 'Offline (cached)' : 'Cached';
+      if (paused) stateText = t('w.photos.paused');
+      else if (downloadingCloud) stateText = t('w.photos.downloadingCloud');
+      else if (feed?.stale) stateText = online === false ? t('w.photos.offlineCached') : t('w.photos.cached');
       stateBadge.textContent = stateText;
       stateBadge.hidden = !stateText;
     }
@@ -198,7 +198,7 @@ W.photos = {
         const maxAttempts = Math.min(playlist.length, 8);
         const mayDownloadFromCloud = (feed?.cloudOnlyCount || 0) > 0;
         if (mayDownloadFromCloud && !emptyEl.hidden) {
-          emptyEl.textContent = 'Downloading photo from cloud…';
+          emptyEl.textContent = t('w.photos.downloadingPhoto');
         }
 
         for (let attempts = 0; attempts < maxAttempts; attempts++) {
@@ -294,7 +294,7 @@ W.photos = {
           emptyEl.hidden = true;
           updateBadges();
         } else {
-          showEmpty('Photos could not be loaded');
+          showEmpty(t('w.photos.loadFailed'));
         }
       } finally {
         if (mySeq === loadSeq) {
@@ -343,12 +343,12 @@ W.photos = {
         const items = Array.isArray(data.photos) ? data.photos : [];
         if (!data.configured) {
           clearDisplayMedia();
-          showEmpty(data.error || 'Choose a photo folder in PhoneBox Settings');
+          showEmpty(data.error || t('w.photos.pickFolder'));
           return;
         }
         if (items.length === 0) {
           clearDisplayMedia();
-          showEmpty(data.error || 'No photos found in the selected source');
+          showEmpty(data.error || t('w.photos.noPhotos'));
           return;
         }
 
@@ -366,7 +366,7 @@ W.photos = {
         if (err?.name === 'AbortError' || destroyed) return;
         nextManifestRetryAt = Date.now() + MANIFEST_RETRY_MS;
         if (playlist.length === 0) {
-          showEmpty('Waiting for photo source from the agent');
+          showEmpty(t('w.photos.waitingAgent'));
         }
       } finally {
         manifestBusy = false;

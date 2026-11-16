@@ -429,9 +429,9 @@ dd { margin: 0; word-break: break-all; }
       </div>
 
       <div class="card" id="photosCard">
-        <h3>Photo frame</h3>
-        <p class="hint" style="margin:0 0 12px">For the <b>Photo frame</b> widget (local and desktop-synced folders on this computer).</p>
-        <div class="field" style="max-width:220px"><label>Cached photos limit (MB)</label><input type="number" min="20" max="2048" data-bind="cloudPhotos.cacheMaxMb" data-type="int"></div>
+        <h3 data-i18n="s.photos.title">Photo frame</h3>
+        <p class="hint" style="margin:0 0 12px" data-i18n="s.photos.cardHint">For the Photo frame widget (local and desktop-synced folders on this computer).</p>
+        <div class="field" style="max-width:220px"><label data-i18n="s.photos.cacheLimit">Cached photos limit (MB)</label><input type="number" min="20" max="2048" data-bind="cloudPhotos.cacheMaxMb" data-type="int"></div>
       </div>
 
       <div class="card">
@@ -1474,8 +1474,8 @@ function openPhotosBrowser(w, onPick) {
 
   const loadLevel = async (path) => {
     $('modalBody').replaceChildren(
-      h('h3', {}, 'Browse photo folders'),
-      h('p', { class: 'hint' }, 'Loading…')
+      h('h3', {}, t('s.photos.browseTitle')),
+      h('p', { class: 'hint' }, t('w.loading'))
     );
     $('modal').hidden = false;
 
@@ -1488,8 +1488,8 @@ function openPhotosBrowser(w, onPick) {
       const data = await r.json();
       if (!data.ok) {
         $('modalBody').replaceChildren(
-          h('h3', {}, 'Browse photo folders'),
-          h('p', { class: 'hint', style: { color: 'var(--danger)' } }, data.error || 'Could not list folders')
+          h('h3', {}, t('s.photos.browseTitle')),
+          h('p', { class: 'hint', style: { color: 'var(--danger)' } }, data.error || t('s.photos.listFailed'))
         );
         return;
       }
@@ -1498,13 +1498,13 @@ function openPhotosBrowser(w, onPick) {
       const entries = Array.isArray(data.entries) ? data.entries : [];
 
       const headerBar = h('div', { class: 'row', style: { justifyContent: 'space-between', marginBottom: '8px' } },
-        h('span', { class: 'hint', style: { wordBreak: 'break-all' } }, curPath || 'Choose a starting folder or synced cloud folder'),
+        h('span', { class: 'hint', style: { wordBreak: 'break-all' } }, curPath || t('s.photos.chooseStartFolder')),
         h('div', { class: 'row', style: { gap: '6px' } },
           navStack.length > 0 ? h('button', {
             type: 'button',
             class: 'btn sm',
             onclick: () => { const prev = navStack.pop(); loadLevel(prev); }
-          }, '↑ Back') : null,
+          }, t('s.photos.back')) : null,
           (curPath && !isOverlyBroadPhotoPath(curPath)) ? h('button', {
             type: 'button',
             class: 'btn sm primary',
@@ -1512,7 +1512,7 @@ function openPhotosBrowser(w, onPick) {
               onPick({ folder: curPath });
               closeModal();
             }
-          }, 'Use this folder') : null
+          }, t('s.photos.useFolder')) : null
         )
       );
 
@@ -1529,23 +1529,23 @@ function openPhotosBrowser(w, onPick) {
                     onPick({ folder: e.path || e.name });
                     closeModal();
                   }
-                }, 'Select'),
+                }, t('s.photos.select')),
                 h('button', {
                   type: 'button',
                   class: 'btn sm',
                   onclick: () => { navStack.push(curPath); loadLevel(e.path || e.name); }
-                }, 'Open ›')
+                }, t('s.photos.open'))
               )))
-          : [h('p', { class: 'hint' }, 'No subfolders found here.')])
+          : [h('p', { class: 'hint' }, t('s.photos.noSubfolders'))])
       );
 
       $('modalBody').replaceChildren(
-        h('h3', {}, 'Browse photo folders'),
+        h('h3', {}, t('s.photos.browseTitle')),
         headerBar,
         listEl
       );
     } catch (_) {
-      $('modalBody').replaceChildren(h('h3', {}, 'Browse photo folders'), h('p', { class: 'hint' }, 'Failed to reach agent.'));
+      $('modalBody').replaceChildren(h('h3', {}, t('s.photos.browseTitle')), h('p', { class: 'hint' }, t('s.photos.reachFailed')));
     }
   };
 
@@ -1593,20 +1593,20 @@ function renderPhotosOptionsPanel(w, setFn) {
     const allowDl = getVal('downloadCloudFiles') === true;
 
     if (isOverlyBroadPhotoPath(folder)) {
-      warnBox.replaceChildren('⚠️ ', h('strong', {}, 'Folder is too broad: '),
-        'Choose a specific photo folder or album subfolder rather than a drive root, system directory, or home folder.');
+      warnBox.replaceChildren('⚠️ ', h('strong', {}, t('s.photos.warnBroadTitle')),
+        t('s.photos.warnBroadBody'));
       warnBox.hidden = false;
     } else if (allowDl) {
-      warnBox.replaceChildren('⚠️ ', h('strong', {}, 'Cloud download enabled: '),
-        'Cloud-only (Files On-Demand) photos in this folder will be downloaded from your cloud storage onto this computer as the slideshow displays them, using network data and local disk space.');
+      warnBox.replaceChildren('⚠️ ', h('strong', {}, t('s.photos.warnDownloadTitle')),
+        t('s.photos.warnDownloadBody'));
       warnBox.hidden = false;
     } else if (detectedCloudOnly > 0) {
-      warnBox.replaceChildren('⚠️ ', h('strong', {}, `Cloud-only files detected (${detectedCloudOnly}): `),
-        'These photos are stored in the cloud and are not on disk yet. Enable "Download cloud-only files on demand" below to allow PhoneBox to download them onto this computer as they are shown.');
+      warnBox.replaceChildren('⚠️ ', h('strong', {}, t('s.photos.warnCloudTitle', { n: detectedCloudOnly })),
+        t('s.photos.warnCloudBody'));
       warnBox.hidden = false;
     } else if (looksLikeCloudSyncedPath(folder)) {
-      warnBox.replaceChildren('⚠️ ', h('strong', {}, 'Cloud-synced folder: '),
-        'Online-only (Files On-Demand) photos are not downloaded automatically unless you enable "Download cloud-only files on demand" below (which downloads photos from the cloud onto this computer when displayed).');
+      warnBox.replaceChildren('⚠️ ', h('strong', {}, t('s.photos.warnSyncedTitle')),
+        t('s.photos.warnSyncedBody'));
       warnBox.hidden = false;
     } else {
       warnBox.hidden = true;
@@ -1630,7 +1630,7 @@ function renderPhotosOptionsPanel(w, setFn) {
     const myAbort = new AbortController();
     checkAbort = myAbort;
     const snap = sourceSnapshotKey();
-    if (!silent) testState.textContent = 'Checking source…';
+    if (!silent) testState.textContent = t('s.photos.checkingSource');
     try {
       const r = await fetch('/api/photos/test', {
         method: 'POST',
@@ -1643,11 +1643,11 @@ function renderPhotosOptionsPanel(w, setFn) {
       detectedCloudOnly = res.cloudOnlyCount || 0;
       updateWarnBox();
       if (!silent || res.ok || detectedCloudOnly > 0 || testState.textContent) {
-        testState.textContent = res.message || (res.ok ? 'OK' : 'Source check failed');
+        testState.textContent = res.message || (res.ok ? t('s.photos.ok') : t('s.photos.checkFailed'));
       }
     } catch (err) {
       if (err?.name === 'AbortError' || mySeq !== checkSeq || sourceSnapshotKey() !== snap) return;
-      if (!silent) testState.textContent = 'Could not reach agent';
+      if (!silent) testState.textContent = t('s.photos.reachAgent');
     } finally {
       if (checkAbort === myAbort) checkAbort = null;
     }
@@ -1656,7 +1656,7 @@ function renderPhotosOptionsPanel(w, setFn) {
   const folderInput = h('input', {
     type: 'text',
     style: { flex: '1' },
-    placeholder: 'Select or paste a folder path',
+    placeholder: t('s.photos.folderPlaceholder'),
     value: getVal('folder') ?? '',
     spellcheck: 'false',
     oninput: (e) => {
@@ -1674,7 +1674,7 @@ function renderPhotosOptionsPanel(w, setFn) {
       invalidateSourceCheck(true);
       if (looksLikeLocalPath(pick.folder)) runSourceCheck(true);
     })
-  }, 'Browse…');
+  }, t('s.photos.browse'));
 
   const matchingRoots = photoStatusData.localRoots || [];
   const chipsRow = matchingRoots.length > 0
@@ -1701,7 +1701,7 @@ function renderPhotosOptionsPanel(w, setFn) {
         if ((getVal('folder') || '').trim() && looksLikeLocalPath(getVal('folder'))) runSourceCheck(true);
       }
     }),
-    optsByKey.downloadCloudFiles?.label || 'Download cloud-only files on demand');
+    t('s.photos.downloadCloudFiles'));
 
   const intervalInput = h('input', {
     type: 'number',
@@ -1717,7 +1717,7 @@ function renderPhotosOptionsPanel(w, setFn) {
   });
   const presets = [[15, '15s'], [30, '30s'], [60, '1m'], [300, '5m'], [900, '15m'], [3600, '1h']];
   const intervalField = h('div', { class: 'field' },
-    h('label', {}, 'Change photo every (seconds)'),
+    h('label', {}, t('s.photos.interval')),
     h('div', { class: 'row', style: { gap: '6px' } },
       intervalInput,
       ...presets.map(([sec, lbl]) => h('button', {
@@ -1756,7 +1756,7 @@ function renderPhotosOptionsPanel(w, setFn) {
 
   root.replaceChildren(
     h('div', { class: 'field' },
-      h('label', {}, 'Folder or synced folder path'),
+      h('label', {}, t('s.photos.folderPath')),
       h('div', { class: 'row', style: { gap: '8px' } }, folderInput, browseBtn)),
     chipsRow,
     dlCheckbox,
@@ -1766,7 +1766,7 @@ function renderPhotosOptionsPanel(w, setFn) {
         type: 'button',
         class: 'btn sm',
         onclick: () => runSourceCheck(false)
-      }, 'Test source'),
+      }, t('s.photos.testSource')),
       testState),
     makeCheck('subfolders'),
     intervalField,
@@ -1781,7 +1781,7 @@ function renderPhotosOptionsPanel(w, setFn) {
       h('input', {
         type: 'text',
         value: getVal('title') ?? '',
-        placeholder: 'Optional overlay badge title',
+        placeholder: t('s.photos.titlePlaceholder'),
         oninput: (e) => setOpt('title', e.target.value)
       }))
   );
