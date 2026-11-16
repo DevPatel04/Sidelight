@@ -5,6 +5,9 @@
 **Agent**
 - `display.language` is checked like the other settings: a code PhoneBox has no translation for (or an empty one) falls
   back to `auto`, which follows the phone or the browser. It is also in the three default configuration files.
+- The default Terminal shortcut works where its program is missing. Windows 10 has no Windows Terminal (`wt.exe`), so
+  PowerShell opens instead. Outside the Debian family there is no `x-terminal-emulator`, so `$TERMINAL` or the first
+  installed common terminal (GNOME Console, Konsole, Alacritty, kitty, xterm …) opens (#73).
 
 ## 0.9.10 — 2026-11-16
 
