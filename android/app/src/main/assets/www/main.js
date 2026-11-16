@@ -921,8 +921,8 @@ export function activeSet() { return new Set([curPage - 1, curPage, curPage + 1]
 export const pageOf = (kind) => mounted.filter((m) => m.pi === curPage && m.def.needs.includes(kind)).length > 0;
 export const anyNeeds = (kind) => mounted.some((m) => m.def.needs.includes(kind));
 
-export function runUpdate(m, kind) {
-  try { m.inst.update?.(kind); } catch (e) { console.warn(m.ctx.w.type, e); }
+export function runUpdate(m, kind, background = false) {
+  try { m.inst.update?.(kind, background); } catch (e) { console.warn(m.ctx.w.type, e); }
 }
 
 /** Delivers fresh data to the widgets on the visible pages; the others catch up when they come into view. */
@@ -931,7 +931,9 @@ export function emit(kind) {
   for (const m of mounted) {
     if (!m.def.needs.includes(kind)) continue;
     // alarms (timer, pomodoro) must go off on whatever page is showing, so those widgets get every tick
-    if (act.has(m.pi) || (m.def.always && kind === 'tick')) runUpdate(m, kind); else m.dirty = true;
+    if (act.has(m.pi)) runUpdate(m, kind);
+    else if (m.def.always && kind === 'tick') runUpdate(m, kind, true);
+    else m.dirty = true;
   }
 }
 
