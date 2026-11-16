@@ -30,11 +30,15 @@ W.photos = {
         const r = await api('/photos', 'GET', 10_000);
         if (!alive) return;
         if (r.scanning) { listAt = Date.now() - 9 * 60_000; say(t('w.loading')); return; } // ask again in a minute
-        const same = r.ids.length === ids.length && r.ids.every((id, i) => id === ids[i]);
-        ids = r.ids || [];
+        const list = Array.isArray(r.ids) ? r.ids : [];
+        const same = list.length === ids.length && list.every((id, i) => id === ids[i]);
+        ids = list;
         if (!same) reorder();
         if (!ids.length) say(r.error || t('w.photos.setUp'));
-      } catch (_) { if (!shown) say(t('w.offline')); }
+      } catch (_) {
+        listAt = Date.now() - 9 * 60_000; // ask again in a minute
+        if (!shown) say(t('w.offline'));
+      }
     };
 
     const showNext = async () => {
@@ -52,15 +56,25 @@ W.photos = {
         if (!alive) { URL.revokeObjectURL(url); return; }
         urls.add(url);
         const next = layers[1 - front], prev = layers[front];
-        next.onload = () => {
-          next.classList.add('on'); prev.classList.remove('on');
-          front = 1 - front; say('');
-          const old = shown; shown = url;
-          // the old image is released once the crossfade is over
-          if (old) setTimeout(() => { URL.revokeObjectURL(old); urls.delete(old); }, 1200);
-        };
-        next.onerror = () => { URL.revokeObjectURL(url); urls.delete(url); };
-        next.src = url;
+        // the request stays in flight until the image has decoded, so a slow photo is never overtaken
+        const ok = await new Promise((done) => {
+          next.onload = () => done(true);
+          next.onerror = () => done(false);
+          ctl.signal.addEventListener('abort', () => done(false));
+          next.src = url;
+        });
+        next.onload = next.onerror = null;
+        if (!ok || !alive) {
+          if (next.src === url) next.removeAttribute('src');
+          URL.revokeObjectURL(url); urls.delete(url);
+          if (!ok) nextAt = Date.now() + 5000;
+          return;
+        }
+        next.classList.add('on'); prev.classList.remove('on');
+        front = 1 - front; say('');
+        const old = shown; shown = url;
+        // the old image is released once the crossfade is over
+        if (old) setTimeout(() => { URL.revokeObjectURL(old); urls.delete(old); }, 1200);
       } catch (_) {
         nextAt = Date.now() + 5000; // a missing or slow photo: try the next one soon
       } finally { clearTimeout(timer); inflight = null; }

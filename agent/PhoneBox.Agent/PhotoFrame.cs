@@ -1,4 +1,6 @@
+using System.Buffers.Binary;
 using System.Diagnostics;
+using System.IO.Enumeration;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -20,11 +22,16 @@ public sealed class PhotoFrameConfig
 public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
 {
     internal const string WidgetType = "photos";
-    internal const int MaxFiles = 5000, LongEdge = 1600;
+    internal const int MaxFiles = 5000, MaxEntries = 50_000, LongEdge = 1600;
     internal const long MaxSourceBytes = 60L * 1024 * 1024;
+    /// <summary>What an old phone is sent as it is: at most this many pixels and 8192 px a side.</summary>
+    internal const long MaxPhonePixels = 4096L * 4096, MaxDecodePixels = 100_000_000;
     private const long OriginalMaxBytes = 6L * 1024 * 1024;
+    private const int HeadBytes = 256 * 1024;
     private static readonly TimeSpan ScanEvery = TimeSpan.FromMinutes(5);
     private static readonly string[] Extensions = [".jpg", ".jpeg", ".png", ".webp", ".gif"];
+    // ids the phone sees are keyed per run, so a paired phone can't confirm guessed file names
+    private static readonly byte[] IdKey = RandomNumberGenerator.GetBytes(32);
 
     internal sealed record Photo(string Id, string Path, long Length, long Ticks);
     internal sealed record Library(string Root, bool Subfolders, IReadOnlyList<Photo> Photos, long ScannedAt, string? Error);
@@ -33,6 +40,7 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
     private Library? _library;
     private Task? _scan;
     private readonly SemaphoreSlim _convert = new(1, 1);
+    private readonly HashSet<string> _failed = []; // cache keys of photos that couldn't be converted
 
     /// <summary>Test seam: where scaled copies are kept.</summary>
     internal string CacheDir { get; init; } = System.IO.Path.Combine(AppPaths.LocalDir, "photos-cache");
@@ -49,7 +57,7 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
     {
         if (!Shown()) return ([], "Add a Photo frame widget to a page to show photos", false);
         var cfg = config.Get().Photos;
-        if (string.IsNullOrWhiteSpace(cfg.Folder)) return ([], null, false);
+        if (string.IsNullOrWhiteSpace(cfg.Folder)) { ForgetCache(); return ([], null, false); }
         var lib = Current(cfg, wait: false);
         if (lib is null) return ([], null, true);
         return (lib.Photos.Select(p => p.Id).ToList(), lib.Error, false);
@@ -62,13 +70,22 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
         lock (_gate)
         {
             var root = cfg.Folder.Trim();
+            var subfolders = cfg.Subfolders;
             var lib = _library;
-            var fresh = lib is not null && lib.Root == root && lib.Subfolders == cfg.Subfolders;
+            var fresh = lib is not null && lib.Root == root && lib.Subfolders == subfolders;
             if (fresh && Now() - lib!.ScannedAt < ScanEvery.TotalMilliseconds) return lib;
             _scan ??= Task.Run(() =>
             {
-                var next = Scan(root, cfg.Subfolders);
+                Library next;
+                try { next = Scan(root, subfolders); }
+                catch (Exception ex)
+                {
+                    log.LogDebug("photo scan: {Msg}", ex.Message);
+                    next = new(root, subfolders, [], 0, "The photo folder can't be read");
+                }
+                // always cleared, so one failed scan never leaves the widget waiting for good
                 lock (_gate) { _library = next with { ScannedAt = Now() }; _scan = null; }
+                try { CleanCache(next); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
             });
             scan = _scan;
             if (fresh && !wait) return lib; // the old list until the new scan is done
@@ -78,53 +95,82 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
         lock (_gate) return _library;
     }
 
-    /// <summary>Lists the images in the folder: bounded, no hidden or system files, no links, nothing that is only in the cloud.</summary>
+    /// <summary>
+    /// Lists the images in the folder: bounded, no hidden or system files, no links (symlinks or junctions, files or
+    /// folders), nothing that is only in the cloud. Cloud-synced files themselves are reparse points too, so they are
+    /// told apart from links by their link target, not by the attribute.
+    /// </summary>
     internal static Library Scan(string root, bool subfolders)
     {
         if (RefuseRoot(root) is { } refused) return new(root, subfolders, [], 0, refused);
+        var full = System.IO.Path.GetFullPath(root);
         var photos = new List<Photo>();
+        var options = new EnumerationOptions
+        {
+            RecurseSubdirectories = subfolders, MaxRecursionDepth = 6, IgnoreInaccessible = true,
+            AttributesToSkip = FileAttributes.Hidden | FileAttributes.System,
+        };
+        var files = new FileSystemEnumerable<FileInfo>(full, (ref FileSystemEntry e) => (FileInfo)e.ToFileSystemInfo(), options)
+        {
+            ShouldIncludePredicate = (ref FileSystemEntry e) => !e.IsDirectory,
+            // a junction or symlinked folder is never entered; a cloud-synced folder (reparse point, no target) is
+            ShouldRecursePredicate = (ref FileSystemEntry e) =>
+                (e.Attributes & FileAttributes.ReparsePoint) == 0 || e.ToFileSystemInfo().LinkTarget is null,
+        };
+        var seen = 0;
         try
         {
-            var options = new EnumerationOptions
+            foreach (var f in files)
             {
-                RecurseSubdirectories = subfolders, MaxRecursionDepth = 6, IgnoreInaccessible = true,
-                AttributesToSkip = FileAttributes.Hidden | FileAttributes.System | FileAttributes.ReparsePoint | FileAttributes.Offline
-                    | RecallOnOpen | RecallOnDataAccess,
-            };
-            var full = System.IO.Path.GetFullPath(root);
-            foreach (var f in new DirectoryInfo(full).EnumerateFiles("*", options))
-            {
-                if (!Extensions.Contains(f.Extension.ToLowerInvariant()) || CloudOnly(f.Attributes) || f.LinkTarget is not null) continue;
-                if (f.Length is <= 0 or > MaxSourceBytes) continue;
-                var rel = System.IO.Path.GetRelativePath(full, f.FullName);
-                photos.Add(new Photo(IdOf(rel), f.FullName, f.Length, f.LastWriteTimeUtc.Ticks));
-                if (photos.Count >= MaxFiles) break;
+                if (++seen > MaxEntries) break;
+                try
+                {
+                    if (!Extensions.Contains(f.Extension.ToLowerInvariant()) || CloudOnly(f.Attributes) || IsLink(f.Attributes, () => f.LinkTarget)) continue;
+                    if (f.Length is <= 0 or > MaxSourceBytes) continue;
+                    photos.Add(new Photo(IdOf(full, System.IO.Path.GetRelativePath(full, f.FullName)), f.FullName, f.Length, f.LastWriteTimeUtc.Ticks));
+                    if (photos.Count >= MaxFiles) break;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { } // gone or locked while syncing: the rest still counts
             }
-            photos.Sort((a, b) => string.CompareOrdinal(a.Path, b.Path));
-            return new(root, subfolders, photos, 0, photos.Count == 0 ? "No photos in the folder" : null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
-            return new(root, subfolders, [], 0, "The photo folder can't be read");
+            if (photos.Count == 0) return new(root, subfolders, [], 0, "The photo folder can't be read");
         }
+        photos.Sort((a, b) => string.CompareOrdinal(a.Path, b.Path));
+        return new(root, subfolders, photos, 0, photos.Count == 0 ? "No photos in the folder" : null);
     }
+
+    /// <summary>A symlink or junction (a reparse point with a target), not a cloud-synced file or folder (no target).</summary>
+    internal static bool IsLink(FileAttributes attributes, Func<string?> linkTarget) =>
+        (attributes & FileAttributes.ReparsePoint) != 0 && linkTarget() is not null;
 
     // Windows cloud placeholders (OneDrive Files On-Demand and others): reading them downloads the file.
     internal const FileAttributes RecallOnOpen = (FileAttributes)0x00040000;
     internal const FileAttributes RecallOnDataAccess = (FileAttributes)0x00400000;
     internal static bool CloudOnly(FileAttributes a) => (a & (FileAttributes.Offline | RecallOnOpen | RecallOnDataAccess)) != 0;
 
-    internal static string IdOf(string relativePath) =>
-        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(relativePath.Replace('\\', '/'))))[..16];
+    internal static string IdOf(string root, string relativePath)
+    {
+        var data = Encoding.UTF8.GetBytes(System.IO.Path.TrimEndingDirectorySeparator(root) + "\n" + relativePath.Replace('\\', '/'));
+        return Convert.ToHexStringLower(HMACSHA256.HashData(IdKey, data))[..16];
+    }
+
+    /// <summary>The name of a photo's scaled copy: its full path, size and time, never sent anywhere.</summary>
+    private static string CacheKey(Photo p) =>
+        Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(p.Path)))[..20] + $"-{p.Ticks:x}-{p.Length:x}";
 
     /// <summary>Folders too broad to show as a photo frame: a drive or file-system root, the home folder itself, system folders.</summary>
     internal static string? RefuseRoot(string root)
     {
         if (string.IsNullOrWhiteSpace(root) || !System.IO.Path.IsPathFullyQualified(root)) return "Choose a full folder path in Settings › General";
-        if (root.StartsWith(@"\\", StringComparison.Ordinal)) return "Network paths aren't supported; use a folder on this computer";
         string full;
         try { full = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(root)); }
         catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return "Choose a full folder path in Settings › General"; }
+        if (full.StartsWith(@"\\", StringComparison.Ordinal) || full.StartsWith("//", StringComparison.Ordinal)) return "Network paths aren't supported; use a folder on this computer";
+        if (OperatingSystem.IsWindows())
+            try { if (new DriveInfo(full).DriveType == DriveType.Network) return "Network drives aren't supported; use a folder on this computer"; }
+            catch (ArgumentException) { }
         var home = System.IO.Path.TrimEndingDirectorySeparator(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
         var cmp = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         bool Same(string? other) => !string.IsNullOrEmpty(other) && string.Equals(full, System.IO.Path.TrimEndingDirectorySeparator(other), cmp);
@@ -148,16 +194,21 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
         if (string.IsNullOrEmpty(id) || string.IsNullOrWhiteSpace(cfg.Folder)) return (null, null, "Unknown photo");
         var lib = Current(cfg, wait: false);
         if (lib?.Photos.FirstOrDefault(p => p.Id == id) is not { } photo) return (null, null, "Unknown photo");
-        // checked again now: the file may have been replaced by a link, moved to the cloud or grown since the scan
-        var fi = new FileInfo(photo.Path);
-        var root = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(lib.Root)) + System.IO.Path.DirectorySeparatorChar;
-        if (!fi.Exists || !fi.FullName.StartsWith(root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
-            || fi.LinkTarget is not null || (fi.Attributes & FileAttributes.ReparsePoint) != 0 || CloudOnly(fi.Attributes)
-            || fi.Length is <= 0 or > MaxSourceBytes)
-            return (null, null, "That photo is no longer available");
-        try { return await Prepare(photo with { Length = fi.Length, Ticks = fi.LastWriteTimeUtc.Ticks }, ct); }
+        try
+        {
+            // checked again now: the file, or a folder on its way, may have become a link since the scan
+            var fi = new FileInfo(photo.Path);
+            var cmp = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            var root = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(lib.Root));
+            if (!fi.Exists || !fi.FullName.StartsWith(root + System.IO.Path.DirectorySeparatorChar, cmp)
+                || IsLink(fi.Attributes, () => fi.LinkTarget) || CloudOnly(fi.Attributes) || fi.Length is <= 0 or > MaxSourceBytes)
+                return (null, null, "That photo is no longer available");
+            for (var d = fi.Directory; d is not null && d.FullName.Length > root.Length; d = d.Parent)
+                if (IsLink(d.Attributes, () => d.LinkTarget)) return (null, null, "That photo is no longer available");
+            return await Prepare(photo with { Length = fi.Length, Ticks = fi.LastWriteTimeUtc.Ticks }, ct);
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException
-                                       or System.Runtime.InteropServices.ExternalException)
+                                       or OutOfMemoryException or System.Runtime.InteropServices.ExternalException)
         {
             log.LogDebug("photo {Id}: {Msg}", id, ex.Message);
             return (null, null, "That photo can't be shown");
@@ -166,34 +217,74 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
 
     private async Task<(byte[]? Bytes, string? Type, string? Error)> Prepare(Photo photo, CancellationToken ct)
     {
-        var head = new byte[12];
+        var head = new byte[(int)Math.Min(HeadBytes, photo.Length)];
+        int got;
         await using (var s = new FileStream(photo.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
-            if (await s.ReadAtLeastAsync(head, head.Length, throwOnEndOfStream: false, ct) < 4) return (null, null, "That photo can't be shown");
-        if (MimeOf(head) is not { } mime) return (null, null, "That photo can't be shown");
+            got = await s.ReadAtLeastAsync(head, head.Length, throwOnEndOfStream: false, ct);
+        if (MimeOf(head.AsSpan(0, got)) is not { } mime) return (null, null, "That photo can't be shown");
+        var size = SizeOf(head.AsSpan(0, got), mime);
+        // only a known, moderate size goes to the phone as it is: a small file can still be 20000 x 20000 pixels
+        var phoneSafe = size is { } d && d.W <= 8192 && d.H <= 8192 && (long)d.W * d.H <= MaxPhonePixels && photo.Length <= OriginalMaxBytes;
 
-        var cached = System.IO.Path.Combine(CacheDir, $"{photo.Id}-{photo.Ticks:x}-{photo.Length:x}.jpg");
+        var key = CacheKey(photo);
+        var cached = System.IO.Path.Combine(CacheDir, key + ".jpg");
         if (File.Exists(cached)) return (await File.ReadAllBytesAsync(cached, ct), "image/jpeg", null);
+        if ((mime is "image/gif" or "image/webp" || photo.Length <= 400_000) && phoneSafe)
+            return (await File.ReadAllBytesAsync(photo.Path, ct), mime, null);
 
-        // small enough, or a format only the phone decodes (GIF, WebP): sent as it is
-        if (mime is "image/gif" or "image/webp" || photo.Length <= 400_000)
-            return photo.Length <= OriginalMaxBytes ? (await File.ReadAllBytesAsync(photo.Path, ct), mime, null) : (null, null, "That photo is too large to show");
-
-        await _convert.WaitAsync(ct);
-        try
+        bool failed;
+        lock (_gate) failed = _failed.Contains(key);
+        var decodable = mime is "image/jpeg" or "image/png" && (size is null ? photo.Length <= 30L * 1024 * 1024 : (long)size.Value.W * size.Value.H <= MaxDecodePixels);
+        if (decodable && !failed)
         {
-            if (File.Exists(cached)) return (await File.ReadAllBytesAsync(cached, ct), "image/jpeg", null);
-            if (Scale(photo.Path, ct) is { } jpeg)
+            await _convert.WaitAsync(ct);
+            try
             {
-                Directory.CreateDirectory(CacheDir);
-                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(CacheDir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-                foreach (var old in Directory.EnumerateFiles(CacheDir, photo.Id + "-*.jpg")) File.Delete(old); // older versions of this photo
-                await using (var f = AppPaths.CreatePrivate(cached)) await f.WriteAsync(jpeg, ct);
-                return (jpeg, "image/jpeg", null);
+                if (File.Exists(cached)) return (await File.ReadAllBytesAsync(cached, ct), "image/jpeg", null);
+                byte[]? jpeg = null;
+                try { jpeg = Scale(photo.Path, ct); }
+                catch (Exception ex) when (ex is OutOfMemoryException or ArgumentException or IOException or System.Runtime.InteropServices.ExternalException)
+                {
+                    // GDI+ answers a damaged or half-synced file with OutOfMemoryException: remember it, don't decode it every round
+                    log.LogDebug("photo {Id} can't be converted: {Msg}", photo.Id, ex.Message);
+                    lock (_gate) { if (_failed.Count > 1000) _failed.Clear(); _failed.Add(key); }
+                }
+                if (jpeg is not null)
+                {
+                    WriteCache(cached, jpeg);
+                    return (jpeg, "image/jpeg", null);
+                }
             }
+            finally { _convert.Release(); }
         }
-        finally { _convert.Release(); }
-        // no converter here (Linux): the original, when it isn't too large for an old phone
-        return photo.Length <= OriginalMaxBytes ? (await File.ReadAllBytesAsync(photo.Path, ct), mime, null) : (null, null, "That photo is too large to show");
+        return phoneSafe ? (await File.ReadAllBytesAsync(photo.Path, ct), mime, null) : (null, null, "That photo is too large to show");
+    }
+
+    /// <summary>Writes a scaled copy to a temporary owner-only file first, so a reader never sees half of one.</summary>
+    private void WriteCache(string path, byte[] jpeg)
+    {
+        Directory.CreateDirectory(CacheDir);
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(CacheDir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var tmp = path + "." + Guid.NewGuid().ToString("N")[..8] + ".tmp";
+        using (var f = AppPaths.CreatePrivate(tmp)) f.Write(jpeg);
+        File.Move(tmp, path, overwrite: true);
+    }
+
+    /// <summary>After a scan: scaled copies of photos that are gone, changed or in another folder are deleted.</summary>
+    private void CleanCache(Library lib)
+    {
+        if (!Directory.Exists(CacheDir)) return;
+        var keep = lib.Photos.Select(p => CacheKey(p) + ".jpg").ToHashSet(StringComparer.Ordinal);
+        foreach (var f in Directory.EnumerateFiles(CacheDir))
+            if (!keep.Contains(System.IO.Path.GetFileName(f))) try { File.Delete(f); } catch (IOException) { }
+    }
+
+    /// <summary>No folder any more: no scaled copies of its photos either.</summary>
+    private void ForgetCache()
+    {
+        lock (_gate) _library = null;
+        try { if (Directory.Exists(CacheDir)) Directory.Delete(CacheDir, recursive: true); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>The image type from its first bytes; a file named .jpg that isn't one is refused.</summary>
@@ -204,24 +295,50 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
         : b.Length >= 12 && b[..4].SequenceEqual("RIFF"u8) && b[8..12].SequenceEqual("WEBP"u8) ? "image/webp"
         : null;
 
+    /// <summary>Width and height from the image's own header (PNG IHDR, GIF screen, WebP VP8/VP8L/VP8X, JPEG SOFn); null when unknown.</summary>
+    internal static (int W, int H)? SizeOf(ReadOnlySpan<byte> b, string mime)
+    {
+        switch (mime)
+        {
+            case "image/png" when b.Length >= 24:
+                return ((int)BinaryPrimitives.ReadUInt32BigEndian(b[16..]), (int)BinaryPrimitives.ReadUInt32BigEndian(b[20..]));
+            case "image/gif" when b.Length >= 10:
+                return (BinaryPrimitives.ReadUInt16LittleEndian(b[6..]), BinaryPrimitives.ReadUInt16LittleEndian(b[8..]));
+            case "image/webp" when b.Length >= 30:
+                if (b[12..16].SequenceEqual("VP8 "u8)) return (BinaryPrimitives.ReadUInt16LittleEndian(b[26..]) & 0x3FFF, BinaryPrimitives.ReadUInt16LittleEndian(b[28..]) & 0x3FFF);
+                if (b[12..16].SequenceEqual("VP8L"u8) && b.Length >= 25)
+                {
+                    var bits = BinaryPrimitives.ReadUInt32LittleEndian(b[21..]);
+                    return ((int)(bits & 0x3FFF) + 1, (int)((bits >> 14) & 0x3FFF) + 1);
+                }
+                if (b[12..16].SequenceEqual("VP8X"u8))
+                    return ((b[24] | b[25] << 8 | b[26] << 16) + 1, (b[27] | b[28] << 8 | b[29] << 16) + 1);
+                return null;
+            case "image/jpeg":
+                var i = 2;
+                while (i + 9 < b.Length)
+                {
+                    if (b[i] != 0xFF) { i++; continue; }
+                    var marker = b[i + 1];
+                    if (marker is 0xD8 or 0x01 or (>= 0xD0 and <= 0xD7) or 0xFF) { i += marker == 0xFF ? 1 : 2; continue; }
+                    // SOF0..SOF15 except DHT (C4), JPG (C8) and DAC (CC) carry the frame size
+                    if (marker is >= 0xC0 and <= 0xCF and not 0xC4 and not 0xC8 and not 0xCC)
+                        return (BinaryPrimitives.ReadUInt16BigEndian(b[(i + 7)..]), BinaryPrimitives.ReadUInt16BigEndian(b[(i + 5)..]));
+                    if (marker == 0xDA) return null; // image data begins before any frame header: give up
+                    i += 2 + BinaryPrimitives.ReadUInt16BigEndian(b[(i + 2)..]);
+                }
+                return null;
+            default:
+                return null;
+        }
+    }
+
     /// <summary>A JPEG whose long edge is at most <see cref="LongEdge"/>, turned upright; null where no converter is available.</summary>
     private static byte[]? Scale(string path, CancellationToken ct)
     {
 #if WINDOWS
         using var src = System.Drawing.Image.FromFile(path);
-        // the EXIF orientation is lost when re-encoding, so it is applied to the pixels
-        if (src.PropertyIdList.Contains(0x0112))
-        {
-            var o = src.GetPropertyItem(0x0112)?.Value is { Length: > 0 } v ? v[0] : 1;
-            var flip = o switch
-            {
-                2 => System.Drawing.RotateFlipType.RotateNoneFlipX, 3 => System.Drawing.RotateFlipType.Rotate180FlipNone,
-                4 => System.Drawing.RotateFlipType.Rotate180FlipX, 5 => System.Drawing.RotateFlipType.Rotate90FlipX,
-                6 => System.Drawing.RotateFlipType.Rotate90FlipNone, 7 => System.Drawing.RotateFlipType.Rotate270FlipX,
-                8 => System.Drawing.RotateFlipType.Rotate270FlipNone, _ => System.Drawing.RotateFlipType.RotateNoneFlipNone,
-            };
-            src.RotateFlip(flip);
-        }
+        var orientation = src.PropertyIdList.Contains(0x0112) && src.GetPropertyItem(0x0112)?.Value is { Length: > 0 } v ? v[0] : 1;
         var scale = Math.Min(1.0, (double)LongEdge / Math.Max(src.Width, src.Height));
         int w = Math.Max(1, (int)Math.Round(src.Width * scale)), h = Math.Max(1, (int)Math.Round(src.Height * scale));
         using var bmp = new System.Drawing.Bitmap(w, h);
@@ -231,6 +348,14 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
             g.Clear(System.Drawing.Color.Black);
             g.DrawImage(src, 0, 0, w, h);
         }
+        // the EXIF orientation is lost when re-encoding, so it is applied to the (already small) pixels
+        bmp.RotateFlip(orientation switch
+        {
+            2 => System.Drawing.RotateFlipType.RotateNoneFlipX, 3 => System.Drawing.RotateFlipType.Rotate180FlipNone,
+            4 => System.Drawing.RotateFlipType.Rotate180FlipX, 5 => System.Drawing.RotateFlipType.Rotate90FlipX,
+            6 => System.Drawing.RotateFlipType.Rotate90FlipNone, 7 => System.Drawing.RotateFlipType.Rotate270FlipX,
+            8 => System.Drawing.RotateFlipType.Rotate270FlipNone, _ => System.Drawing.RotateFlipType.RotateNoneFlipNone,
+        });
         var codec = System.Drawing.Imaging.ImageCodecInfo.GetImageEncoders().First(c => c.FormatID == System.Drawing.Imaging.ImageFormat.Jpeg.Guid);
         using var ps = new System.Drawing.Imaging.EncoderParameters(1);
         ps.Param[0] = new System.Drawing.Imaging.EncoderParameter(System.Drawing.Imaging.Encoder.Quality, 85L);
@@ -239,16 +364,25 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
         return ms.ToArray();
 #else
         if (!OperatingSystem.IsMacOS()) return null;
-        // sips keeps the EXIF orientation, which the WebView honours
+        // sips keeps the EXIF orientation, which the WebView honours; its output isn't read, so it isn't redirected
         var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "phonebox-photo-" + Guid.NewGuid().ToString("N") + ".jpg");
         try
         {
-            var psi = new ProcessStartInfo("/usr/bin/sips") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            var psi = new ProcessStartInfo("/usr/bin/sips") { UseShellExecute = false };
             foreach (var a in new[] { "-Z", LongEdge.ToString(System.Globalization.CultureInfo.InvariantCulture), "-s", "format", "jpeg", "-s", "formatOptions", "85", path, "--out", tmp })
                 psi.ArgumentList.Add(a);
             using var p = Process.Start(psi);
             if (p is null) return null;
-            if (!p.WaitForExit(20_000)) { try { p.Kill(entireProcessTree: true); } catch { } return null; }
+            // killed when the request goes away or after 20 s, so an abandoned conversion doesn't hold the queue
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            limit.CancelAfter(20_000);
+            try { p.WaitForExitAsync(limit.Token).GetAwaiter().GetResult(); }
+            catch (OperationCanceledException)
+            {
+                try { p.Kill(entireProcessTree: true); } catch { }
+                ct.ThrowIfCancellationRequested();
+                return null;
+            }
             return p.ExitCode == 0 && File.Exists(tmp) ? File.ReadAllBytes(tmp) : null;
         }
         finally { try { File.Delete(tmp); } catch { } }

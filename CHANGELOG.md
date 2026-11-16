@@ -4,9 +4,10 @@
 
 **New widget**
 - **Photo frame**: a slideshow of the photos in a folder on the PC; a synced OneDrive, Dropbox or iCloud folder works too
-  (photos only in the cloud are skipped). Choose the folder in Settings › General. The agent scales large photos down
-  before they go to the phone, the phone fetches one photo at a time by id, and the slideshow only runs while its page
-  is showing. First version in #47 by [blx10](https://github.com/blx10).
+  (photos only in the cloud are skipped). Choose the folder in Settings › General. On Windows and macOS the agent
+  scales large JPEG and PNG photos down before they go to the phone; other photos go as they are up to 6 MB, and
+  bigger ones are skipped. The phone fetches one photo at a time by id, and the slideshow only runs while its page is
+  showing. First version in #47 by [blx10](https://github.com/blx10).
 
 **Agent**
 - Windows: the CPU temperature also works on older Intel processors that LibreHardwareMonitor reports only per core
