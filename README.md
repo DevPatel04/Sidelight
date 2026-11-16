@@ -175,7 +175,7 @@ stay local. The phone requests configured actions by ID; commands and integratio
 PhoneBox has no telemetry, analytics or accounts of its own. Optional widgets and integrations contact external
 services for weather, quotas, GitHub and other data, and the agent checks GitHub for updates.
 Supported public feeds can fall back through the agent over USB when the phone has no internet.
-**Speech to text** is off by default (`Enable Speech to text` in **Settings › General**, plus `Allow recording from the phone` per widget) and requires on-device macOS Apple Speech recognition by default (turning that requirement off lets macOS send audio to Apple servers). Dictated transcripts and **Note** updates are shown on an always-on desk screen, so keep it off or restrict widget control when unattended and avoid dictating secrets.
+**Speech to text** is off by default (`Enable Speech to text` in **Settings › General**, plus `Allow recording from the phone` per widget) and uses on-device macOS Apple Speech recognition by default (`Auto` selects local providers only; turning off **Require on-device Apple Speech** lets macOS send audio to Apple servers, and explicitly choosing **OpenAI Audio** sends audio to OpenAI using your `OpenAiApiKey`, stored only on the PC in `config.json` and `config.json.bak` with `0600` permissions on Unix). Dictated transcripts and **Note** updates are shown on an always-on desk screen, so keep it off or restrict widget control when unattended and avoid dictating secrets.
 The [privacy policy](PRIVACY.md) lists outbound connections and how to disable them.
 Read the [security details](docs/GUIDE.md#security--privacy). To report a vulnerability, follow [SECURITY.md](SECURITY.md).
 

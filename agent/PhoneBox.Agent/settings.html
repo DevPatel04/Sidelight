@@ -455,14 +455,15 @@ dd { margin: 0; word-break: break-all; }
 
       <div class="card" id="speechSettingsCard">
         <h3 data-i18n="s.speech.title">Speech to text</h3>
-        <p class="hint" id="speechSetupBanner" style="margin:0 0 12px">Dictate from the panel using macOS Apple Speech Recognition.</p>
+        <p class="hint" id="speechSetupBanner" style="margin:0 0 12px">Dictate from the panel using local Apple Speech Recognition (macOS) or optional OpenAI Audio.</p>
         <div class="row" style="margin-bottom:10px"><label class="switch"><input type="checkbox" data-bind="speech.enabled"><span></span></label> <span data-i18n="s.speech.enable">Enable Speech to text</span></div>
         <p class="hint" style="margin:0 0 12px" data-i18n="s.speech.privacyHint">Dictated transcripts and Note updates appear on an always-on desk screen; keep disabled or restrict widget control when unattended and avoid dictating secrets.</p>
         <div class="grid2">
           <div class="field"><label data-i18n="s.speech.defaultProvider">Default provider</label>
             <select data-bind="speech.provider" id="speechProvider">
-              <option value="auto" data-i18n="s.speech.provider.auto">Auto (Apple Speech on macOS)</option>
+              <option value="auto" data-i18n="s.speech.provider.auto">Auto (local providers only)</option>
               <option value="apple" data-i18n="s.speech.provider.apple">Apple Speech Recognition (macOS)</option>
+              <option value="openai" data-i18n="s.speech.provider.openai">OpenAI Audio (Whisper / GPT-4o Transcribe)</option>
             </select></div>
           <div class="field"><label data-i18n="s.speech.defaultLanguage">Default language (blank = auto, e.g. en-US, tr-TR)</label>
             <input type="text" data-bind="speech.language" placeholder="en-US" spellcheck="false"></div>
@@ -472,6 +473,15 @@ dd { margin: 0; word-break: break-all; }
             <input type="number" min="5" max="600" data-bind="speech.maxRecordSec" data-type="int"></div>
           <div class="row" style="padding-top:10px"><label class="switch"><input type="checkbox" data-bind="speech.appleOnDevice"><span></span></label> <span data-i18n="s.speech.appleOnDevice">Require on-device Apple Speech (when off, macOS may send audio to Apple servers)</span></div>
         </div>
+
+        <details style="margin:8px 0 12px">
+          <summary style="cursor:pointer;font-weight:600;color:var(--muted)" data-i18n="s.speech.cloudSummary">Cloud STT provider credentials (optional — API keys stay on this PC)</summary>
+          <p class="hint" style="margin:8px 0" data-i18n="s.speech.cloudHintOpenAi">API keys are stored only on this PC in config.json (and config.json.bak) with 0600 permissions on macOS/Linux (and in your Windows profile folder under %APPDATA%\PhoneBox), and are never sent to the phone. Auto mode never selects cloud providers automatically; select OpenAI Audio explicitly to use it.</p>
+          <div class="grid2">
+            <div class="field"><label data-i18n="s.speech.openAiApiKey">OpenAI API key</label><input type="password" data-bind="speech.openAiApiKey" autocomplete="off"></div>
+            <div class="field"><label data-i18n="s.speech.openAiModel">OpenAI model</label><input type="text" data-bind="speech.openAiModel" placeholder="gpt-4o-mini-transcribe" spellcheck="false"></div>
+          </div>
+        </details>
 
         <h4 style="margin:6px 0 8px;font-size:13px" data-i18n="s.speech.storageTitle">Transcript storage on this computer</h4>
         <div class="row" style="margin-bottom:10px"><label class="switch"><input type="checkbox" data-bind="speech.saveTranscripts"><span></span></label> <span data-i18n="s.speech.saveTranscripts">Save transcripts to disk automatically (widgets can override per widget)</span></div>
@@ -1822,6 +1832,7 @@ function ensureSpeechDefaults() {
   cfg.speech ??= {};
   const defaults = {
     enabled: false, provider: 'auto', language: '', maxRecordSec: 90, appleOnDevice: true,
+    openAiApiKey: '', openAiModel: 'gpt-4o-mini-transcribe',
     saveTranscripts: false, transcriptDir: '', transcriptFormat: 'daily-md', saveAudioCopy: false, historyLimit: 15,
   };
   for (const [k, v] of Object.entries(defaults)) cfg.speech[k] ??= v;

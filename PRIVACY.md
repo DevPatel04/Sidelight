@@ -66,6 +66,7 @@ identifies your GitHub account to GitHub.
 | OSC controls (Control Deck) | The OSC host and port you configure, over UDP | The control value |
 | Antigravity quota through its CLI | Whatever the Antigravity CLI contacts with its own sign-in (PhoneBox only starts it) | Decided by the CLI |
 | Speech to text (Apple Speech on macOS) | `speech.apple.com` / Apple Siri dictation servers (via macOS `SFSpeechRecognizer`) | Recorded audio and the selected language, sent only when **Require on-device Apple Speech** is explicitly turned off in **Settings › General** (on-device recognition is required by default) |
+| Speech to text (OpenAI Audio) | `api.openai.com` | Recorded WAV audio, configured model name, and optional language tag, sent only when Speech to text is enabled and the OpenAI provider is explicitly chosen |
 | Webhooks | Inbound only: scripts and services you set up post to the agent | Nothing is sent out |
 | Setup scripts (`setup.ps1`, `setup.sh`), when you run them | `raw.githubusercontent.com` (the script), `api.github.com` and `github.com` (release info and downloads); only for what is missing and after asking: winget, Homebrew or your distribution's package servers, or `dl.google.com` (adb) | The requests themselves; nothing about you or the computer. With `gh` 2.93.0 or later signed in, the GitHub CLI checks the build provenance with its own sign-in, which also contacts `tuf-repo.github.com` and Sigstore's servers (`tuf-repo-cdn.sigstore.dev`) |
 

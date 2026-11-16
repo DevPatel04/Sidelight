@@ -52,6 +52,7 @@ internal sealed partial class SpeechService : IDisposable
     private readonly ISpeechAudioCapture _capture;
     private readonly SpeechRateLimiter _rateLimiter;
     private readonly string _tempRoot;
+    private readonly Func<bool, IReadOnlyCollection<int>, TimeSpan, HttpClient> _httpFactory;
 
     private readonly SemaphoreSlim _opGate = new(1, 1);
     private readonly SemaphoreSlim _diskGate = new(1, 1);
@@ -73,7 +74,7 @@ internal sealed partial class SpeechService : IDisposable
     private readonly List<SpeechEntryDto> _entries = [];
 
     public SpeechService(ConfigStore store, PushStore push, AgentEndpoint endpoint)
-        : this(store, push, endpoint, new SpeechAppleHelper(), null, null, null)
+        : this(store, push, endpoint, new SpeechAppleHelper(), null, null, null, null)
     {
     }
 
@@ -84,7 +85,8 @@ internal sealed partial class SpeechService : IDisposable
         ISpeechAppleClient appleHelper,
         ISpeechAudioCapture? capture,
         SpeechRateLimiter? rateLimiter,
-        string? tempRoot)
+        string? tempRoot,
+        Func<bool, IReadOnlyCollection<int>, TimeSpan, HttpClient>? httpFactory = null)
     {
         _store = store;
         _push = push;
@@ -93,6 +95,7 @@ internal sealed partial class SpeechService : IDisposable
         _capture = capture ?? new PlatformSpeechAudioCapture(appleHelper);
         _rateLimiter = rateLimiter ?? new SpeechRateLimiter();
         _tempRoot = tempRoot ?? Path.Combine(AppPaths.LocalDir, "speech-tmp");
+        _httpFactory = httpFactory ?? SafeSpeechHttp.CreateClient;
         SweepStaleTempFiles();
         _store.Changed += OnConfigChanged;
     }
@@ -1138,9 +1141,79 @@ internal sealed partial class SpeechService : IDisposable
             && string.Equals(storedWidgetId, callerWidgetId, StringComparison.Ordinal);
     }
 
+    internal (string? Provider, string? Error) ResolveProvider(SpeechConfig cfg, SpeechWidgetSettings w)
+    {
+        var requested = !string.Equals(w.Provider, "default", StringComparison.Ordinal) ? w.Provider : cfg.Provider;
+
+        switch (requested)
+        {
+            case "apple":
+                if (!_appleHelper.IsSupported)
+                    return (null, "Apple Speech Recognition is only supported on macOS.");
+                return ("apple", null);
+
+            case "openai":
+                if (string.IsNullOrWhiteSpace(cfg.OpenAiApiKey))
+                    return (null, "OpenAI API key is not configured.");
+                return ("openai", null);
+
+            case "auto":
+                if (IsAppleAutoAvailable()) return ("apple", null);
+                return (null, "No local speech provider is available on this computer (select OpenAI Audio explicitly in Settings or use Apple Speech on macOS).");
+
+            default:
+                return (null, $"Unsupported provider '{requested}'.");
+        }
+    }
+
+    public async Task<SpeechTestResult> TestProviderAsync(SpeechConfig? candidate, CancellationToken ct = default)
+    {
+        var cfg = candidate ?? _store.Get().Speech ?? new SpeechConfig();
+        cfg.Normalize();
+
+        var dummyWidget = new SpeechWidgetSettings("Speech", "default", cfg.Language, "toggle", "", "append", false, "default", true);
+        var (provider, err) = ResolveProvider(cfg, dummyWidget);
+        if (provider is null)
+            return new SpeechTestResult(false, cfg.Provider, err ?? "No provider configured.");
+
+        try
+        {
+            return provider switch
+            {
+                "apple" => await TestAppleAsync(cfg, ct),
+                "openai" => await TestOpenAiAsync(cfg, ct),
+                _ => new SpeechTestResult(false, provider, $"Unsupported provider '{provider}'."),
+            };
+        }
+        catch (Exception ex)
+        {
+            return new SpeechTestResult(false, provider, SanitizePhoneError(ex.Message, cfg));
+        }
+    }
+
+    internal Task<string> TranscribeWithProviderAsync(
+        string provider,
+        string wavPath,
+        string language,
+        SpeechConfig cfg,
+        CancellationToken ct)
+    {
+        return provider switch
+        {
+            "apple" => TranscribeAppleAsync(wavPath, language, cfg, ct),
+            "openai" => TranscribeOpenAiAsync(wavPath, language, cfg, ct),
+            _ => throw new InvalidOperationException($"Unsupported speech provider '{provider}'."),
+        };
+    }
+
     internal static string SanitizePhoneError(string? message, SpeechConfig cfg, string fallback = "Speech request failed.")
     {
         var result = string.IsNullOrWhiteSpace(message) ? fallback : message.Trim();
+        foreach (var secret in cfg.EnumerateSecrets())
+        {
+            if (!string.IsNullOrWhiteSpace(secret) && result.Contains(secret, StringComparison.Ordinal))
+                result = result.Replace(secret, "***", StringComparison.Ordinal);
+        }
         result = LocalPathRegex.Replace(result, "[path]");
         if (!string.IsNullOrWhiteSpace(cfg.TranscriptDir))
             result = result.Replace(cfg.TranscriptDir, "[path]", StringComparison.OrdinalIgnoreCase);
