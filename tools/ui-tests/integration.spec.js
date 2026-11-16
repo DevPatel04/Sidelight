@@ -359,3 +359,13 @@ test('the Computers widget lists paired computers and switches between them', as
   expect(errors).toEqual([]);
   await ctx.close();
 });
+
+test('docker widget clears loading state when filtered or stopped containers yield an empty list', async ({ page }) => {
+  await layout(page, [widget('docker', { title: 'Podman', filter: 'redis', stopped: false })]);
+  await expect(page.locator('.w-docker .w-title')).toContainText('Podman 0/1');
+  await expect(page.locator('.w-docker .empty')).toHaveText('No running containers (1 stopped)');
+
+  await layout(page, [widget('docker', { title: 'Podman', filter: 'missing', stopped: false })]);
+  await expect(page.locator('.w-docker .w-title')).toContainText('Podman 0/0');
+  await expect(page.locator('.w-docker .empty')).toHaveText('No containers match "missing"');
+});
