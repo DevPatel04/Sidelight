@@ -9,7 +9,6 @@ namespace PhoneBox.Agent;
 internal static class ProcessCommandLine
 {
     private const int MaxCommandLineBytes = 256 * 1024;
-    private const int MacPsBatchSize = 64;
 
     public static string? Read(int pid)
     {
@@ -18,64 +17,6 @@ internal static class ProcessCommandLine
         if (OperatingSystem.IsLinux()) return ReadLinux(pid);
         if (OperatingSystem.IsMacOS()) return ReadMacSingle(pid);
         return null;
-    }
-
-    public static Dictionary<int, string> ReadMany(IReadOnlyList<int> pids)
-    {
-        var map = new Dictionary<int, string>();
-        if (pids.Count == 0) return map;
-
-        if (OperatingSystem.IsWindows())
-        {
-            foreach (var pid in pids.Where(p => p > 0).Distinct())
-            {
-                if (ReadWindows(pid) is { Length: > 0 } cmd)
-                    map[pid] = cmd;
-            }
-            return map;
-        }
-
-        if (OperatingSystem.IsLinux())
-        {
-            foreach (var pid in pids.Where(p => p > 0).Distinct())
-            {
-                if (ReadLinux(pid) is { Length: > 0 } cmd)
-                    map[pid] = cmd;
-            }
-            return map;
-        }
-
-        if (OperatingSystem.IsMacOS())
-        {
-            foreach (var chunk in pids.Where(p => p > 0).Distinct().Chunk(MacPsBatchSize))
-            {
-                try
-                {
-                    var psi = new ProcessStartInfo("/bin/ps");
-                    psi.ArgumentList.Add("-ww");
-                    psi.ArgumentList.Add("-p");
-                    psi.ArgumentList.Add(string.Join(",", chunk));
-                    psi.ArgumentList.Add("-o");
-                    psi.ArgumentList.Add("pid=,args=");
-                    CopyMinimalEnvironment(psi);
-                    var res = ToolProcess.RunAsync(psi, TimeSpan.FromSeconds(2), CancellationToken.None).GetAwaiter().GetResult();
-                    foreach (var line in res.Output.Split('\n'))
-                    {
-                        var trimmed = line.Trim();
-                        var sep = trimmed.IndexOfAny([' ', '\t']);
-                        if (sep > 0 && int.TryParse(trimmed[..sep], NumberStyles.Integer, CultureInfo.InvariantCulture, out var pid))
-                        {
-                            var cmd = trimmed[(sep + 1)..].Trim();
-                            if (cmd.Length > 0)
-                                map[pid] = cmd.Length > MaxCommandLineBytes ? cmd[..MaxCommandLineBytes] : cmd;
-                        }
-                    }
-                }
-                catch { }
-            }
-        }
-
-        return map;
     }
 
     private static string? ReadLinux(int pid)

@@ -298,6 +298,93 @@ public sealed class SessionDetailsTests : IDisposable
             sameStart: (_, _) => true));
         Assert.Equal(200, session.Pid);
         Assert.Equal("Antigravity", session.Project);
+
+        // Only PID 100 has a valid daemon file while PID 200 is the selected process: no metadata is borrowed.
+        File.Delete(Path.Combine(daemonDir, "b_selected.json"));
+        var onlyOther = Assert.Single(new SessionMonitor(NullLogger<SessionMonitor>.Instance).ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(200, "Antigravity", ft, 1_700_000_000_000, null)],
+            isAlive: pid => pid is 100 or 200,
+            sameStart: (_, _) => true));
+        Assert.Equal(200, onlyOther.Pid);
+        Assert.Equal("Antigravity", onlyOther.Project);
+    }
+
+    [Fact]
+    public void Antigravity_FailedCommandLineReadIsRetriedOnTheNextScan()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, ".gemini", "antigravity"));
+        var start = DateTimeOffset.UtcNow.AddMinutes(-30);
+        long ticks = 10_000;
+        string? cmd = null;
+        var reads = 0;
+        IReadOnlyList<AntigravityProcessCandidate> Scan() =>
+            [new AntigravityProcessCandidate(9100, "language_server_macos", start.UtcDateTime.ToFileTimeUtc(), start.ToUnixTimeMilliseconds(), null)];
+
+        // The command line cannot be read yet: no session, and the failure is not remembered as "not Antigravity".
+        Assert.Empty(_monitor.ReadAntigravity(_root, scanProcesses: Scan, getCommandLine: _ => { reads++; return cmd; },
+            isAlive: pid => pid == 9100, sameStart: (_, _) => true, getTicks: () => ticks));
+        Assert.Equal(1, reads);
+
+        cmd = "language_server_macos --app_data_dir=antigravity";
+        ticks += 30_000;
+        var session = Assert.Single(_monitor.ReadAntigravity(_root, scanProcesses: Scan, getCommandLine: _ => { reads++; return cmd; },
+            isAlive: pid => pid == 9100, sameStart: (_, _) => true, getTicks: () => ticks));
+        Assert.Equal(2, reads);
+        Assert.Equal(9100, session.Pid);
+    }
+
+    [Fact]
+    public void Antigravity_OversizedFinalUserInputRecordStaysBusy()
+    {
+        var logDir = Path.Combine(_root, ".gemini", "antigravity", "brain", "conv-1", ".system_generated", "logs");
+        Directory.CreateDirectory(logDir);
+        var transcript = Path.Combine(logDir, "transcript.jsonl");
+        var start = DateTimeOffset.UtcNow.AddMinutes(-10);
+        File.WriteAllText(transcript,
+            JsonSerializer.Serialize(new { type = "PLANNER_RESPONSE", status = "DONE" }) + "\n" +
+            JsonSerializer.Serialize(new { type = "USER_INPUT", content = new string('x', 70 * 1024) }) + "\n");
+        File.SetLastWriteTimeUtc(transcript, DateTime.UtcNow);
+
+        var session = Assert.Single(_monitor.ReadAntigravity(
+            _root,
+            scanProcesses: () => [new AntigravityProcessCandidate(5522, "Antigravity", start.UtcDateTime.ToFileTimeUtc(), start.ToUnixTimeMilliseconds(), null)],
+            isAlive: pid => pid == 5522,
+            sameStart: (_, _) => true));
+        Assert.Equal("busy", session.Status);
+        Assert.Null(session.Outcome);
+    }
+
+    [Fact]
+    public void Antigravity_TranscriptFromBeforeTheProcessStartedIsIgnored()
+    {
+        var logDir = Path.Combine(_root, ".gemini", "antigravity", "brain", "conv-1", ".system_generated", "logs");
+        Directory.CreateDirectory(logDir);
+        var transcript = Path.Combine(logDir, "transcript.jsonl");
+        var start = DateTimeOffset.UtcNow.AddSeconds(-30);
+        IReadOnlyList<AntigravityProcessCandidate> Scan() =>
+            [new AntigravityProcessCandidate(5533, "Antigravity", start.UtcDateTime.ToFileTimeUtc(), start.ToUnixTimeMilliseconds(), null)];
+
+        // An unfinished turn from the previous run, written 90 s ago (within the 2-minute window), does not make the restarted process busy.
+        File.WriteAllText(transcript, JsonSerializer.Serialize(new { type = "USER_INPUT", content = "Check build" }) + "\n");
+        File.SetLastWriteTimeUtc(transcript, DateTime.UtcNow.AddSeconds(-90));
+        var restarted = Assert.Single(_monitor.ReadAntigravity(_root, scanProcesses: Scan, isAlive: pid => pid == 5533, sameStart: (_, _) => true));
+        Assert.Equal("idle", restarted.Status);
+        Assert.Null(restarted.Outcome);
+
+        // A finished turn from the previous run does not supply the new process's outcome either.
+        var fresh = new SessionMonitor(NullLogger<SessionMonitor>.Instance);
+        File.WriteAllText(transcript, JsonSerializer.Serialize(new { type = "PLANNER_RESPONSE", status = "ERROR" }) + "\n");
+        File.SetLastWriteTimeUtc(transcript, DateTime.UtcNow.AddSeconds(-90));
+        var noOutcome = Assert.Single(fresh.ReadAntigravity(_root, scanProcesses: Scan, isAlive: pid => pid == 5533, sameStart: (_, _) => true));
+        Assert.Equal("idle", noOutcome.Status);
+        Assert.Null(noOutcome.Outcome);
+
+        // The same record written after the process started is used.
+        File.SetLastWriteTimeUtc(transcript, DateTime.UtcNow);
+        var current = Assert.Single(new SessionMonitor(NullLogger<SessionMonitor>.Instance).ReadAntigravity(
+            _root, scanProcesses: Scan, isAlive: pid => pid == 5533, sameStart: (_, _) => true));
+        Assert.Equal("aborted", current.Outcome);
     }
 
     [Theory]

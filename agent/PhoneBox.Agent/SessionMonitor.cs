@@ -41,14 +41,6 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
         "language_server_linux", "language_server_windows_x64",
         "language_server_linux_x64", "language_server_linux_arm",
     };
-    internal static readonly string[] AntigravityProcessNames =
-    [
-        "Antigravity", "Antigravity IDE", "agy",
-        "language_server", "language-server",
-        "language_server_macos", "language_server_macos_arm",
-        "language_server_linux", "language_server_windows_x64",
-        "language_server_linux_x64", "language_server_linux_arm",
-    ];
     private static readonly long DaemonStartToleranceTicks = TimeSpan.FromSeconds(30).Ticks;
 
     private readonly ConcurrentDictionary<string, string> _codexCwd = new();
@@ -316,20 +308,6 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
         return list;
     }
 
-    private static IReadOnlyList<AntigravityProcessCandidate> BuildCandidatesFromProcessIds(Func<string, int[]> getProcessIds)
-    {
-        var list = new List<AntigravityProcessCandidate>();
-        foreach (var name in AntigravityProcessNames)
-        {
-            foreach (var pid in getProcessIds(name))
-            {
-                if (pid > 0)
-                    list.Add(new AntigravityProcessCandidate(pid, name, 0, 0, null));
-            }
-        }
-        return list;
-    }
-
     private bool HasAntigravityCommandLineMarker(
         AntigravityProcessCandidate candidate,
         bool allowOsFallback,
@@ -346,8 +324,9 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
 
         string? cmd = null;
         try { cmd = (getCommandLine ?? ProcessCommandLine.Read)(candidate.Pid); } catch { }
-        var matched = !string.IsNullOrWhiteSpace(cmd)
-            && cmd.Contains("antigravity", StringComparison.OrdinalIgnoreCase);
+        // A failed or empty read is not a negative answer: leave it uncached so a later scan retries it.
+        if (string.IsNullOrWhiteSpace(cmd)) return false;
+        var matched = cmd.Contains("antigravity", StringComparison.OrdinalIgnoreCase);
 
         if (candidate.FileTimeUtc > 0)
         {
@@ -735,57 +714,41 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
 
     private static (DateTime LastWriteUtc, long Length, bool IsBusy, string? Outcome) ParseAntigravityTranscriptState(FileInfo fi)
     {
-        const int maxTailBytes = 64 * 1024;
+        // Read the last 64 KiB first; when no complete record fits in it (one very large final record),
+        // retry once with a 1 MiB tail. A record larger than that is treated as still in flight rather than idle.
+        int[] tailWindows = [64 * 1024, 1024 * 1024];
         try
         {
             using var fs = new FileStream(fi.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            var truncatedHead = fs.Length > maxTailBytes;
-            var len = (int)Math.Min(fs.Length, maxTailBytes);
-            if (truncatedHead) fs.Seek(-len, SeekOrigin.End);
-            var bytes = new byte[len];
-            var read = 0;
-            while (read < len)
+            foreach (var maxTailBytes in tailWindows)
             {
-                var n = fs.Read(bytes, read, len - read);
-                if (n <= 0) break;
-                read += n;
-            }
-            if (read == 0) return (fi.LastWriteTimeUtc, fi.Length, false, null);
-
-            var startIdx = 0;
-            if (truncatedHead)
-            {
-                var firstNl = Array.IndexOf(bytes, (byte)'\n', 0, read);
-                if (firstNl < 0) return (fi.LastWriteTimeUtc, fi.Length, false, null);
-                startIdx = firstNl + 1;
-            }
-
-            var lines = Encoding.UTF8.GetString(bytes, startIdx, read - startIdx).Split('\n');
-            for (var i = lines.Length - 1; i >= 0; i--)
-            {
-                var line = lines[i].Trim();
-                if (line.Length == 0) continue;
-                try
+                var truncatedHead = fs.Length > maxTailBytes;
+                var len = (int)Math.Min(fs.Length, maxTailBytes);
+                fs.Seek(-len, SeekOrigin.End);
+                var bytes = new byte[len];
+                var read = 0;
+                while (read < len)
                 {
-                    using var doc = JsonDocument.Parse(line);
-                    var root = doc.RootElement;
-                    if (root.ValueKind != JsonValueKind.Object)
-                        return (fi.LastWriteTimeUtc, fi.Length, true, null);
-                    var type = Str(root, "type");
-                    var status = Str(root, "status");
-                    var hasToolCalls = root.TryGetProperty("tool_calls", out var tc)
-                        && tc.ValueKind == JsonValueKind.Array
-                        && tc.GetArrayLength() > 0;
-                    if (type == "PLANNER_RESPONSE" && status is "DONE" or "ERROR" && !hasToolCalls)
-                        return (fi.LastWriteTimeUtc, fi.Length, false, status == "ERROR" ? "aborted" : "completed");
-                    return (fi.LastWriteTimeUtc, fi.Length, true, null);
+                    var n = fs.Read(bytes, read, len - read);
+                    if (n <= 0) break;
+                    read += n;
                 }
-                catch (JsonException)
+                if (read == 0) return (fi.LastWriteTimeUtc, fi.Length, false, null);
+
+                var startIdx = 0;
+                if (truncatedHead)
                 {
-                    // Partial or corrupted tail line: inspect the preceding complete line.
+                    // The window starts mid-record: skip up to the first record boundary.
+                    var firstNl = Array.IndexOf(bytes, (byte)'\n', 0, read);
+                    startIdx = firstNl < 0 ? read : firstNl + 1;
                 }
+
+                if (ClassifyLastTranscriptRecord(bytes, startIdx, read) is { } state)
+                    return (fi.LastWriteTimeUtc, fi.Length, state.IsBusy, state.Outcome);
+                if (!truncatedHead)
+                    return (fi.LastWriteTimeUtc, fi.Length, false, null);
             }
-            return (fi.LastWriteTimeUtc, fi.Length, false, null);
+            return (fi.LastWriteTimeUtc, fi.Length, true, null);
         }
         catch
         {
@@ -793,9 +756,40 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
         }
     }
 
+    /// <summary>Classifies the newest complete JSON record in <paramref name="bytes"/>, or returns null when none parses.</summary>
+    private static (bool IsBusy, string? Outcome)? ClassifyLastTranscriptRecord(byte[] bytes, int startIdx, int end)
+    {
+        if (startIdx >= end) return null;
+        var lines = Encoding.UTF8.GetString(bytes, startIdx, end - startIdx).Split('\n');
+        for (var i = lines.Length - 1; i >= 0; i--)
+        {
+            var line = lines[i].Trim();
+            if (line.Length == 0) continue;
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                var root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Object)
+                    return (true, null);
+                var type = Str(root, "type");
+                var status = Str(root, "status");
+                var hasToolCalls = root.TryGetProperty("tool_calls", out var tc)
+                    && tc.ValueKind == JsonValueKind.Array
+                    && tc.GetArrayLength() > 0;
+                if (type == "PLANNER_RESPONSE" && status is "DONE" or "ERROR" && !hasToolCalls)
+                    return (false, status == "ERROR" ? "aborted" : "completed");
+                return (true, null);
+            }
+            catch (JsonException)
+            {
+                // Partial or corrupted tail line: inspect the preceding complete line.
+            }
+        }
+        return null;
+    }
+
     internal IEnumerable<AgentSession> ReadAntigravity(
         string? homeDir = null,
-        Func<string, int[]>? getProcessIds = null,
         Func<int, bool>? isAlive = null,
         Func<int, long, bool>? sameStart = null,
         Func<int, long?>? getProcessStartMs = null,
@@ -825,27 +819,24 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
         var validDaemons = CollectValidAntigravityDaemons(agyDir, aliveCheck, sameStart);
         var validatedDaemonPids = validDaemons.Select(d => d.Pid).ToHashSet();
 
-        var allowOsFallback = scanProcesses is null && getProcessIds is null;
-        Func<IReadOnlyList<AntigravityProcessCandidate>>? effectiveScan = scanProcesses ?? (getProcessIds is not null
-            ? () => BuildCandidatesFromProcessIds(getProcessIds)
-            : null);
+        var allowOsFallback = scanProcesses is null;
 
         var procMatch = TryGetAntigravityProcess(
-            aliveCheck, sameStart, effectiveScan, getCommandLine, allowOsFallback, validatedDaemonPids, nowTicks);
+            aliveCheck, sameStart, scanProcesses, getCommandLine, allowOsFallback, validatedDaemonPids, nowTicks);
         int? agyPid = procMatch?.Pid;
 
+        // With a selected process, only that process's own daemon file may supply metadata;
+        // the first valid daemon is used only when no process was found.
         int? daemonPid = null;
         string? daemonProject = null;
         DateTime? daemonFileUtc = null;
         foreach (var d in validDaemons)
         {
-            if (daemonPid is null || (agyPid is not null && d.Pid == agyPid.Value))
-            {
-                daemonPid = d.Pid;
-                daemonFileUtc = d.FileWriteUtc;
-                daemonProject = d.Project;
-                if (agyPid is not null && d.Pid == agyPid.Value && daemonProject is not null) break;
-            }
+            if (agyPid is not null ? d.Pid != agyPid.Value : daemonPid is not null) continue;
+            daemonPid = d.Pid;
+            daemonFileUtc = d.FileWriteUtc;
+            daemonProject = d.Project;
+            if (daemonProject is not null) break;
         }
 
         agyPid ??= daemonPid;
@@ -859,7 +850,16 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
         var startedAt = ResolveAntigravityStartMs(agyPid.Value, startKey, getProcessStartMs, procMatch, daemonFileUtc);
 
         var (newestWriteUtc, newestTranscriptUtc, transcriptIsBusy, transcriptOutcome) = ScanAntigravityActivity(agyDir, nowTicks);
-        var isRecentTranscript = newestTranscriptUtc > DateTime.MinValue
+        // A transcript last written before this process started belongs to an earlier run:
+        // it must not make the new process busy or give it an outcome.
+        var transcriptFromThisRun = newestTranscriptUtc > DateTime.MinValue
+            && (startedAt <= 0 || new DateTimeOffset(newestTranscriptUtc).ToUnixTimeMilliseconds() >= startedAt);
+        if (!transcriptFromThisRun)
+        {
+            transcriptIsBusy = false;
+            transcriptOutcome = null;
+        }
+        var isRecentTranscript = transcriptFromThisRun
             && (DateTime.UtcNow - newestTranscriptUtc) < TimeSpan.FromMinutes(2);
         var status = isRecentTranscript && transcriptIsBusy ? "busy" : "idle";
         var since = newestWriteUtc > DateTime.MinValue
