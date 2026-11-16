@@ -324,7 +324,7 @@ public sealed class RuleEngine(ConfigStore config, PushStore push, SessionMonito
     public static bool InWindow(string window, TimeSpan now)
     {
         var parts = window.Split('-', StringSplitOptions.TrimEntries);
-        if (parts.Length > 2 || !Clock(parts[0], out var from) || from == TimeSpan.FromDays(1)) return false;
+        if (parts.Length > 2 || !Clock(parts[0], out var from)) return false;
         var to = from + TimeSpan.FromMinutes(1);
         if (parts.Length == 2 && !Clock(parts[1], out to)) return false;
         return from <= to ? now >= from && now < to : now >= from || now < to;

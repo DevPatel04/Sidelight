@@ -48,6 +48,7 @@ public class RuleTests
     [InlineData("08:30", 8, 30, true)]
     [InlineData("22:00-07:00", 0, 0, true)]
     [InlineData("22:00-24:00", 23, 0, true)]
+    [InlineData("24:00-07:00", 0, 0, true)]
     public void TimeWindowsRequireValidEndpoints(string window, int hour, int minute, bool expected) =>
         Assert.Equal(expected, RuleEngine.InWindow(window, new TimeSpan(hour, minute, 0)));
 
