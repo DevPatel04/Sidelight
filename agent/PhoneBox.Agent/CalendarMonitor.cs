@@ -130,9 +130,11 @@ public static class Ics
             var dtStart = e.FirstOrDefault(p => p.Name == "DTSTART");
             if (dtStart is null || ToUtc(dtStart, out var allDay, local) is not { } start) continue;
             var dtEnd = e.FirstOrDefault(p => p.Name == "DTEND");
+            var remainingTicks = DateTime.MaxValue.Ticks - start.Ticks;
             var end = dtEnd is not null && ToUtc(dtEnd, out _, local) is { } en ? en
-                : e.FirstOrDefault(p => p.Name == "DURATION") is { } dur && TryDuration(dur.Value, out var d) ? start + d
-                : allDay ? start.AddDays(1) : start;
+                : e.FirstOrDefault(p => p.Name == "DURATION") is { } dur && TryDuration(dur.Value, out var d)
+                    && d.Ticks >= -start.Ticks && d.Ticks <= remainingTicks ? start + d
+                : allDay ? start.AddTicks(Math.Min(TimeSpan.TicksPerDay, remainingTicks)) : start;
             var length = end - start;
             var title = Unescape(e.FirstOrDefault(p => p.Name == "SUMMARY")?.Value ?? "(no title)");
             var location = e.FirstOrDefault(p => p.Name == "LOCATION")?.Value is { Length: > 0 } loc ? Unescape(loc) : null;
@@ -346,9 +348,16 @@ public static class Ics
         var m = System.Text.RegularExpressions.Regex.Match(v, @"^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$");
         if (!m.Success) return false;
         int G(int i) => m.Groups[i].Success ? int.Parse(m.Groups[i].Value) : 0;
-        d = new TimeSpan(G(2) * 7 + G(3), G(4), G(5), G(6));
-        if (m.Groups[1].Value == "-") d = -d;
-        return true;
+        try
+        {
+            d = new TimeSpan(checked(G(2) * 7 + G(3)), G(4), G(5), G(6));
+            if (m.Groups[1].Value == "-") d = -d;
+            return true;
+        }
+        catch (Exception ex) when (ex is OverflowException or ArgumentOutOfRangeException)
+        {
+            return false;
+        }
     }
 
     private static IEnumerable<string> Unfold(string text)

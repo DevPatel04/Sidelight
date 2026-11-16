@@ -57,6 +57,20 @@ public class IcsTests
         Assert.Equal(TimeSpan.FromDays(1), Utc(e.End) - Utc(e.Start));
     }
 
+    [Theory]
+    [InlineData("PT2147483648H")]
+    [InlineData("P1000000000W")]
+    [InlineData("P4000000D")]
+    public void UnrepresentableDurationDoesNotDiscardTheCalendar(string duration)
+    {
+        var events = Ics.Parse(Cal(
+            $"UID:bad\nDTSTART;VALUE=DATE:20261110\nDURATION:{duration}\nSUMMARY:Day off",
+            "UID:next\nDTSTART:20261111T090000Z\nDURATION:PT45M\nSUMMARY:Meeting"), From, To).ToList();
+        Assert.Equal(2, events.Count);
+        Assert.Equal(TimeSpan.FromDays(1), Utc(events[0].End) - Utc(events[0].Start));
+        Assert.Equal(TimeSpan.FromMinutes(45), Utc(events[1].End) - Utc(events[1].Start));
+    }
+
     [Fact]
     public void AllDayEvent()
     {
