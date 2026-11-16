@@ -3,7 +3,8 @@
 ## Unreleased
 
 **Android**
-- The app runs on Android 7.0 and later (it was Android 9). Two features need newer Android, so they are guarded:
+- The app runs on Android 7.0 and later (it was Android 9), as first proposed by
+  [Sawaid-hub](https://github.com/Sawaid-hub) in #65. Two features need newer Android, so they are guarded:
   before Android 8 the tap vibrations use the older vibration call, and drawing into the display cut-out starts at
   Android 9 as before. Tested on an Android 7.1.1 phone with Chrome 119 as its WebView by
   [anandyakshit](https://github.com/anandyakshit) (#73). `setup.ps1` and `setup.sh` now accept these phones.
