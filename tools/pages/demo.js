@@ -335,6 +335,11 @@
     ['f5', 'Ten keyboard shortcuts that save an hour a week', 'Tech news', 240],
     ['f6', 'Inside the factory that still makes film cameras', 'Hackaday', 420],
   ].map(([id, title, source, min]) => ({ id, title, source, published: now() - min * 60_000, openable: true }));
+  // "pageId/widgetId", or "pageId/stackId:cardId" for a Smart Stack card (AppConsole.WidgetFor)
+  const consoleWidget = (c, key) => (c.pages || []).filter((p) => p.enabled !== false).flatMap((p) => (p.widgets || []).flatMap((w) =>
+    [[`${p.id}/${w.id}`, w], ...(w.type === 'stack' ? (w.options?.widgets || []).filter((x) => x.enabled !== false)
+      .map((x, i) => [`${p.id}/${w.id}:${x.id || `card-${i}`}`, x]) : [])]))
+    .find(([k, w]) => w.type === 'app-console' && k === key)?.[1];
   const DEMO_CONSOLE = { id: 'photoshop', label: 'Photoshop', keys: ['Brush', 'Eraser', 'Undo', 'Redo', 'Zoom in', 'Zoom out', 'Fit', 'Save'],
     dial: { left: true, right: true, press: true } };
   const json = (o, status = 200, headers = {}) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers } });
@@ -565,12 +570,12 @@
     }
     // App console: the demo PC always has Photoshop in front; like AppConsole, only enabled pages count
     if (path === '/api/console') {
-      const ws = shownWidgets(await config()).filter((w) => w.type === 'app-console');
-      if (!ws.length) return json({ error: "no app console widget on this phone's pages" }, 404);
-      return json({ supported: true, control: ws.some((w) => w.options?.control === true), profile: DEMO_CONSOLE });
+      const w = consoleWidget(await config(), q.get('widget'));
+      if (!w) return json({ error: "this app console widget isn't on an enabled page of this phone" }, 404);
+      return json({ supported: true, control: w.options?.control === true, profile: DEMO_CONSOLE });
     }
     if (path.startsWith('/api/console/') && method === 'POST') {
-      if (!shownWidgets(await config()).some((w) => w.type === 'app-console' && w.options?.control === true))
+      if (consoleWidget(await config(), q.get('widget'))?.options?.control !== true)
         return json({ error: 'sending keys is off: turn on "Send keys to the computer" in the app console widget\'s settings' }, 403);
       const [, , , profile, slot] = path.split('/');
       const ok = profile === DEMO_CONSOLE.id && (/^dial-(left|right|press)$/.test(slot) || (/^k(0|[1-9]\d*)$/.test(slot) && +slot.slice(1) < DEMO_CONSOLE.keys.length));

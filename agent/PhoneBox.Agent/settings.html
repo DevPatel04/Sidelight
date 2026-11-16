@@ -1694,10 +1694,11 @@ $('obsTest').onclick = async () => {
 };
 // ---------------------------------------------------------------- app console
 const consoleKeysText = (p) => (p.keys || []).map((k) => (k.label && k.label !== k.keys ? `${k.label} = ${k.keys}` : k.keys)).join('\n');
-const consoleKeysParse = (text) => text.split('\n').map((line) => line.trim()).filter(Boolean).slice(0, 12).map((line) => {
+const consoleKeysParse = (text) => text.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
   const at = line.lastIndexOf('=');
-  // "minus" and "equals" name those keys, so a bare "=" is always the label separator
-  return at > 0 ? { label: line.slice(0, at).trim(), keys: line.slice(at + 1).trim() } : { label: '', keys: line };
+  // "minus" and "equals" name those keys, so "=" separates the label; nothing after it ("ctrl+=") is kept as keys,
+  // so saving says what is wrong instead of dropping the line. More than 12 keys is refused on save too.
+  return at > 0 && line.slice(at + 1).trim() ? { label: line.slice(0, at).trim(), keys: line.slice(at + 1).trim() } : { label: '', keys: line };
 });
 function renderConsole() {
   cfg.console ??= { profiles: [] };

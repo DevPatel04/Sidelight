@@ -27,7 +27,7 @@ test('app console shows the focused app\'s keys and sends ids, not keys', async 
   await expect(page.locator('.ac-title')).toHaveText('Photoshop');
   await expect(page.locator('.ac-key')).toHaveCount(8);
   await page.getByRole('button', { name: 'Undo' }).click();
-  await expect.poll(() => page.evaluate(() => window.__posts)).toEqual(['photoshop/k2']);
+  await expect.poll(() => page.evaluate(() => window.__posts)).toEqual(['photoshop/k2?widget=test%2Fac']);
 
   // a turn of the dial: 21 moves make 5 clicks, sent at most one request per click (fewer while one is in flight)
   const box = await page.locator('.ac-dial').boundingBox();
@@ -39,11 +39,11 @@ test('app console shows the focused app\'s keys and sends ids, not keys', async 
   await expect.poll(() => page.evaluate(() => window.__posts.slice(1).reduce((n, p) => n + +(p.match(/times=(\d+)/) || [0, 0])[1], 0))).toBe(5);
   const turns = await page.evaluate(() => window.__posts.slice(1));
   expect(turns.length).toBeLessThanOrEqual(5);
-  expect(turns.every((p) => p.startsWith('photoshop/dial-right?times='))).toBe(true);
+  expect(turns.every((p) => p.startsWith('photoshop/dial-right?times=') && p.endsWith('&widget=test%2Fac'))).toBe(true);
 
   // a tap on the knob presses it
   await page.mouse.click(cx, cy);
-  await expect.poll(() => page.evaluate(() => window.__posts.at(-1))).toBe('photoshop/dial-press');
+  await expect.poll(() => page.evaluate(() => window.__posts.at(-1))).toBe('photoshop/dial-press?widget=test%2Fac');
   expect(errors).toEqual([]);
 });
 

@@ -34,7 +34,7 @@ public sealed class AgentConfig
     public ObsConfig Obs { get; set; } = new();
     /// <summary>Discord desktop app (local IPC): the developer application's client id and secret (the secret never goes to the phone).</summary>
     public DiscordConfig Discord { get; set; } = new();
-    /// <summary>App console widget: key and dial bindings per app (the keys never go to the phone).</summary>
+    /// <summary>App console widget: key and dial bindings per app (the phone gets labels and ids, not the keys to press).</summary>
     public ConsoleConfig Console { get; set; } = new();
 
     /// <summary>The pages a phone shows: its own selection (Settings › Phones), or all of them.</summary>
@@ -522,17 +522,18 @@ public sealed partial class ConfigStore(string path)
         foreach (var p in c.Console.Profiles)
         {
             p.Label = Cap(p.Label?.Trim() ?? "", 40);
-            p.Apps = Cap(p.Apps?.Trim() ?? "", 300);
+            p.Apps = p.Apps?.Trim() ?? ""; // too long is refused on save (AppConsole.Validate), not cut short
             var id = Slug(string.IsNullOrWhiteSpace(p.Id) ? p.Label : p.Id);
             if (id == "") id = "app";
             var unique = id;
             for (var i = 2; !consoleIds.Add(unique); i++) unique = $"{id}-{i}";
             p.Id = unique;
-            p.Keys = (p.Keys ?? []).Where(k => k is not null && !string.IsNullOrWhiteSpace(k.Keys)).Take(ConsoleProfile.MaxKeys).ToList();
-            foreach (var k in p.Keys) { k.Keys = Cap(k.Keys.Trim(), 200); k.Label = Cap(k.Label?.Trim() is { Length: > 0 } l ? l : k.Keys, 24); }
-            p.DialLeft = string.IsNullOrWhiteSpace(p.DialLeft) ? null : Cap(p.DialLeft.Trim(), 200);
-            p.DialRight = string.IsNullOrWhiteSpace(p.DialRight) ? null : Cap(p.DialRight.Trim(), 200);
-            p.DialPress = string.IsNullOrWhiteSpace(p.DialPress) ? null : Cap(p.DialPress.Trim(), 200);
+            p.Keys = (p.Keys ?? []).Where(k => k is not null && !string.IsNullOrWhiteSpace(k.Keys)).Take(100).ToList();
+            // a key without a label shows its keys on the phone ("ctrl+z")
+            foreach (var k in p.Keys) { k.Keys = k.Keys.Trim(); k.Label = Cap(k.Label?.Trim() is { Length: > 0 } l ? l : k.Keys, 24); }
+            p.DialLeft = string.IsNullOrWhiteSpace(p.DialLeft) ? null : p.DialLeft.Trim();
+            p.DialRight = string.IsNullOrWhiteSpace(p.DialRight) ? null : p.DialRight.Trim();
+            p.DialPress = string.IsNullOrWhiteSpace(p.DialPress) ? null : p.DialPress.Trim();
         }
         c.Calendars = (c.Calendars ?? []).Where(x => x is not null).Take(20).ToList();
         foreach (var cal in c.Calendars) { cal.Name = cal.Name?.Trim() ?? ""; cal.Url = cal.Url?.Trim() ?? ""; }

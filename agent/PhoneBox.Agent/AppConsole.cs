@@ -44,12 +44,15 @@ public sealed class ConsoleKey
     public string Keys { get; set; } = "";
 }
 
-/// <summary>The focused window's process name, and whether it runs elevated (Windows doesn't let us type into it then).</summary>
-public sealed record FocusedApp(string Process, bool Elevated);
+/// <summary>
+/// The focused window's process name, whether it runs elevated (Windows doesn't let us type into it then), and the
+/// window itself, checked once more right before the keys go out.
+/// </summary>
+public sealed record FocusedApp(string Process, bool Elevated, nint Window = 0);
 
 /// <summary>
 /// Follows the focused app and sends a profile's keys to it. Off unless an enabled page of the phone shows an
-/// app-console widget with "control" on; the phone sends a profile id and a slot, never keys; the focused app is
+/// app-console widget with "control" on, and only for that widget; the phone sends a profile id and a slot, never keys; the focused app is
 /// checked again right before every combo, so keys never land in an app the profile isn't for.
 /// </summary>
 public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
@@ -58,24 +61,28 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
     internal bool Supported { get; set; } = OperatingSystem.IsWindows();
 
     internal Func<FocusedApp?> Focused { get; set; } = FocusedNow;
+    internal Func<nint> ForegroundWindow { get; set; } = ForegroundNow;
     internal Func<List<string>, bool> SendCombo { get; set; } = KeySender.SendCombo;
     internal bool AgentElevated { get; set; } = Environment.IsPrivilegedProcess;
 
     private readonly SemaphoreSlim _sending = new(1, 1);
 
-    /// <summary>App console widgets on the enabled pages this phone shows (Smart Stack children included).</summary>
-    public static IEnumerable<WidgetConfig> WidgetsFor(AgentConfig c, string? deviceId) => c.PagesFor(deviceId).Where(p => p.Enabled)
-        .SelectMany(p => p.Widgets ?? []).SelectMany(w => new[] { w }.Concat(StackWidgets.Children(w).Where(ch => ch.Enabled)
-            .Select(ch => new WidgetConfig { Type = ch.Type, Options = ch.Options })))
-        .Where(w => w.Type == "app-console");
+    /// <summary>
+    /// The app console widget the phone names, as "pageId/widgetId" ("pageId/stackId:cardId" in a Smart Stack), if it is
+    /// on an enabled page this phone shows. Each widget's own "control" option counts, not another one's.
+    /// </summary>
+    public static WidgetConfig? WidgetFor(AgentConfig c, string? deviceId, string? key) => string.IsNullOrEmpty(key) ? null
+        : c.PagesFor(deviceId).Where(p => p.Enabled).SelectMany(p => (p.Widgets ?? []).SelectMany(w =>
+                new[] { (Key: p.Id + "/" + w.Id, W: w) }.Concat(StackWidgets.Children(w).Where(ch => ch.Enabled)
+                    .Select(ch => (Key: p.Id + "/" + w.Id + ":" + ch.Id, W: new WidgetConfig { Id = ch.Id, Type = ch.Type, Options = ch.Options })))))
+            .FirstOrDefault(x => x.W.Type == "app-console" && x.Key == key).W;
 
     /// <summary>What the phone may know: the matching profile's id, label and key labels. Never the process name or title.</summary>
-    public (int Status, object Body) State(string? deviceId)
+    public (int Status, object Body) State(string? deviceId, string? widget)
     {
         var c = config.Get();
-        var widgets = WidgetsFor(c, deviceId).ToList();
-        if (widgets.Count == 0) return (404, new { error = "no app console widget on this phone's pages" });
-        var control = widgets.Any(w => w.Bool("control") == true);
+        if (WidgetFor(c, deviceId, widget) is not { } w) return (404, new { error = "this app console widget isn't on an enabled page of this phone" });
+        var control = w.Bool("control") == true;
         if (!Supported) return (200, new { supported = false, control, profile = (object?)null });
         var app = Focused();
         var profile = app is null ? null : c.Console.Profiles.FirstOrDefault(p => p.Matches(app.Process));
@@ -94,10 +101,10 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
     }
 
     /// <summary>Presses a slot of a profile. <paramref name="times"/> repeats a dial turn (clamped to 1..5).</summary>
-    public async Task<(int Status, string? Error)> Act(string? deviceId, string profileId, string slot, int times, CancellationToken ct)
+    public async Task<(int Status, string? Error)> Act(string? deviceId, string? widget, string profileId, string slot, int times, CancellationToken ct)
     {
         var c = config.Get();
-        if (!WidgetsFor(c, deviceId).Any(w => w.Bool("control") == true))
+        if (WidgetFor(c, deviceId, widget)?.Bool("control") != true)
             return (403, "sending keys is off: turn on \"Send keys to the computer\" in the app console widget's settings");
         if (!Supported) return (409, "the app console needs Windows");
         var profile = c.Console.Profiles.FirstOrDefault(p => p.Id == profileId);
@@ -119,6 +126,8 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
                     var app = Focused();
                     if (app is null || !profile.Matches(app.Process)) return (409, "the focused app changed");
                     if (app.Elevated && !AgentElevated) return (409, "the focused app runs as administrator, so Windows doesn't let the agent send keys to it");
+                    // the checks above take a moment: the same window must still be in front as the keys go out
+                    if (app.Window != 0 && ForegroundWindow() != app.Window) return (409, "the focused app changed");
                     if (!SendCombo(combo)) return (500, "Windows refused the key press");
                     if (combos.Count > 1 || times > 1) await Task.Delay(40, ct);
                 }
@@ -127,22 +136,37 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             log.LogWarning("app console {Profile}/{Slot}: {Msg}", profileId, slot, ex.Message);
-            return (500, ex.Message);
+            return (500, "the keys could not be sent");
         }
         finally { _sending.Release(); }
     }
+
+    internal const int MaxApps = 300, MaxSpec = 200;
 
     /// <summary>Checks a profile's key specs; null when they are all valid.</summary>
     public static string? Validate(ConsoleProfile p)
     {
         if (!p.AppNames().Any()) return $"App console profile '{p.Label}' has no app";
+        // refused rather than cut short: a shortened list or combo could still be valid and match or press something else
+        if (p.Apps.Length > MaxApps) return $"App console profile '{p.Label}': the app list is longer than {MaxApps} characters";
+        if (p.Keys.Count > ConsoleProfile.MaxKeys) return $"App console profile '{p.Label}' has more than {ConsoleProfile.MaxKeys} keys";
         foreach (var (spec, what) in p.Keys.Select((k, i) => ((string?)k.Keys, $"key {i + 1}")).Append((p.DialLeft, "dial left")).Append((p.DialRight, "dial right")).Append((p.DialPress, "dial press")))
         {
             if (spec is null) continue;
+            if (spec.Length > MaxSpec) return $"App console profile '{p.Label}', {what}: longer than {MaxSpec} characters";
             try { KeySender.Parse(spec); }
             catch (ArgumentException ex) { return $"App console profile '{p.Label}', {what}: {ex.Message}"; }
         }
         return null;
+    }
+
+    private static nint ForegroundNow()
+    {
+#if WINDOWS
+        return GetForegroundWindow();
+#else
+        return 0;
+#endif
     }
 
     private static FocusedApp? FocusedNow()
@@ -155,7 +179,7 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
         try
         {
             using var p = Process.GetProcessById((int)pid);
-            return new FocusedApp(p.ProcessName, Elevated(pid));
+            return new FocusedApp(p.ProcessName, Elevated(pid), hwnd);
         }
         catch (ArgumentException) { return null; } // gone
         catch (InvalidOperationException) { return null; }

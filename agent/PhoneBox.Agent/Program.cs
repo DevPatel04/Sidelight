@@ -474,14 +474,14 @@ app.MapPost("/api/ha/test", async (HomeAssistantConfig body) =>
     Results.Json(new { result = await HomeAssistant.TestAsync(body.Url ?? "", body.Token ?? "") }));
 
 // App console (widget): the focused app's profile (labels only) and its keys, by profile id and slot.
-app.MapGet("/api/console", (HttpRequest req, AppConsole console) =>
+app.MapGet("/api/console", (string? widget, HttpRequest req, AppConsole console) =>
 {
-    var (status, body) = console.State(req.Headers["X-PhoneBox-Device"].ToString());
+    var (status, body) = console.State(req.Headers["X-PhoneBox-Device"].ToString(), widget);
     return Results.Json(body, statusCode: status);
 });
-app.MapPost("/api/console/{profile}/{slot}", async (string profile, string slot, int? times, HttpRequest req, AppConsole console, CancellationToken ct) =>
+app.MapPost("/api/console/{profile}/{slot}", async (string profile, string slot, string? widget, int? times, HttpRequest req, AppConsole console, CancellationToken ct) =>
 {
-    var (status, error) = await console.Act(req.Headers["X-PhoneBox-Device"].ToString(), profile, slot, times ?? 1, ct);
+    var (status, error) = await console.Act(req.Headers["X-PhoneBox-Device"].ToString(), widget, profile, slot, times ?? 1, ct);
     return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
 });
 
