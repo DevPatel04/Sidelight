@@ -318,11 +318,14 @@ function Install-PhoneBox {
     # Smart App Control (Windows 11) blocks programs that are neither signed nor known to Microsoft: 1 on, 2 evaluation
     $smartAppControl = 0
     try { $smartAppControl = [int](Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -ErrorAction Stop).VerifiedAndReputablePolicyState } catch { }
-    if ($smartAppControl -eq 1 -or $smartAppControl -eq 2) {
-        Write-Caution "Smart App Control is $(if ($smartAppControl -eq 1) { 'on' } else { 'in evaluation mode' }). It blocks programs that are neither signed nor known"
-        Write-Caution 'to Microsoft. The release agent has run with it on; agents built from source can be blocked. If Windows'
-        Write-Caution 'blocks PhoneBoxAgent.exe, do not turn Smart App Control off for it (it cannot be turned back on without'
-        Write-Caution "resetting Windows); please report the message in https://github.com/$Repo/issues/69 instead."
+    if ($smartAppControl -eq 1) {
+        Write-Caution 'Smart App Control is on. It blocks programs that are neither signed nor known to Microsoft, and'
+        Write-Caution 'PhoneBoxAgent.exe is not code-signed yet (signing through SignPath Foundation is pending:'
+        Write-Caution "https://github.com/$Repo/issues/56), so Windows will probably refuse to start it. Setup still installs it."
+        Write-Caution 'Please keep Smart App Control on: on older Windows builds it cannot be turned back on without resetting Windows.'
+    } elseif ($smartAppControl -eq 2) {
+        Write-Caution 'Smart App Control is in evaluation mode: it blocks nothing yet. If Windows turns it on later, it will block'
+        Write-Caution "PhoneBoxAgent.exe until the agent is code-signed (pending: https://github.com/$Repo/issues/56)."
     }
 
     Write-Step 'Finding the release'
@@ -453,15 +456,37 @@ function Install-PhoneBox {
             Write-Info "Start it with $exe"
         } else {
             Write-Step 'Starting PhoneBox'
-            Start-Process -FilePath $exe -WorkingDirectory $app
+            $blocked = $false
+            try {
+                Start-Process -FilePath $exe -WorkingDirectory $app -ErrorAction Stop
+            } catch {
+                # Smart App Control and other App Control / AppLocker policies refuse the file (Win32 errors 4551 and 1260).
+                # Start-Process keeps only the message, in the system language, so compare it with the system's own text.
+                $why = "$($_.Exception.Message)"
+                $says = { param($code) $text = ([ComponentModel.Win32Exception]::new($code).Message).Trim().TrimEnd('.'); $text -and $why.Contains($text) }
+                $appControl = & $says 4551   # App Control for Business, which Smart App Control uses
+                $groupPolicy = & $says 1260  # AppLocker or a software restriction policy
+                if (-not ($appControl -or $groupPolicy)) { throw }
+                $blocked = $true
+                Write-Caution "Windows did not let PhoneBoxAgent.exe start: $why"
+                if ($appControl -and $smartAppControl -eq 1) {
+                    Write-Caution 'PhoneBox is installed, but Smart App Control will not run it until the agent is code-signed.'
+                    Write-Caution "Signing is pending: https://github.com/$Repo/issues/56. Please keep Smart App Control on."
+                } else {
+                    Write-Caution 'PhoneBox is installed, but a policy on this computer does not allow it to run. On a work or school'
+                    Write-Caution 'computer, ask its administrator to allow PhoneBoxAgent.exe.'
+                }
+            }
             $up = $false
-            for ($i = 0; $i -lt 30 -and -not $up; $i++) {
+            for ($i = 0; $i -lt 30 -and -not $up -and -not $blocked; $i++) {
                 Start-Sleep -Milliseconds 700
                 try { Invoke-RestMethod -UseBasicParsing "$SettingsUrl/api/info" -TimeoutSec 2 | Out-Null; $up = $true } catch { }
             }
             if ($up) {
                 Write-Ok "PhoneBox is running: settings at $SettingsUrl (also from the tray icon)"
                 try { Start-Process $SettingsUrl } catch { }
+            } elseif ($blocked) {
+                # explained above
             } elseif (-not (Test-Path $exe)) {
                 Write-Caution "PhoneBoxAgent.exe was removed, probably by an antivirus. See https://github.com/$Repo/issues/69."
             } else {

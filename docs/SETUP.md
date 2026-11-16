@@ -80,10 +80,13 @@ curl -fsSL https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.sh | b
   Windows SmartScreen or an antivirus may warn about a new, unsigned program, and some antivirus engines have flagged
   it ([#69](https://github.com/ersinkoc/phonebox/issues/69)). Setup only installs a file that matches the release
   checksum. If your antivirus removes `PhoneBoxAgent.exe`, setup says so; restore it from quarantine or report it.
-- **Smart App Control** (Windows 11) blocks programs that are neither signed nor known to Microsoft. The release
-  agent has run with it on, while agents built from source can be blocked. Setup tells you when it is on. If it
-  blocks PhoneBox, don't turn it off for PhoneBox: it cannot be turned back on without resetting Windows. Report
-  the message in [#69](https://github.com/ersinkoc/phonebox/issues/69) instead.
+- **Smart App Control** (Windows 11) blocks programs that are neither signed nor known to Microsoft. The agent is
+  not code-signed yet (signing through SignPath Foundation is pending, [#56](https://github.com/ersinkoc/phonebox/issues/56)),
+  so with Smart App Control on, Windows refuses to start it: "An Application Control policy has blocked this file"
+  ([#69](https://github.com/ersinkoc/phonebox/issues/69)). Setup warns you first, still installs it, and explains
+  if Windows blocks it. Please keep Smart App Control on: on older Windows builds it cannot be turned back on without
+  resetting Windows. In evaluation mode it blocks nothing yet. On a work or school computer, an AppLocker or group
+  policy can block the agent too; its administrator can allow it.
 - **USB debugging gives a computer you allow control over the phone.** Allow only your own computers. You can
   withdraw them on the phone under *Developer options › Revoke USB debugging authorisations*.
 - **Wi-Fi is off until you turn it on.** Until then the agent listens only on this computer (`127.0.0.1:8765`).

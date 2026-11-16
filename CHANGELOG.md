@@ -19,6 +19,11 @@
   PowerShell opens instead. Outside the Debian family there is no `x-terminal-emulator`, so `$TERMINAL` or the first
   installed common terminal (GNOME Console, Konsole, Alacritty, kitty, xterm …) opens (#73).
 
+**Setup**
+- When Smart App Control blocks the unsigned agent, `setup.ps1` no longer stops with "An Application Control policy
+  has blocked this file". It says that PhoneBox is installed but can't run until the agent is signed (#56), and it
+  no longer claims the release agent runs with Smart App Control on (#69).
+
 ## 0.9.10 — 2026-11-16
 
 PhoneBox now speaks 11 languages. This is also a reliability release: updates are checked against the release
