@@ -102,6 +102,8 @@ public sealed class DisplayConfig
     public AppearanceConfig? Appearance { get; set; }
     /// <summary>UI language code ("auto", "en", "tr", "de", "fr", "es", "it", "pt", "nl", "pl", "ru", "zh").</summary>
     public string Language { get; set; } = "auto";
+    /// <summary>The codes the panel and the settings page are translated into (i18n.js).</summary>
+    internal static readonly string[] Languages = ["auto", "en", "tr", "de", "fr", "es", "it", "pt", "nl", "pl", "ru", "zh"];
     public bool ShowSeconds { get; set; } = true;
     /// <summary>false ("14:05", default), true ("2:05 PM") or "auto" (follow the phone).</summary>
     [JsonConverter(typeof(Hour12JsonConverter))]
@@ -440,6 +442,9 @@ public sealed partial class ConfigStore(string path)
         c.Display.Hour12 = Hour12JsonConverter.Normalize(c.Display.Hour12);
         c.Display.IdleReturnSec = Math.Clamp(c.Display.IdleReturnSec, 0, 3600);
         c.Display.IdleDimMin = Math.Clamp(c.Display.IdleDimMin, 0, 1440);
+        // a language the panel does not have falls back to following the phone / browser
+        var lang = (c.Display.Language ?? "").Trim().ToLowerInvariant();
+        c.Display.Language = DisplayConfig.Languages.Contains(lang) ? lang : "auto";
         c.Display.SwitchCountdownSec = Math.Clamp(c.Display.SwitchCountdownSec, 0, 30);
         c.Display.TouchGraceSec = Math.Clamp(c.Display.TouchGraceSec, 0, 600);
         c.Display.MinDwellSec = Math.Clamp(c.Display.MinDwellSec, 0, 600);

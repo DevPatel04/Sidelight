@@ -1,12 +1,27 @@
 # Changelog
 
+## Unreleased
+
+**Agent**
+- `display.language` is checked like the other settings: a code PhoneBox has no translation for (or an empty one) falls
+  back to `auto`, which follows the phone or the browser. It is also in the three default configuration files.
+
 ## 0.9.10 — 2026-11-16
 
-A reliability release. Updates are checked against the release checksums and no longer get stuck on a hung or refusing
-phone. Notifications sent while the agent restarts now reach the phone.
+PhoneBox now speaks 11 languages. This is also a reliability release: updates are checked against the release
+checksums and no longer get stuck on a hung or refusing phone, and notifications sent while the agent restarts now
+reach the phone.
 
 Most of the fixes come from an evidence-led audit. Each one was reproduced on the unchanged code before the fix
 (#88, #89, #90, #91).
+
+**Languages**
+- The panel and the settings page are translated into English, Türkçe, Deutsch, Français, Español, Italiano,
+  Português, Nederlands, Polski, Русский and 中文.
+- By default PhoneBox follows the language of the phone (panel) or the browser (settings).
+- To choose a language yourself: Settings › General › Display › Language (`display.language`).
+- The README is restructured around a short quick start, with translations in `docs/README.<language>.md`.
+- New guides: [setup](docs/SETUP.md), [user guide](docs/GUIDE.md), [development](docs/DEVELOPMENT.md).
 
 **Agent**
 - **Updates:**
