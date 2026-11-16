@@ -88,13 +88,16 @@ public static class KeySender
     };
 
 #if WINDOWS
-    private static void Send(List<string> combo)
+    private static void Send(List<string> combo) => SendCombo(combo);
+
+    /// <summary>Presses one parsed combo; false when Windows took none or only part of the input.</summary>
+    public static bool SendCombo(List<string> combo)
     {
         var vks = combo.Select(WinVk).ToList();
         var inputs = new List<INPUT>();
         foreach (var vk in vks) inputs.Add(Key(vk, false));
         foreach (var vk in Enumerable.Reverse(vks)) inputs.Add(Key(vk, true));
-        SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf<INPUT>());
+        return SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf<INPUT>()) == inputs.Count;
     }
 
     public static void TypeText(string text)
@@ -139,6 +142,8 @@ public static class KeySender
     [StructLayout(LayoutKind.Sequential)] private struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public nint dwExtraInfo; }
     [StructLayout(LayoutKind.Sequential)] private struct MOUSEINPUT { public int dx, dy; public uint mouseData, dwFlags, time; public nint dwExtraInfo; }
 #else
+    public static bool SendCombo(List<string> combo) { Send(combo); return true; }
+
     private static void Send(List<string> combo)
     {
         if (OperatingSystem.IsMacOS()) { MacKeystroke(combo); return; }
