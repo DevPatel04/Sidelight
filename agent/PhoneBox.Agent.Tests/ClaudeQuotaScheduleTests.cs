@@ -325,7 +325,7 @@ public sealed class ClaudeQuotaScheduleTests : IDisposable
         _api.Respond(HttpStatusCode.ServiceUnavailable, "");
         var agent = Agent();
         // while this request runs, another agent sends the same token and gets a 401
-        var print = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes("revoked")))[..16];
+        var print = Print("revoked");
         _api.OnSend = () => File.WriteAllText(agent.ClaudeSchedulePath,
             $$"""{"nextAt":{{_t0 + 60_000}},"failures":0,"refused":"{{print}}","refusedAt":{{_t0}}}""");
         await agent.ClaudeTickAsync(_t0, default);
@@ -334,6 +334,65 @@ public sealed class ClaudeQuotaScheduleTests : IDisposable
         var restarted = Agent();
         for (var t = _t0 + 10 * Minute; t < _t0 + 30 * Minute; t += 30_000) await restarted.ClaudeTickAsync(t, default);
         Assert.Equal(1, _api.Calls);
+    }
+
+    private static string Print(string token) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(token)))[..16];
+
+    [Fact]
+    public async Task AnHourLongWaitAnotherAgentGotIsKeptAfterASlowAnswer()
+    {
+        SignIn("token-1", _t0 + 7_200_000);
+        _api.Respond(HttpStatusCode.OK, Usage);
+        var agent = Agent();
+        _api.OnSend = () =>
+        {
+            // a second into this pass another agent is told to wait an hour (+5 s); this answer then takes 2 s
+            File.WriteAllText(agent.ClaudeSchedulePath, $$"""{"nextAt":{{_t0 + 1_000 + 3_605_000}},"failures":1}""");
+            Thread.Sleep(2_000);
+        };
+        await agent.ClaudeTickAsync(_t0, default);
+        _api.OnSend = null;
+        await agent.ClaudeTickAsync(_t0 + 10 * Minute, default);
+        Assert.Equal(1, _api.Calls);
+    }
+
+    [Fact]
+    public async Task ANewerRefusalOfTheSameTokenIsKept()
+    {
+        SignIn("revoked", _t0 + 7_200_000);
+        _api.Respond(HttpStatusCode.Unauthorized, "");
+        var agent = Agent();
+        await agent.ClaudeTickAsync(_t0, default);
+
+        // half an hour later this agent tries the token again; meanwhile another agent gets a fresh 401 for it
+        _api.Respond(HttpStatusCode.ServiceUnavailable, "");
+        _api.OnSend = () => File.WriteAllText(agent.ClaudeSchedulePath,
+            $$"""{"nextAt":{{_t0 + 31 * Minute}},"failures":0,"refused":"{{Print("revoked")}}","refusedAt":{{_t0 + 30 * Minute}}}""");
+        await agent.ClaudeTickAsync(_t0 + 30 * Minute, default);
+        _api.OnSend = null;
+        Assert.Equal(2, _api.Calls);
+
+        var restarted = Agent();
+        for (var t = _t0 + 36 * Minute; t < _t0 + 60 * Minute; t += 30_000) await restarted.ClaudeTickAsync(t, default);
+        Assert.Equal(2, _api.Calls);
+    }
+
+    [Fact]
+    public async Task ARestartKeepsTheBackOffGoing()
+    {
+        SignIn("token-1", _t0 + 7_200_000);
+        _api.Respond(HttpStatusCode.Forbidden, "");
+        var agent = Agent();
+        await agent.ClaudeTickAsync(_t0, default);
+        await agent.ClaudeTickAsync(_t0 + Minute, default); // second failure: next at 3 minutes
+
+        var restarted = Agent();
+        await restarted.ClaudeTickAsync(_t0 + 3 * Minute, default); // third failure: the next one waits 4 minutes
+        await restarted.ClaudeTickAsync(_t0 + 5 * Minute, default);
+        Assert.Equal(3, _api.Calls);
+        await restarted.ClaudeTickAsync(_t0 + 7 * Minute, default);
+        Assert.Equal(4, _api.Calls);
     }
 
     private sealed class FakeAnthropic : HttpMessageHandler

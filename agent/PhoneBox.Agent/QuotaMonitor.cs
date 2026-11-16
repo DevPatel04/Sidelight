@@ -430,9 +430,10 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
         var (refused, refusedAt) = (_claudeRefused, _claudeRefusedAt);
         if (ReadClaudeSchedule() is { } other)
         {
-            if (other.NextAt > next && other.NextAt - nowMs <= ClaudeMaxWaitMs)
+            if (other.NextAt > next && other.NextAt - answeredMs <= ClaudeMaxWaitMs)
                 (next, error) = (other.NextAt, other.Error ?? error);
-            if (other.Refused is { } theirs && theirs != refused && answeredMs - other.RefusedAt is >= 0 and < ClaudeRefusedRetryMs
+            if (other.Refused is { } theirs && (theirs != refused || other.RefusedAt > refusedAt)
+                && answeredMs - other.RefusedAt is >= 0 and < ClaudeRefusedRetryMs
                 && !(result == ClaudeResult.Ok && theirs == print))
                 (refused, refusedAt) = (theirs, other.RefusedAt);
         }
@@ -526,10 +527,12 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
             _claude = Keep(plan, RefusedMessage);
             return true;
         }
-        // a schedule further ahead than any wait was written before the clock was set back: it no longer applies
-        if (shared is null || shared.NextAt <= nowMs || shared.NextAt - nowMs > ClaudeMaxWaitMs) return false;
-        _claudeNextAt = Math.Max(_claudeNextAt, shared.NextAt);
+        // A schedule further ahead than any wait was written before the clock was set back: it no longer applies. One
+        // that ran out recently still carries the failure count, so a restart doesn't reset the back-off.
+        if (shared is null || shared.NextAt - nowMs > ClaudeMaxWaitMs || nowMs - shared.NextAt > ClaudeMaxWaitMs) return false;
         _claudeFailures = Math.Max(_claudeFailures, shared.Failures);
+        if (shared.NextAt <= nowMs) return false;
+        _claudeNextAt = Math.Max(_claudeNextAt, shared.NextAt);
         if (shared.Error is { Length: > 0 } error) _claude = Keep(plan, error);
         return false;
     }
