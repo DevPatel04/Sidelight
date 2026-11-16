@@ -383,6 +383,23 @@ test('the weather is fetched only while a widget needs it', async ({ page }) => 
   await expect.poll(() => asked.length).toBeGreaterThan(0);
 });
 
+// the direct fetch and the agent's proxy fallback both failing is a different path from a JSON error body:
+// the demo answers /api/proxy inside its own fetch wrapper, so that failure is patched in the page
+test('a failed weather fetch and fallback leaves the widget unavailable, not loading (#159)', async ({ page }) => {
+  await page.route('https://api.open-meteo.com/**', (route) => route.abort());
+  await layout(page, [widget('forecast')]);
+  await page.evaluate(async () => {
+    const m = await import('./main.js');
+    m.D.weather = null;
+    localStorage.removeItem('wx');
+    const f = window.fetch;
+    window.fetch = (input, init) => (String(typeof input === 'string' ? input : input.url).includes('/proxy')
+      ? Promise.reject(new TypeError('proxy unreachable')) : f(input, init));
+    return m.loadWeather(true);
+  });
+  await expect(page.locator('.w-forecast .empty')).toHaveText('Weather unavailable');
+});
+
 // #58: switch between the computers paired over Wi-Fi with one tap; a USB cable always wins.
 test('the Computers widget lists paired computers and switches between them', async ({ browser, baseURL }) => {
   const ctx = await browser.newContext({ baseURL, viewport: { width: 780, height: 360 } });
