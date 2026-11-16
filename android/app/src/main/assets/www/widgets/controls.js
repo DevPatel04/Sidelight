@@ -705,7 +705,7 @@ integrationWidget('media-queue', 'Spotify queue', 'spotify/state', (root,data,se
     const b = h('button','sq-item', cover(item.image), text(item.name, item.artist));
     b.type = 'button';
     b.setAttribute('aria-label', item.name + (item.artist ? ' · ' + item.artist : ''));
-    b.onclick = () => send('play-queued',{id:item.id});
+    b.onclick = () => { haptic(); send('play-queued',{id:item.id}).catch(fail); };
     root.append(b);
   }
 });

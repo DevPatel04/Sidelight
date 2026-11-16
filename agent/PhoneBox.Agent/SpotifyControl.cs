@@ -144,8 +144,9 @@ public sealed class SpotifyControl : IDisposable
             if (_snapshot is not null && Now - _readAt < 5000) return _snapshot;
             try
             {
-                var playing = await Request(HttpMethod.Get, "me/player/currently-playing", null, ct);
-                var queue = await Request(HttpMethod.Get, "me/player/queue", null, ct);
+                // episodes too: without additional_types an episode that is playing comes back empty
+                var playing = await Request(HttpMethod.Get, "me/player/currently-playing?additional_types=track,episode", null, ct);
+                var queue = await Request(HttpMethod.Get, "me/player/queue?additional_types=track,episode", null, ct);
                 _snapshot = new() { ["connected"] = true, ["current"] = TrackOf(playing?["item"]), ["playing"] = playing?["is_playing"]?.DeepClone(),
                     ["queue"] = new JsonArray((queue?["queue"] as JsonArray ?? []).Take(30).Select(TrackOf).ToArray()) };
             }

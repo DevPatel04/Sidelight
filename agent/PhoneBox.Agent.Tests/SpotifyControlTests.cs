@@ -42,6 +42,23 @@ public sealed class SpotifyControlTests
     }
 
     [Fact]
+    public async Task ThePlayingEpisodeAndQueuedEpisodesAreAskedFor()
+    {
+        using var fixture = new Fixture(manual: true);
+        var asked = new List<string>();
+        using var spotify = fixture.Create(r =>
+        {
+            asked.Add(r.RequestUri!.PathAndQuery);
+            return Task.FromResult(r.RequestUri!.AbsolutePath.EndsWith("/queue")
+                ? Json("""{"queue":[]}""")
+                : Json("""{"is_playing":true,"item":{"uri":"spotify:episode:0000000000000000000002","name":"Ep","show":{"name":"Show"},"images":[]}}"""));
+        });
+        var snap = await spotify.Snapshot(default);
+        Assert.Equal("Ep", snap["current"]!["name"]!.GetValue<string>());
+        Assert.All(asked, path => Assert.Contains("additional_types=track,episode", path));
+    }
+
+    [Fact]
     public void CoversFromAnyOtherHostAreDropped()
     {
         var track = SpotifyControl.TrackOf(JsonNode.Parse("""

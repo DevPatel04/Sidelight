@@ -689,7 +689,7 @@
   const swapDemoImg = (img) => {
     if (img.tagName !== 'IMG') return;
     const src = img.getAttribute('src') || '';
-    if (/\/api\/(art|controls\/radio-logo)/.test(src)) img.src = ART;
+    if (/\/api\/(art|controls\/radio-logo)|^https:\/\/i\.scdn\.co\/image\/demo\d+$/.test(src)) img.src = ART;
     else if (/\/api\/apps\/icon/.test(src)) img.src = appIcon(new URL(src, location.href).searchParams.get('id'));
   };
   new MutationObserver((list) => {
