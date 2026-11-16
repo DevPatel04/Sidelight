@@ -133,7 +133,12 @@ public sealed partial class PushStore
 
     private void Changed()
     {
-        Interlocked.Exchange(ref _version, Math.Max(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), Interlocked.Read(ref _version) + 1));
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        long previous;
+        do
+        {
+            previous = Interlocked.Read(ref _version);
+        } while (Interlocked.CompareExchange(ref _version, Math.Max(now, previous + 1), previous) != previous);
         if (Interlocked.Exchange(ref _savePending, 1) == 0) _saveTimer.Change(2000, Timeout.Infinite); // at most one write per 2 s, never postponed
     }
 
