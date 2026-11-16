@@ -11,6 +11,8 @@
   the battery and charging state, and the BlackShark V2 Pro headset only while Synapse isn't running.
 
 **Panel**
+- Smart Stack: a rotation interval of 0 turns automatic rotation off, so the stack changes only when you swipe or tap
+  a dot; the longest interval is now 10 minutes (#171, [MrKatsuragi](https://github.com/MrKatsuragi)).
 - The Spotify queue widget shows what is playing now and what comes next, with covers; tap a track to play it. Covers
   come from Spotify's image server, which the phone contacts only while the widget's "Show covers" option is on
   (idea from #65, [Sawaid-hub](https://github.com/Sawaid-hub)).

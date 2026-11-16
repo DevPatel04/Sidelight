@@ -219,7 +219,8 @@ AI in 3…"*, tap **Stay** to keep the page or **Go now**), waits while you are 
 between two automatic switches and lets the higher-priority rule go first; rules that end before their turn are
 dropped, so a burst of rules never bounces the screen back and forth. Settings › General › Page switching sets the
 countdown, how long to wait after a touch, the minimum time between switches, the home page and how long a rule may
-keep its page. The phone's overview (and the Rules widget) pauses all rules for an hour.
+keep its page (30 minutes by default, so a rule that never ends can't hold the panel for good; 0 keeps it for as long
+as the rule lasts). The phone's overview (and the Rules widget) pauses all rules for an hour.
 
 With **only while it lasts**, the effect ends with the condition: the phone goes back to the page it was on (unless
 you moved on yourself) and stays on the rule's page instead of returning home when idle; a pushed value is removed
