@@ -16,9 +16,10 @@ public sealed record DeviceBattery(string Name, int Level, string Kind, bool? Ch
 public sealed partial class BatteryMonitor(ILogger<BatteryMonitor> log) : BackgroundService
 {
     private volatile IReadOnlyList<DeviceBattery> _devices = [];
-    private volatile IReadOnlyList<DeviceBattery> _btDevices = [];
-    private volatile IReadOnlyList<DeviceBattery> _razerDevices = [];
 #if WINDOWS
+    private readonly object _publishLock = new();
+    private IReadOnlyList<DeviceBattery> _btDevices = [];
+    private IReadOnlyList<DeviceBattery> _razerDevices = [];
     private Task? _razerTask;
 #endif
     private long _lastRequest;
@@ -41,8 +42,12 @@ public sealed partial class BatteryMonitor(ILogger<BatteryMonitor> log) : Backgr
 #if WINDOWS
                 try
                 {
-                    _btDevices = await Task.Run(Windows, ct);
-                    PublishWindowsDevices();
+                    var bt = await Task.Run(Windows, ct);
+                    lock (_publishLock)
+                    {
+                        _btDevices = bt;
+                        _devices = SortDevices(MergeRazerIntoBluetooth(_btDevices, _razerDevices));
+                    }
                 }
                 catch (Exception ex) { log.LogDebug("batteries: {Msg}", ex.Message); }
 
@@ -52,8 +57,11 @@ public sealed partial class BatteryMonitor(ILogger<BatteryMonitor> log) : Backgr
                     {
                         var (razer, error) = WindowsRazer();
                         if (error is not null) log.LogDebug("batteries (razer): {Msg}", error);
-                        _razerDevices = razer;
-                        PublishWindowsDevices();
+                        lock (_publishLock)
+                        {
+                            _razerDevices = razer;
+                            _devices = SortDevices(MergeRazerIntoBluetooth(_btDevices, _razerDevices));
+                        }
                     }, ct);
                 }
 #else
@@ -65,20 +73,13 @@ public sealed partial class BatteryMonitor(ILogger<BatteryMonitor> log) : Backgr
         }
     }
 
-    private void PublishWindowsDevices()
-        => _devices = SortDevices(MergeRazerIntoBluetooth(_btDevices, _razerDevices));
-
     private static List<DeviceBattery> SortDevices(IEnumerable<DeviceBattery> list)
         => list.OrderBy(d => d.Kind == "laptop" ? 1 : 0).ThenBy(d => d.Name).ToList();
 
+#if !WINDOWS
     private static IReadOnlyList<DeviceBattery> Read()
-    {
-#if WINDOWS
-        return SortDevices(MergeRazerIntoBluetooth(Windows(), WindowsRazer().Devices));
-#else
-        return SortDevices(OperatingSystem.IsMacOS() ? MacOs() : Linux());
+        => SortDevices(OperatingSystem.IsMacOS() ? MacOs() : Linux());
 #endif
-    }
 
     /// <summary>Guesses the kind of device from its name.</summary>
     public static string KindOf(string name)

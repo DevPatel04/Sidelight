@@ -125,7 +125,7 @@ public class BatteryTests
         => Assert.Equal(expectedKind, BatteryMonitor.RazerKindFromPid(pid));
 
     [Fact]
-    public void MergeRazerIntoBluetooth_PreservesBluetoothDuplicatesAndPrefersHidCharging()
+    public void MergeRazerIntoBluetooth_PreservesBluetoothDuplicatesAndCollapsesCableWithDongle()
     {
         var bluetooth = new[]
         {
@@ -135,7 +135,8 @@ public class BatteryTests
         };
         var hid = new[]
         {
-            new DeviceBattery("Razer Basilisk V3 Pro", 47, "mouse", true),
+            new DeviceBattery("Razer Basilisk V3 Pro", 46, "mouse", false), // wireless dongle
+            new DeviceBattery("Razer Basilisk V3 Pro", 47, "mouse", true),  // USB cable
             new DeviceBattery("Razer BlackWidow V3 Pro", 80, "keyboard", false),
         };
 
@@ -148,34 +149,37 @@ public class BatteryTests
     }
 
     [Fact]
-    public void MergeRazerDevices_DeduplicatesByPhysicalIdAndPreservesDistinctReceivers()
+    public void QueryRazerFeatureDevice_EverySentFrameHasReadBitSet()
     {
-        var readings = new[]
+        var sentFrames = new List<byte[]>();
+
+        foreach (var pid in BatteryMonitor.RazerFeaturePids)
         {
-            ("USB\\VID_1532&PID_0555\\PORT1", new DeviceBattery("Razer BlackShark V2 Pro 2.4", 29, "headphones", false)),
-            ("USB\\VID_1532&PID_0555\\PORT1", new DeviceBattery("Razer BlackShark V2 Pro 2.4", 29, "headphones", false)),
-            ("USB\\VID_1532&PID_0555\\PORT2", new DeviceBattery("Razer BlackShark V2 Pro 2.4", 82, "headphones", true)),
-        };
-
-        var razer = BatteryMonitor.MergeRazerDevices(readings);
-        var merged = BatteryMonitor.MergeRazerIntoBluetooth([], razer);
-
-        Assert.Equal(2, merged.Count);
-        Assert.Contains(merged, d => d.Name == "Razer BlackShark V2 Pro 2.4" && d.Level == 29 && d.Charging == false);
-        Assert.Contains(merged, d => d.Name == "Razer BlackShark V2 Pro 2.4 (2)" && d.Level == 82 && d.Charging == true);
-    }
-
-    [Fact]
-    public void BuildRazerReport_AllFeatureFramesAreReadOnlyQueries()
-    {
-        foreach (var tx in BatteryMonitor.RazerTxCandidates)
-        {
-            foreach (var cmd in new[] { BatteryMonitor.RazerCmdBattery, BatteryMonitor.RazerCmdCharging })
+            // Path 1: device responds NotSupported across all transaction IDs.
+            BatteryMonitor.QueryRazerFeatureDevice(pid, null, req =>
             {
-                var frame = BatteryMonitor.BuildRazerReport(tx, cmd);
-                Assert.Equal(BatteryMonitor.RazerClassPower, frame[7]);
-                Assert.True((frame[8] & 0x80) != 0, $"Command 0x{frame[8]:X2} must have the read bit (bit 7) set.");
-            }
+                sentFrames.Add((byte[])req.Clone());
+                var resp = (byte[])req.Clone();
+                resp[1] = BatteryMonitor.RazerStatusNotSupported;
+                return resp;
+            });
+
+            // Path 2: device responds StatusOk on battery and charging queries.
+            BatteryMonitor.QueryRazerFeatureDevice(pid, null, req =>
+            {
+                sentFrames.Add((byte[])req.Clone());
+                var resp = (byte[])req.Clone();
+                resp[1] = BatteryMonitor.RazerStatusOk;
+                resp[10] = req[8] == BatteryMonitor.RazerCmdBattery ? (byte)0x80 : (byte)0x01;
+                return resp;
+            });
+        }
+
+        Assert.NotEmpty(sentFrames);
+        foreach (var frame in sentFrames)
+        {
+            Assert.Equal(BatteryMonitor.RazerClassPower, frame[7]);
+            Assert.True((frame[8] & 0x80) != 0, $"Sent command 0x{frame[8]:X2} must have the read bit (bit 7) set.");
         }
     }
 

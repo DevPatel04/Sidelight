@@ -20,6 +20,8 @@ public sealed partial class BatteryMonitor
     internal const byte RazerStatusTimeout = 0x04;
     internal const byte RazerStatusNotSupported = 0x05;
 
+    // Overall budget for a Razer scan; the last in-flight HID call started just before the deadline
+    // can still overrun by up to ~400 ms, which is fine because WindowsRazer runs on its own task.
     private const long RazerTotalBudgetMs = 1500;
 
     internal const byte RazerPaReportId = 0x02;
@@ -30,6 +32,8 @@ public sealed partial class BatteryMonitor
     // Only 0x0555 is verified by capture; other PA headsets remain excluded until tested.
     private static readonly HashSet<int> RazerPaPids = [0x0555];
     private static readonly ConcurrentDictionary<int, byte> PreferredRazerTxByPid = new();
+
+    internal static IEnumerable<int> RazerFeaturePids => RazerDevices.Keys.Where(pid => !RazerPaPids.Contains(pid));
 
     private static readonly Dictionary<int, (string Name, string Kind)> RazerDevices = new()
     {
@@ -134,6 +138,12 @@ public sealed partial class BatteryMonitor
         return report[10] != 0;
     }
 
+    /// <summary>
+    /// Builds the 64-byte "PA" remote/telemetry mode frame (command 0xE1: 1 = on, 0 = off).
+    /// Decoded from Razer Synapse USBPcap captures in OpenRazer (razerblackshark_driver, PR #2862) and
+    /// HeyOkay/HaloBattery (providers/blackshark.py): the BlackShark V2 Pro 2023 (0x0555) 2.4 GHz receiver
+    /// dozes after ~300 ms idle and ignores 0x21/0x2A queries unless woken and placed into remote mode first.
+    /// </summary>
     internal static byte[] BuildRazerPaRemoteFrame(bool on)
     {
         var buf = new byte[RazerPaReportLength];
@@ -236,29 +246,11 @@ public sealed partial class BatteryMonitor
         return null;
     }
 
-    internal static List<DeviceBattery> MergeRazerDevices(IEnumerable<(string PhysicalId, DeviceBattery Device)> readings)
-    {
-        var byPhysicalId = new Dictionary<string, DeviceBattery>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (id, dev) in readings)
-        {
-            if (!byPhysicalId.TryGetValue(id, out var existing) || PreferDevice(dev, existing))
-                byPhysicalId[id] = dev;
-        }
-
-        // Disambiguate distinct physical devices that share the same product name (e.g. two identical receivers)
-        // so MergeRazerIntoBluetooth preserves every physical peripheral.
-        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var result = new List<DeviceBattery>(byPhysicalId.Count);
-        foreach (var dev in byPhysicalId.Values)
-        {
-            var n = counts.TryGetValue(dev.Name, out var c) ? c + 1 : 1;
-            counts[dev.Name] = n;
-            result.Add(n == 1 ? dev : dev with { Name = $"{dev.Name} ({n})" });
-        }
-        return result;
-    }
-
-    /// <summary>Merges Razer HID devices into the Bluetooth list without collapsing duplicate Bluetooth entries.</summary>
+    /// <summary>
+    /// Merges Razer HID readings by product name (preferring an entry with charging state when both a cable
+    /// and a wireless dongle for the same model are connected) into the Bluetooth list without collapsing
+    /// duplicate Bluetooth entries.
+    /// </summary>
     internal static List<DeviceBattery> MergeRazerIntoBluetooth(IEnumerable<DeviceBattery> bluetooth, IEnumerable<DeviceBattery> razer)
     {
         var list = bluetooth.ToList();
@@ -280,10 +272,13 @@ public sealed partial class BatteryMonitor
 
 #if WINDOWS
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
+    // Synapse 4 runs as RazerAppEngine; Synapse 3 runs as Razer Synapse 3 / Razer Synapse Service.
+    private static readonly string[] SynapseProcessNames =
+        ["RazerAppEngine", "Razer Synapse 3", "Razer Synapse Service", "RazerSynapse"];
 
     private static (List<DeviceBattery> Devices, string? Error) WindowsRazer()
     {
-        var readings = new List<(string PhysicalId, DeviceBattery Device)>();
+        var readings = new List<DeviceBattery>();
         var handledDevices = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var deadline = Environment.TickCount64 + RazerTotalBudgetMs;
         bool? synapseRunning = null;
@@ -345,7 +340,7 @@ public sealed partial class BatteryMonitor
                         if (dev is not null)
                         {
                             handledDevices.Add(physicalId);
-                            readings.Add((physicalId, dev));
+                            readings.Add(dev);
                         }
                     }
                     catch (Exception ex) { lastError ??= ex.Message; }
@@ -356,25 +351,23 @@ public sealed partial class BatteryMonitor
         }
         catch (Exception ex) { lastError ??= ex.Message; }
 
-        return (MergeRazerDevices(readings), lastError);
+        return (MergeRazerIntoBluetooth([], readings), lastError);
     }
 
     private static bool IsRazerSynapseRunning()
     {
-        try
+        foreach (var name in SynapseProcessNames)
         {
-            foreach (var p in Process.GetProcesses())
+            var procs = Process.GetProcessesByName(name);
+            try
             {
-                try
-                {
-                    if (p.ProcessName.StartsWith("RazerSynapse", StringComparison.OrdinalIgnoreCase)
-                        || p.ProcessName.Equals("Razer Synapse Service", StringComparison.OrdinalIgnoreCase))
-                        return true;
-                }
-                finally { p.Dispose(); }
+                if (procs.Length > 0) return true;
+            }
+            finally
+            {
+                foreach (var p in procs) p.Dispose();
             }
         }
-        catch { }
         return false;
     }
 
@@ -513,6 +506,7 @@ public sealed partial class BatteryMonitor
         if (ev == IntPtr.Zero) return -2;
         var pinBuf = GCHandle.Alloc(buf, GCHandleType.Pinned);
         var ovMem = Marshal.AllocHGlobal(Marshal.SizeOf<OVERLAPPED>());
+        var ioPending = false;
         try
         {
             Marshal.StructureToPtr(new OVERLAPPED { hEvent = ev }, ovMem, false);
@@ -522,11 +516,20 @@ public sealed partial class BatteryMonitor
             if (!ok)
             {
                 if (Marshal.GetLastWin32Error() != 997) return -2; // immediate error (e.g. unplugged)
-                if (WaitForSingleObject(ev, (uint)timeoutMs) != 0)
+                ioPending = true;
+                if (WaitForSingleObject(ev, (uint)timeoutMs) == 0)
                 {
-                    // Wait for overlapped cancellation before unpinning the buffer.
+                    ioPending = false;
+                }
+                else
+                {
                     CancelIoEx(handle, ovMem);
-                    GetOverlappedResult(handle, ovMem, out _, true);
+                    if (WaitForSingleObject(ev, 200) != 0)
+                        return -2; // driver did not complete cancellation in time; keep buffer pinned in finally
+                    ioPending = false;
+                    // If the operation completed just before CancelIoEx took effect, preserve the completion.
+                    if (GetOverlappedResult(handle, ovMem, out var lateTransferred, false))
+                        return (int)lateTransferred;
                     return -1; // timeout
                 }
             }
@@ -535,9 +538,12 @@ public sealed partial class BatteryMonitor
         }
         finally
         {
-            Marshal.FreeHGlobal(ovMem);
-            pinBuf.Free();
-            CloseHandle(ev);
+            if (!ioPending)
+            {
+                Marshal.FreeHGlobal(ovMem);
+                pinBuf.Free();
+                CloseHandle(ev);
+            }
         }
     }
 
