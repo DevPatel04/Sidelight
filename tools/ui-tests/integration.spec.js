@@ -313,6 +313,31 @@ test('Apply JSON fills defaults for a partial config instead of breaking the edi
   await expect(page.locator('input[data-bind="display.showSeconds"]')).toBeChecked(); // DisplayConfig.ShowSeconds
 });
 
+// Apply JSON and page-file imports can drop a widget without a grid position. A drag then wrote NaN into
+// x/y/w/h, JSON.stringify turned that into null and the server refused the whole save as invalid JSON.
+test('Apply JSON gives pasted widgets a valid grid position', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.goto('/settings/#advanced');
+  await page.locator('#json').fill('{"pages": [{"id": "p", "title": "P", "widgets": [{"id": "w1", "type": "clock"}]}]}');
+  await page.locator('#applyJson').click();
+  await expect(page.locator('#jsonErr')).toHaveText('');
+  await page.locator('a[href="#pages"]').click();
+  const wb = page.locator('#canvas .wb');
+  await expect(wb).toHaveCount(1);
+  // a positionless clock takes its catalog default size at the top-left cell instead of an invalid gridArea
+  expect(await page.evaluate(() => { const { x, y, w, h } = cfg.pages[0].widgets[0]; return [x, y, w, h]; }))
+    .toEqual([0, 0, 6, 4]);
+  // a drag writes integer coordinates — before the fix it wrote NaN, which JSON.stringify saved as null
+  const cell = await page.locator('#canvas .cell').first().boundingBox();
+  const box = await wb.boundingBox();
+  await page.mouse.move(box.x + 20, box.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 20 + cell.width, box.y + 20 + cell.height, { steps: 5 });
+  await page.mouse.up();
+  expect(await page.evaluate(() => { const { x, y } = cfg.pages[0].widgets[0]; return [x, y]; })).toEqual([1, 1]);
+  expect(await page.evaluate(() => JSON.stringify(cfg))).not.toContain('"x":null');
+});
+
 // PRIVACY.md: the phone sends the weather location to Open-Meteo only while a page has a widget that uses the weather.
 test('the weather is fetched only while a widget needs it', async ({ page }) => {
   const asked = [];
