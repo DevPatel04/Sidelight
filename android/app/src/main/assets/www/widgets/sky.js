@@ -1,4 +1,4 @@
-import { $, D, DEFAULT_CFG, LOCALE, cfg, fmtDur, fmtHM, h, tick } from '../main.js';
+import { $, D, DEFAULT_CFG, LOCALE, cfg, fmtDur, fmtHM, h, t, tick } from '../main.js';
 import { W } from '../registry.js';
 import { cached, every } from './helpers.js';
 
@@ -25,7 +25,7 @@ W.sun = {
     return {
       update() {
         const d = D.weather?.daily;
-        if (!d?.sunrise) { q('.sl').textContent = D.weather === null ? 'Loading…' : 'Weather unavailable'; return; }
+        if (!d?.sunrise) { q('.sl').textContent = D.weather === null ? t('w.loading') : t('w.weatherUnavailable'); return; }
         const now = new Date();
         const key = now.getHours() + ':' + now.getMinutes();
         if (key === shown) return;
@@ -39,8 +39,8 @@ W.sun = {
         const hm = fmtHM;
         q('.sr').textContent = '↑ ' + hm(rise);
         q('.ss').textContent = hm(set) + ' ↓';
-        q('.sl').textContent = now < rise ? `rises in ${fmtDur(rise - now)}` : now > set ? 'after sunset' : `${fmtDur(set - now)} of light left`;
-        q('.w-sub').textContent = 'Day ' + fmtDur((d.daylight_duration?.[0] ?? (set - rise) / 1000) * 1000) + (d.uv_index_max?.[0] != null ? ` · UV ${Math.round(d.uv_index_max[0])}` : '');
+        q('.sl').textContent = now < rise ? t('w.risesIn', { dur: fmtDur(rise - now) }) : now > set ? t('w.afterSunset') : t('w.lightLeft', { dur: fmtDur(set - now) });
+        q('.w-sub').textContent = t('w.day') + ' ' + fmtDur((d.daylight_duration?.[0] ?? (set - rise) / 1000) * 1000) + (d.uv_index_max?.[0] != null ? ` · UV ${Math.round(d.uv_index_max[0])}` : '');
         const m = moonPhase(now);
         q('.moon').textContent = `${m.icon} ${m.name} · ${Math.round(m.illum * 100)}%`;
       },
@@ -52,7 +52,7 @@ export const AQI_BANDS = [[20, 'Good', '#22c55e'], [40, 'Fair', '#84cc16'], [60,
 W.air = {
   needs: ['tick'],
   create(box) {
-    const v = h('div', 'aq-v', '—'), cat = h('div', 'aq-c', 'Loading…'), chips = h('div', 'aq-chips');
+    const v = h('div', 'aq-v', '—'), cat = h('div', 'aq-c', t('w.loading')), chips = h('div', 'aq-chips');
     box.append(h('div', 'w-title', 'Air quality', h('span', 'w-sub', cfg.weather?.city || '')), h('div', 'aq-main', v, cat), chips);
     const load = every(30 * 60_000, async () => {
       const { lat, lon } = cfg.weather || DEFAULT_CFG.weather;
@@ -63,7 +63,7 @@ W.air = {
         const band = AQI_BANDS.find((b) => (c.european_aqi ?? 0) <= b[0]);
         box.style.setProperty('--c', band[2]);
         v.textContent = Math.round(c.european_aqi ?? 0);
-        cat.textContent = band[1] + ' · European AQI';
+        cat.textContent = band[1] + ' · ' + t('w.euroAqi');
         chips.replaceChildren(...[['PM2.5', c.pm2_5], ['PM10', c.pm10], ['O₃', c.ozone], ['NO₂', c.nitrogen_dioxide]]
           .filter((x) => x[1] != null).map(([n, x]) => h('span', 'chip', `${n} ${Math.round(x)}`)));
       } catch (_) { cat.textContent = 'Unavailable'; return false; }

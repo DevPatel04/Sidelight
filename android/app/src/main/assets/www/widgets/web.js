@@ -1,4 +1,4 @@
-import { $, ago, h, safeFetch, store, tick } from '../main.js';
+import { $, ago, h, safeFetch, store, t, tick } from '../main.js';
 import { W } from '../registry.js';
 import { cached, every, fmtNum, lines, pctSpan, sparkLine } from './helpers.js';
 
@@ -6,7 +6,7 @@ import { cached, every, fmtNum, lines, pctSpan, sparkLine } from './helpers.js';
 W.hackernews = {
   needs: ['tick'],
   create(box) {
-    const list = h('div', 'hn-list', h('div', 'empty', 'Loading…'));
+    const list = h('div', 'hn-list', h('div', 'empty', t('w.loading')));
     box.style.setProperty('--c', '#ff6600');
     box.append(h('div', 'w-title', 'Hacker News', h('span', 'w-sub', '')), list);
     const load = every(15 * 60_000, async () => {
@@ -26,7 +26,7 @@ W.hackernews = {
           try { host = s.u ? new URL(s.u).hostname.replace(/^www\./, '') : 'news.ycombinator.com'; } catch (_) {}
           return h('div', 'hn-i', h('span', 'hn-r', i + 1), h('div', 'hn-b', h('div', 'hn-t', s.t), h('div', 'hn-m', `▲ ${s.s} · ${s.c} comments · ${host}`)));
         }));
-      } catch (_) { if (!list.querySelector('.hn-i')) list.replaceChildren(h('div', 'empty', 'Offline')); return false; }
+      } catch (_) { if (!list.querySelector('.hn-i')) list.replaceChildren(h('div', 'empty', t('w.offline'))); return false; }
     });
     return { update: load };
   },
@@ -37,7 +37,7 @@ W.exchange = {
   create(box, { o }) {
     const base = (o.base || 'EUR').toUpperCase();
     const syms = lines(o.symbols, ['TRY', 'USD', 'GBP']).map((s) => s.toUpperCase()).slice(0, 8);
-    const list = h('div', 'fx-list', h('div', 'empty', 'Loading…'));
+    const list = h('div', 'fx-list', h('div', 'empty', t('w.loading')));
     box.append(h('div', 'w-title', `1 ${base}`, h('span', 'w-sub', '')), list);
     const load = every(60 * 60_000, async () => {
       try {
@@ -53,7 +53,7 @@ W.exchange = {
           requestAnimationFrame(() => sparkLine(c, series, last >= series[0] ? '#22c55e' : '#ef4444'));
           return row;
         }));
-      } catch (_) { list.replaceChildren(h('div', 'empty', 'Rates unavailable')); return false; }
+      } catch (_) { list.replaceChildren(h('div', 'empty', t('w.ratesUnavailable'))); return false; }
     });
     return { update: load };
   },
@@ -64,7 +64,7 @@ W.crypto = {
   create(box, { o }) {
     const coins = lines(o.coins, ['bitcoin', 'ethereum', 'solana']).map((s) => s.toLowerCase()).slice(0, 8);
     const cur = (o.currency || 'usd').toLowerCase();
-    const list = h('div', 'fx-list', h('div', 'empty', 'Loading…'));
+    const list = h('div', 'fx-list', h('div', 'empty', t('w.loading')));
     box.append(h('div', 'w-title', 'Crypto', h('span', 'w-sub', cur.toUpperCase() + ' · 24 h · 7 d')), list);
     const load = every(5 * 60_000, async () => {
       try {
@@ -75,7 +75,7 @@ W.crypto = {
           requestAnimationFrame(() => sparkLine(cv, series, (c.price_change_percentage_24h ?? 0) >= 0 ? '#22c55e' : '#ef4444'));
           return h('div', 'fx-i', h('b', null, (c.symbol || '').toUpperCase()), h('span', 'fx-v', fmtNum(c.current_price)), pctSpan(c.price_change_percentage_24h ?? 0), cv);
         }));
-      } catch (_) { list.replaceChildren(h('div', 'empty', 'Prices unavailable')); return false; }
+      } catch (_) { list.replaceChildren(h('div', 'empty', t('w.pricesUnavailable'))); return false; }
     });
     return { update: load };
   },
@@ -90,7 +90,7 @@ W.image = {
     img.style.objectFit = o.fit === 'contain' ? 'contain' : 'cover';
     box.append(img);
     if (o.caption) box.append(h('div', 'im-cap', o.caption));
-    if (!/^https?:\/\//i.test(url)) { box.replaceChildren(h('div', 'empty', 'Set an image address (https://…) in the settings')); return {}; }
+    if (!/^https?:\/\//i.test(url)) { box.replaceChildren(h('div', 'empty', t('w.setImageUrl'))); return {}; }
     img.onerror = () => box.classList.add('err');
     img.onload = () => box.classList.remove('err');
     const mins = Number(o.minutes) || 0;

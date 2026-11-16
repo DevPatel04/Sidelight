@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO.Compression;
 using System.Net.Http.Json;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace PhoneBox.Agent;
@@ -28,20 +30,45 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
     private long? _lastCheck;
     private string _state = "idle";
     private string? _error;
+    // phones whose app update failed for _phoneRetryFor; kept apart from AppVersion, which any phone's request sets
+    private volatile string[] _phoneRetry = [];
+    private volatile string? _phoneRetryFor;
 
     /// <summary>Phone app version, reported by the app on every request (X-PhoneBox-App header).</summary>
     public static volatile string? AppVersion;
 
-    public static bool RunningInstalled =>
-        string.Equals(Path.GetFullPath(AppContext.BaseDirectory).TrimEnd('\\', '/'), Path.GetFullPath(InstallDir).TrimEnd('\\', '/'),
-            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+    public static bool RunningInstalled => SameFolder(AppContext.BaseDirectory, InstallDir);
+
+    /// <summary>
+    /// On macOS/Linux the .NET host reports the agent's folder with symbolic links resolved, while the install folder
+    /// comes from HOME / XDG_DATA_HOME and may go through one (a home folder moved to another disk and linked back), so
+    /// both sides are resolved before comparing.
+    /// </summary>
+    internal static bool SameFolder(string a, string b) =>
+        string.Equals(Resolved(a), Resolved(b), OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    private static string Resolved(string folder)
+    {
+        var full = Path.GetFullPath(folder).TrimEnd('\\', '/');
+        if (OperatingSystem.IsWindows()) return full;
+        IntPtr real;
+        try { real = realpath(full, IntPtr.Zero); } // null when the folder does not exist: compare the path as it is
+        catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) { return full; } // runs at startup: never fail it
+        if (real == IntPtr.Zero) return full;
+        try { return (Marshal.PtrToStringUTF8(real) ?? full).TrimEnd('/'); }
+        finally { free(real); }
+    }
+
+    [DllImport("libc")] private static extern IntPtr realpath(string path, IntPtr resolved);
+    [DllImport("libc")] private static extern void free(IntPtr pointer);
 
     public UpdateStatus Status()
     {
         var latest = _latest?.Version;
+        var retry = latest is not null && _phoneRetryFor == latest && _phoneRetry.Length > 0;
         return new UpdateStatus(AppPaths.Version, AppVersion, latest, _latest?.Url,
             latest is not null && Newer(latest, AppPaths.Version) && _latest!.AgentZip is not null,
-            latest is not null && AppVersion is not null && Newer(latest, AppVersion) && _latest!.Apk is not null,
+            latest is not null && _latest!.Apk is not null && (AppVersion is not null && Newer(latest, AppVersion) || retry),
             _lastCheck, _state, _error);
     }
 
@@ -82,17 +109,10 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
             var repo = cfg.Get().Updates.Repo;
             using var doc = JsonDocument.Parse(await ApiStringAsync($"https://api.github.com/repos/{repo}/releases/latest", ct));
             var r = doc.RootElement;
-            var tag = r.GetProperty("tag_name").GetString() ?? "";
-            string? apk = null, zip = null;
             foreach (var a in r.GetProperty("assets").EnumerateArray())
-            {
-                var name = a.GetProperty("name").GetString() ?? "";
-                var url = a.GetProperty("browser_download_url").GetString();
-                if (url is not null && a.TryGetProperty("url", out var api) && api.GetString() is { } apiUrl) _apiUrls[url] = apiUrl;
-                if (name.StartsWith("PhoneBox-", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)) apk = url;
-                if (name.StartsWith("PhoneBoxAgent-", StringComparison.OrdinalIgnoreCase) && name.EndsWith($"-{AppPaths.Rid}.zip", StringComparison.OrdinalIgnoreCase)) zip = url;
-            }
-            _latest = new Release(tag.TrimStart('v', 'V'), r.GetProperty("html_url").GetString(), apk, zip);
+                if (a.GetProperty("browser_download_url").GetString() is { } url && a.TryGetProperty("url", out var api) && api.GetString() is { } apiUrl)
+                    _apiUrls[url] = apiUrl;
+            _latest = SelectAssets(r, AppPaths.Rid);
             _lastCheck = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             _error = null;
             _state = "idle";
@@ -116,7 +136,16 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
             // the agent was just replaced and is restarting: this (old) process still sees the update as pending,
             // and a second swap would trip over its own files
             if (_state == "restarting") return;
-            if (s.AppUpdate && adb.Connected) await UpdatePhoneAsync(ct);
+            if (s.AppUpdate && adb.Connected)
+            {
+                // a phone that refuses the app must not keep the agent itself from updating
+                try { await UpdatePhoneAsync(ct); }
+                catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                {
+                    _error = ex.Message;
+                    log.LogWarning("phone update failed: {Msg}", ex.Message);
+                }
+            }
             if (s.AgentUpdate && RunningInstalled) await UpdateAgentAsync(ct);
         }
         catch (Exception ex)
@@ -145,11 +174,11 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
             _state = "installing the phone app";
             if (_latest is null) { await CheckCoreAsync(ct); _state = "installing the phone app"; } // not CheckAsync: this method already holds the gate
             if (_latest?.Apk is null) return "could not find the phone app in the GitHub releases";
-            var apk = await DownloadAsync(_latest.Apk, $"PhoneBox-{_latest.Version}.apk", ct);
+            var apk = await VerifiedDownloadAsync(_latest.Apk, $"PhoneBox-{_latest.Version}.apk", ct);
             var adbExe = AdbReverse.FindAdb(cfg.Get().AdbPath) ?? throw new InvalidOperationException("adb not found");
             foreach (var serial in targets)
             {
-                var output = await Run(adbExe, $"-s {serial} install \"{apk}\"", ct);
+                var output = await Run(adbExe, ["-s", serial, "install", apk], ct);
                 if (!output.Contains("Success")) return $"installing on {serial} failed: {output.Trim().Split('\n').LastOrDefault()}";
                 log.LogInformation("phone app {Version} installed on {Serial}", _latest.Version, serial);
             }
@@ -166,23 +195,48 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
     private async Task UpdatePhoneAsync(CancellationToken ct)
     {
         _state = "updating phone app";
-        var apk = await DownloadAsync(_latest!.Apk!, $"PhoneBox-{_latest.Version}.apk", ct);
+        // decided before the download: a phone that already has the new app can report it while the APK downloads,
+        // and must not turn this into a retry that skips the phones that never got it
+        var appCurrent = AppVersion is not null && !Newer(_latest!.Version, AppVersion);
+        var apk = await VerifiedDownloadAsync(_latest!.Apk!, $"PhoneBox-{_latest.Version}.apk", ct);
         var adbExe = AdbReverse.FindAdb(cfg.Get().AdbPath) ?? throw new InvalidOperationException("adb not found");
-        foreach (var serial in adb.Devices.Split(", ", StringSplitOptions.RemoveEmptyEntries))
+        var connected = adb.Devices.Split(", ", StringSplitOptions.RemoveEmptyEntries);
+        var retry = _phoneRetryFor == _latest.Version ? _phoneRetry : [];
+        var targets = PhoneTargets(connected, appCurrent, retry);
+        var failed = new List<(string Serial, string Why)>();
+        foreach (var serial in targets)
         {
-            var output = await Run(adbExe, $"-s {serial} install -r \"{apk}\"", ct);
+            string output;
+            try { output = await Run(adbExe, ["-s", serial, "install", "-r", apk], ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                failed.Add((serial, ex.Message)); // a phone that hangs (time limit) must not cost the others their update
+                continue;
+            }
             if (!output.Contains("Success"))
-                throw new InvalidOperationException($"phone update on {serial} failed: {output.Trim().Split('\n').LastOrDefault()}");
-            await Run(adbExe, $"-s {serial} shell am start -n {AdbReverse.PanelActivity}", ct);
+            {
+                // the next phone still gets its update (a refused one, e.g. signed with another key, keeps its app)
+                failed.Add((serial, output.Trim().Split('\n').LastOrDefault() ?? ""));
+                continue;
+            }
             log.LogInformation("phone app on {Serial} updated to {Version}", serial, _latest.Version);
+            try { await Run(adbExe, ["-s", serial, "shell", "am", "start", "-n", AdbReverse.PanelActivity], ct); }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                log.LogInformation("{Serial}: could not open the panel after the update ({Msg})", serial, ex.Message); // updated anyway
+            }
         }
+        _phoneRetry = NextPhoneRetry(retry, targets, failed.Select(f => f.Serial).ToArray());
+        _phoneRetryFor = _latest.Version;
+        // a phone that failed keeps the update pending (Status), whatever version the other phones report
+        if (failed.Count > 0) throw new InvalidOperationException("phone update failed on " + string.Join("; ", failed.Select(f => $"{f.Serial}: {f.Why}")));
         AppVersion = _latest.Version;
     }
 
     private async Task UpdateAgentAsync(CancellationToken ct)
     {
         _state = "updating agent";
-        var zip = await DownloadAsync(_latest!.AgentZip!, $"PhoneBoxAgent-{_latest.Version}.zip", ct);
+        var zip = await VerifiedDownloadAsync(_latest!.AgentZip!, $"PhoneBoxAgent-{_latest.Version}.zip", ct);
         var staging = Path.Combine(Downloads, "agent-" + _latest.Version);
         if (Directory.Exists(staging)) Directory.Delete(staging, true);
         ZipFile.ExtractToDirectory(zip, staging);
@@ -334,21 +388,112 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
     private static bool Newer(string candidate, string current) =>
         Version.TryParse(candidate, out var a) && Version.TryParse(current.Split('-')[0], out var b) && a > b;
 
-    private static async Task<string> Run(string file, string args, CancellationToken ct)
+    /// <summary>
+    /// Runs adb for the updater, bounded and reaped like every other tool (<see cref="ToolProcess"/>): an install that
+    /// never returns (a stuck phone or cable) would otherwise hold the update gate until the agent restarts, and a
+    /// cancelled update would leave adb running. A slow phone can take a while to install, hence the generous default.
+    /// Each argument is passed on its own (ArgumentList), so a path with spaces or quotes needs no quoting.
+    /// </summary>
+    private static async Task<string> Run(string file, string[] args, CancellationToken ct, TimeSpan? timeout = null)
     {
-        var psi = new ProcessStartInfo(file, args)
-        {
-            RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
-            WorkingDirectory = AppPaths.NeutralCwd,
-        };
-        using var p = Process.Start(psi)!;
-        var stdout = p.StandardOutput.ReadToEndAsync(ct);
-        var stderr = p.StandardError.ReadToEndAsync(ct);
-        await p.WaitForExitAsync(ct);
-        return await stdout + await stderr;
+        var start = new ProcessStartInfo(file);
+        foreach (var arg in args) start.ArgumentList.Add(arg);
+        var result = await ToolProcess.RunAsync(start, timeout ?? TimeSpan.FromMinutes(3), ct);
+        return result.Output + result.Error;
     }
 
-    private sealed record Release(string Version, string? Url, string? Apk, string? AgentZip);
+    internal sealed record Release(string Version, string? Url, string? Apk, string? AgentZip, string? Sums);
+
+    /// <summary>
+    /// The phone app, this machine's agent zip and the checksum file of a GitHub release
+    /// (PhoneBox-&lt;v&gt;.apk, PhoneBoxAgent-&lt;v&gt;-&lt;rid&gt;.zip, SHA256SUMS-&lt;v&gt;.txt, as release.yml names them).
+    /// </summary>
+    internal static Release SelectAssets(JsonElement release, string rid)
+    {
+        string? apk = null, zip = null, sums = null;
+        foreach (var a in release.GetProperty("assets").EnumerateArray())
+        {
+            var name = a.GetProperty("name").GetString() ?? "";
+            var url = a.GetProperty("browser_download_url").GetString();
+            if (name.StartsWith("PhoneBox-", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)) apk = url;
+            if (name.StartsWith("PhoneBoxAgent-", StringComparison.OrdinalIgnoreCase) && name.EndsWith($"-{rid}.zip", StringComparison.OrdinalIgnoreCase)) zip = url;
+            if (name.StartsWith("SHA256SUMS-", StringComparison.OrdinalIgnoreCase) && name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)) sums = url;
+        }
+        var tag = release.GetProperty("tag_name").GetString() ?? "";
+        return new Release(tag.TrimStart('v', 'V'), release.GetProperty("html_url").GetString(), apk, zip, sums);
+    }
+
+    /// <summary>
+    /// The phones to update: all connected ones, or, when the app the phones report is already current, only those whose
+    /// update failed before (AppVersion comes from whichever phone spoke last, so it cannot speak for the others).
+    /// </summary>
+    internal static string[] PhoneTargets(string[] connected, bool appCurrent, string[] retry) =>
+        appCurrent ? connected.Where(retry.Contains).ToArray() : connected;
+
+    /// <summary>The phones still waiting for the update: earlier failures not tried now, plus the ones that failed now.</summary>
+    internal static string[] NextPhoneRetry(string[] retry, string[] attempted, string[] failed) =>
+        retry.Except(attempted).Union(failed).ToArray();
+
+    /// <summary>The asset's file name: the last segment of its download link.</summary>
+    internal static string AssetName(string url) => Uri.UnescapeDataString(new Uri(url).Segments[^1]);
+
+    /// <summary>
+    /// The SHA-256 that a "sha256sum" listing gives for a file ("&lt;hex&gt;  name" or "&lt;hex&gt; *name"), lower case,
+    /// or null when the file is not listed or the text is not such a listing (an error page saved instead).
+    /// </summary>
+    internal static string? ExpectedSha256(string sums, string fileName)
+    {
+        foreach (var raw in sums.Split('\n'))
+        {
+            var line = raw.TrimEnd('\r');
+            if (line.Length < 66 || line[64] != ' ') continue;
+            var hex = line[..64];
+            if (!hex.All(char.IsAsciiHexDigit)) continue;
+            var name = line[65..].TrimStart('*', ' ');
+            if (name == fileName) return hex.ToLowerInvariant();
+        }
+        return null;
+    }
+
+    /// <summary>True when the file's SHA-256 is the expected one (hex, any case).</summary>
+    internal static bool HashMatches(string file, string expectedHex)
+    {
+        using var stream = File.OpenRead(file);
+        return Convert.ToHexStringLower(SHA256.HashData(stream)) == expectedHex.ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Downloads a release asset and checks it against the release's SHA256SUMS. A copy that does not match (a damaged
+    /// download, or an old partial file kept in the updates folder) is deleted and fetched once more, then refused. A
+    /// release without a checksum file (none so far) is installed as before, with a warning.
+    /// </summary>
+    private async Task<string> VerifiedDownloadAsync(string url, string localName, CancellationToken ct)
+    {
+        var release = _latest!;
+        if (release.Sums is null)
+        {
+            log.LogWarning("release {Version} has no SHA256SUMS file; {Name} is installed without a checksum check", release.Version, localName);
+            return await DownloadAsync(url, localName, ct);
+        }
+        var asset = AssetName(url);
+        var sumsName = AssetName(release.Sums);
+        string? expected = null;
+        for (var attempt = 0; attempt < 2 && expected is null; attempt++)
+        {
+            var sumsPath = await DownloadAsync(release.Sums, sumsName, ct);
+            expected = ExpectedSha256(await File.ReadAllTextAsync(sumsPath, ct), asset);
+            if (expected is null) File.Delete(sumsPath); // not a listing, or an older copy: fetch it again
+        }
+        if (expected is null) throw new InvalidOperationException($"{asset} is not listed in {sumsName}; the update was not installed");
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            var path = await DownloadAsync(url, localName, ct);
+            if (HashMatches(path, expected)) return path;
+            File.Delete(path); // never reuse a copy that does not match
+            log.LogWarning("{Name} does not match the release checksum; downloading it again", asset);
+        }
+        throw new InvalidOperationException($"{asset} does not match the release checksum; the update was not installed");
+    }
 }
 
 /// <summary>Set before stopping the host to make Program start a fresh instance afterwards.</summary>

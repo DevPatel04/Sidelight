@@ -82,6 +82,32 @@ public sealed class PairingTests
         Assert.DoesNotContain("<script", svg, StringComparison.OrdinalIgnoreCase);
     }
 
+    private static Task<string?> ClaimBody(string? contentType, string body)
+    {
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Method = "POST";
+        if (contentType is not null) ctx.Request.ContentType = contentType;
+        ctx.Request.Body = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(body));
+        return PairingCodes.ReadClaimCodeAsync(ctx.Request);
+    }
+
+    // Anyone on the Wi-Fi can send a claim without the key: a body that is not a JSON code used to throw out of the
+    // endpoint (HTTP 500 plus an error line in agent.log per request) instead of being refused.
+    [Theory]
+    [InlineData("text/plain", """{"code":"abc"}""")]
+    [InlineData(null, """{"code":"abc"}""")]
+    [InlineData("application/json; charset=nope", """{"code":"abc"}""")]
+    [InlineData("application/json", "{ not json")]
+    [InlineData("application/json", """{"code":123}""")]
+    [InlineData("application/json", """{"code":""}""")]
+    [InlineData("application/json", """{"code":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}""")]
+    public async Task AClaimBodyThatIsNotAJsonCodeIsRefusedWithoutThrowing(string? contentType, string body) =>
+        Assert.Null(await ClaimBody(contentType, body));
+
+    [Fact]
+    public async Task AJsonClaimBodyGivesItsCode() =>
+        Assert.Equal("CODE_x-1", await ClaimBody("application/json; charset=utf-8", """{"code":"CODE_x-1"}"""));
+
     [Theory]
     [InlineData("POST", "/api/pair/claim", true)]
     [InlineData("GET", "/api/pair/claim", false)]

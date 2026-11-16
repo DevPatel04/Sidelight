@@ -1,4 +1,4 @@
-import { h, haptic } from '../main.js';
+import { h, haptic, t } from '../main.js';
 import { W } from '../registry.js';
 
 function parseWidgets(raw) {
@@ -65,7 +65,7 @@ W.stack = {
     box.appendChild(wrap);
 
     if (subDefs.length === 0) {
-      wrap.appendChild(h('div', 'empty', 'Smart Stack: no active widgets'));
+      wrap.appendChild(h('div', 'empty', t('w.stackEmpty')));
       return {
         needs: ['tick'],
         update() {},
@@ -129,7 +129,7 @@ W.stack = {
       if (pauseBtn) {
         pauseBtn.classList.toggle('on', paused);
         pauseBtn.setAttribute('aria-pressed', String(paused));
-        pauseBtn.title = paused ? 'Rotation paused (tap to resume)' : 'Pause stack rotation';
+        pauseBtn.title = paused ? t('w.stackPaused') : t('w.stackPause');
       }
     }
 

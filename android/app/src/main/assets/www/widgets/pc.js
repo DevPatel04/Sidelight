@@ -1,4 +1,4 @@
-import { $, API, D, PANEL_HEADERS, LOCALE, Q_STYLE, api, bridge, cfg, color, cssVar, rulesPaused, toggleRulesPause, fillIcon, fmtDur, fmtHM, fmtMem, gotoPageRef, gpuMem, gpusOf, h, haptic, openSheet, paceInfo, pad, pairedPcs, quotaProviders, r1, shortGpu, store, switchPc, tick, toast, transport } from '../main.js';
+import { $, API, D, PANEL_HEADERS, LOCALE, Q_STYLE, api, bridge, cfg, color, cssVar, rulesPaused, toggleRulesPause, fillIcon, fmtDur, fmtHM, fmtMem, gotoPageRef, gpuMem, gpusOf, h, haptic, openSheet, paceInfo, pad, pairedPcs, quotaProviders, r1, shortGpu, store, switchPc, t, tick, toast, transport } from '../main.js';
 import { W } from '../registry.js';
 import { canKillAnywhere, dialEl, every } from './helpers.js';
 
@@ -268,13 +268,13 @@ W.agenda = {
     const hm = (ms) => fmtHM(new Date(ms));
     const dayKey = (ms) => new Date(ms).toDateString();
     const dayName = (ms) => {
-      const d = new Date(ms), t = new Date();
-      const diff = Math.round((new Date(d.toDateString()) - new Date(t.toDateString())) / 864e5);
-      return diff === 0 ? 'Today' : diff === 1 ? 'Tomorrow' : d.toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric', month: 'short' });
+      const d = new Date(ms), now = new Date();
+      const diff = Math.round((new Date(d.toDateString()) - new Date(now.toDateString())) / 864e5);
+      return diff === 0 ? t('time.today') : diff === 1 ? t('time.tomorrow') : d.toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric', month: 'short' });
     };
     const inMin = (ms) => {
       const m = Math.round((ms - Date.now()) / 60000);
-      return m < 1 ? 'now' : m < 60 ? `in ${m} min` : m < 24 * 60 ? `in ${Math.floor(m / 60)} h ${m % 60 ? (m % 60) + ' min' : ''}`.trim() : '';
+      return m < 1 ? t('time.now') : m < 60 ? t('time.inDur', { dur: t('time.min', { m }) }) : m < 24 * 60 ? t('time.inDur', { dur: fmtDur(ms - Date.now()) }) : '';
     };
     const render = () => {
       const cal = D.calendar;
@@ -604,13 +604,13 @@ W.nextup = {
         track.hidden = !cur;
         if (!ev) {
           when.textContent = ''; meta.textContent = '';
-          title.textContent = !cal ? 'Loading…' : cal.updated || evs.length ? 'Nothing else today' : 'Add a calendar in Settings › General';
+          title.textContent = !cal ? t('w.loading') : cal.updated || evs.length ? t('w.noEvents') : 'Add a calendar in Settings › General';
           return;
         }
         const left = Math.round(((cur ? ev.end : ev.start) - now) / 60000);
-        const dur = left < 60 ? `${Math.max(1, left)} min` : `${Math.floor(left / 60)} h${left % 60 ? ' ' + (left % 60) + ' min' : ''}`;
+        const dur = left < 60 ? t('time.min', { m: Math.max(1, left) }) : fmtDur((cur ? ev.end : ev.start) - now);
         const sameDay = new Date(ev.start).toDateString() === new Date().toDateString();
-        when.textContent = cur ? `now · ${dur} left` : sameDay || left < 12 * 60 ? `in ${dur}` : new Date(ev.start).toLocaleDateString(LOCALE, { weekday: 'long' });
+        when.textContent = cur ? t('w.nowLeft', { dur }) : sameDay || left < 12 * 60 ? t('time.inDur', { dur }) : new Date(ev.start).toLocaleDateString(LOCALE, { weekday: 'long' });
         title.textContent = ev.title;
         meta.textContent = [`${hm(ev.start)}–${hm(ev.end)}`, ev.location, cur && next ? `then ${next.title} at ${hm(next.start)}` : ''].filter(Boolean).join(' · ');
         if (cur) bar.style.width = Math.min(100, ((now - ev.start) / (ev.end - ev.start)) * 100) + '%';

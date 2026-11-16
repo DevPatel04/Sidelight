@@ -57,6 +57,7 @@
       weather: { city: 'Tallinn', lat: 59.437, lon: 24.745 },
       night: { enabled: false, start: '00:30', end: '07:30', brightness: 0.02 },
       display: { appearance: null, showSeconds: true, hour12: false, idleReturnSec: 0, vibrate: true, volumeKeys: true, orientation: 'landscape', theme: 'default', accent: '#2dd4bf',
+        pixelShift: false, idleDimMin: 0,
         artTint: true, autoBrightness: false, nightWhenDark: false, proximityWake: true, pin: false, homeScreen: false, keepAwake: true, followComputerLock: false,
         homePage: null, switchCountdownSec: 3, touchGraceSec: 20, minDwellSec: 15, holdMaxMin: 30 },
       lan: { enabled: true, port: 8766, token: 'demo', webhookToken: 'demo-webhook-key' },
@@ -650,5 +651,8 @@
     on('ask', (d) => ask(d || undefined, false));
   }
 
-  window.PhoneBoxDemo = { emit, ask, reset() { localStorage.removeItem('pb-demo-config'); store.set('pb-demo-version', cfgVersion() + 1); } };
+  window.PhoneBoxDemo = { emit, ask,
+    reset() { localStorage.removeItem('pb-demo-config'); store.set('pb-demo-version', cfgVersion() + 1); },
+    // the agent restarted: PushStore keeps events in memory only, so its counter and backlog start over
+    restart() { seq = 0; events.length = 0; } };
 })();

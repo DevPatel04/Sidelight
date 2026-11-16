@@ -1,4 +1,4 @@
-import { $, buzz, fmtTime, h, haptic, pad, r1, store, tick, toast } from '../main.js';
+import { $, LOCALE, buzz, fmtTime, h, haptic, pad, r1, store, t, tick, toast } from '../main.js';
 import { W } from '../registry.js';
 import { dialEl, lines } from './helpers.js';
 
@@ -145,7 +145,7 @@ W.breathe = {
     const ball = h('div', 'br-ball'), word = h('div', 'br-w', 'Tap to start'), count = h('div', 'br-c');
     box.append(h('div', 'br-stage', ball, h('div', 'br-txt', word, count)));
     let start = null, lastPhase = -1;
-    box.addEventListener('click', () => { haptic(); start = start ? null : Date.now(); lastPhase = -1; if (!start) { ball.style.transition = 'transform 1s ease'; ball.style.transform = 'scale(.45)'; word.textContent = 'Tap to start'; count.textContent = ''; } });
+    box.addEventListener('click', () => { haptic(); start = start ? null : Date.now(); lastPhase = -1; if (!start) { ball.style.transition = 'transform 1s ease'; ball.style.transform = 'scale(.45)'; word.textContent = t('w.tapToStart'); count.textContent = ''; } });
     ball.style.transform = 'scale(.45)';
     return {
       update() {
@@ -223,7 +223,7 @@ W.checklist = {
     const fresh = () => { if (o.daily !== false && st.day !== day()) st = { day: day(), done: [] }; };
     const head = h('span', 'w-sub');
     const list = h('div', 'cl-list');
-    box.append(h('div', 'w-title', o.title || 'Today', head), list);
+    box.append(h('div', 'w-title', o.title || t('time.today'), head), list);
     const render = () => {
       fresh();
       const n = items.filter((x) => st.done.includes(x)).length;
@@ -278,7 +278,7 @@ W.wordclock = {
         shown = k;
         lead.textContent = t.lead;
         main.replaceChildren(...t.main.map((w, i) => h('span', i === t.main.length - 1 || t.main.length === 1 ? 'hr' : null, w + ' ')));
-        date.textContent = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+        date.textContent = now.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' });
       },
     };
   },
