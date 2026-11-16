@@ -20,6 +20,8 @@ W.photos = {
     let inflight = null, shown = null;
     const urls = new Set();
 
+    // neighbouring pages and a Smart Stack's hidden cards get ticks too: the slideshow runs only while it is showing
+    const visible = () => !document.body.classList.contains('night') && pages[curPage] === page && !box.closest('.stack-item:not(.active)');
     const say = (text) => { note.textContent = text || ''; note.hidden = !text; };
     const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
     const reorder = () => { order = o.shuffle === false ? [...ids] : shuffle([...ids]); pos = 0; };
@@ -68,7 +70,8 @@ W.photos = {
           next.src = url;
         });
         next.onload = next.onerror = null;
-        if (!ok || !alive) {
+        // hidden while it loaded (another card, page or the night screen): drop it rather than change a hidden frame
+        if (!ok || !alive || !visible()) {
           if (next.src === url) next.removeAttribute('src');
           URL.revokeObjectURL(url); urls.delete(url);
           if (!ok) nextAt = Date.now() + 5000;
@@ -86,9 +89,7 @@ W.photos = {
 
     return {
       update() {
-        // the neighbouring pages get ticks too (to be ready when swiped to), and so do a Smart Stack's hidden cards:
-        // the slideshow runs only on its own page, and in a stack only while it is the card showing
-        if (!alive || document.body.classList.contains('night') || pages[curPage] !== page || box.closest('.stack-item:not(.active)')) return;
+        if (!alive || !visible()) return;
         const now = Date.now();
         if (!listAt || now - listAt > 10 * 60_000) loadList();
         if (order.length && now >= nextAt) { nextAt = now + every; showNext(); }
