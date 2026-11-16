@@ -129,6 +129,91 @@ W.obs = {
   },
 };
 
+// Discord through the desktop app on the PC: the voice channel / call you are in, who is there, mute / deafen / leave,
+// voice channels to join and recent notifications. Buttons only work when the widget allows control.
+W.discord = {
+  needs: ['tick'],
+  create(box, { o }) {
+    let data = null, lastKey = '', busy = null;
+    const open = new Set(); // servers whose channels are unfolded
+    // a round logo: the image once it has loaded, the first letter until then (and when there is no image)
+    const ico = (src, name) => {
+      const w = h('span', 'dc-ico', (name || '?').trim().charAt(0).toUpperCase() || '?');
+      if (src) { const im = new Image(); im.alt = ''; im.onload = () => w.replaceChildren(im); im.src = src; }
+      return w;
+    };
+    const load = async () => { try { data = await api('/discord'); } catch (_) {} };
+    const act = async (action, channel) => {
+      haptic();
+      busy = action + (channel || ''); render(true);
+      try {
+        const r = await fetch(`${API}/discord/${action}` + (channel ? '?channel=' + encodeURIComponent(channel) : ''), { method: 'POST', cache: 'no-store', headers: PANEL_HEADERS });
+        if (!r.ok) toast((await r.json().catch(() => ({}))).error || 'Discord did not do it', 'err');
+      } catch (_) { toast('The PC did not answer', 'err'); }
+      setTimeout(async () => { await load(); busy = null; render(true); }, 600);
+    };
+    const render = (force = false) => {
+      const key = JSON.stringify([data, busy, [...open], box.clientHeight]);
+      if (!force && key === lastKey) return;
+      lastKey = key;
+      if (!data) { box.replaceChildren(h('div', 'empty', 'Loading…')); return; }
+      if (!data.enabled) { box.replaceChildren(h('div', 'w-title', 'Discord'), h('div', 'empty', 'Turn on Discord in Settings › General')); return; }
+      const s = data.snapshot;
+      if (!s.connected) { box.replaceChildren(h('div', 'w-title', 'Discord'), h('div', 'empty', s.error || 'Connecting…')); return; }
+      const ctl = data.control;
+      const btn = (cls, label, on, action) => {
+        const b = h('button', 'dc-btn ' + cls + (on ? ' on' : '') + (busy === action ? ' busy' : ''), label);
+        if (ctl) b.addEventListener('click', () => act(action)); else b.disabled = true;
+        return b;
+      };
+      const kids = [h('div', 'dc-top',
+        h('span', 'dc-where', s.channelName ? `${s.channelName}` : 'Not in a voice channel'),
+        s.channelKind ? h('span', 'dc-kind', s.channelKind) : null,
+        btn('mute', s.muted ? '🔇' : '🎙️', s.muted, 'mute'), btn('deaf', s.deafened ? '🔕' : '🎧', s.deafened, 'deafen'),
+        s.channelId ? btn('leave', '📞', false, 'leave') : null)];
+      if (s.channelId && s.members.length) {
+        kids.push(h('div', 'dc-members', ...s.members.map((m) => h('span', 'dc-member' + (m.deafened ? ' deaf' : m.muted ? ' muted' : ''), ico(m.avatar && `${API}/discord/img/user/${m.id}/${m.avatar}`, m.name), (m.deafened ? '🔕 ' : m.muted ? '🔇 ' : '') + m.name))));
+      }
+      if (o.channels !== false && s.channels.length) {
+        // one block per server; tap it to unfold its voice channels (the server you are in starts unfolded)
+        const servers = new Map();
+        for (const c of s.channels) {
+          const name = c.guild || 'Other';
+          if (!servers.has(name)) servers.set(name, []);
+          servers.get(name).push(c);
+        }
+        kids.push(h('div', 'dc-servers', ...[...servers].map(([name, chans]) => {
+          const here = chans.some((c) => c.id === s.channelId);
+          const isOpen = open.has(name) || (here && !open.has('!' + name));
+          const g = chans[0];
+          const head = h('button', 'dc-server' + (isOpen ? ' open' : '') + (here ? ' here' : ''), ico(g.guildIcon && `${API}/discord/img/guild/${g.guildId}/${g.guildIcon}`, name),
+            h('span', 'dc-stext', h('b', null, name), h('small', null, chans.length + (chans.length === 1 ? ' channel' : ' channels'))));
+          head.addEventListener('click', () => {
+            haptic();
+            if (isOpen) { open.delete(name); if (here) open.add('!' + name); } else { open.add(name); open.delete('!' + name); }
+            render(true);
+          });
+          const block = h('div', 'dc-block' + (isOpen ? ' open' : ''), head);
+          if (isOpen) {
+            block.append(h('div', 'dc-chans', ...chans.map((c) => {
+              const b = h('button', 'dc-chan' + (c.id === s.channelId ? ' cur' : '') + (busy === 'join' + c.id ? ' busy' : ''), '🔊 ' + c.name);
+              if (ctl && c.id !== s.channelId) b.addEventListener('click', () => act('join', c.id));
+              return b;
+            })));
+          }
+          return block;
+        })));
+      }
+      if (o.notifications !== false && s.notifications.length) {
+        kids.push(h('div', 'dc-notes', ...s.notifications.slice(0, 6).map((n) => h('div', 'dc-note', h('b', null, n.title), h('span', null, n.body)))));
+      }
+      box.replaceChildren(...kids);
+    };
+    const tick = every(2000, async () => { await load(); render(); });
+    return { update: () => { tick(); render(); } };
+  },
+};
+
 // Home Assistant entities through the agent (which holds the token). Tap a light, switch, scene… to switch it,
 // when the widget allows it.
 export const HA_ICONS = {
