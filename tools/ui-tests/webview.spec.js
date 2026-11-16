@@ -29,9 +29,11 @@ test('settings general tab stays quiet for modern WebView and warns when outdate
   });
 
   await expect(page.locator('#webviewProblem')).toBeVisible();
-  await expect(page.locator('#webviewProblem')).toContainText('⚠ SM-G960F has an outdated WebView');
+  await expect(page.locator('#webviewProblem svg.ico')).toBeVisible();
+  await expect(page.locator('#webviewProblem')).toContainText('SM-G960F has an outdated WebView');
   await expect(page.locator('#phoneList')).toContainText('WebView 74');
-  await expect(page.locator('#phoneList')).toContainText('⚠ SM-G960F has an outdated WebView');
+  await expect(page.locator('#phoneList .hint svg.ico')).toBeVisible();
+  await expect(page.locator('#phoneList')).toContainText('SM-G960F has an outdated WebView');
 });
 
 test('panel shows dismissible notice only when container query units are unsupported', async ({ page, browser }) => {

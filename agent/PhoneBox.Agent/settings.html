@@ -38,6 +38,8 @@ header .ver { color: var(--muted); font-size: 12px; }
 .btn.danger { color: var(--danger); }
 .btn.sm { padding: 4px 9px; font-size: 12.5px; border-radius: 7px; }
 .icon-btn { border: 1px solid var(--line); background: var(--panel); width: 30px; height: 30px; border-radius: 8px; cursor: pointer; display: grid; place-items: center; }
+.ico { width: 1em; height: 1em; vertical-align: -0.15em; flex: none; }
+.ico.m { margin-right: 0.35em; }
 .icon-btn:disabled { opacity: .3; cursor: default; }
 
 .layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 24px; max-width: 1400px; margin: 0 auto; padding: 24px; }
@@ -686,6 +688,33 @@ const h = (tag, attrs = {}, ...kids) => {
   return e;
 };
 
+// Interface chrome uses Lucide icons (https://lucide.dev, ISC license) inlined below, so the page
+// works offline and needs no icon font on old WebViews. ISC license text:
+// Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT).
+// All other copyright (c) for Lucide are held by Lucide Contributors 2022.
+// Permission to use, copy, modify, and/or distribute this software for any purpose with or without
+// fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
+const ICONS = {
+  download: '<polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>',
+  upload: '<polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>',
+  'chevron-up': '<path d="m18 15-6-6-6 6"/>',
+  'chevron-down': '<path d="m6 9 6 6 6-6"/>',
+  'chevron-right': '<path d="m9 18 6-6-6-6"/>',
+  home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  warn: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  zap: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  play: '<polygon points="6 3 20 12 6 21 6 3"/>',
+};
+// icon('download') → an inline <svg> in currentColor, sized in em so it follows text and theme.
+const icon = (name, cls = '') => {
+  const t = document.createElement('template');
+  t.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ico${cls ? ' ' + cls : ''}" aria-hidden="true">${ICONS[name]}</svg>`;
+  return t.content.firstElementChild;
+};
+
 const COLORS = ['#ef4444', '#f97316', '#f59e0b', '#e5b84b', '#84cc16', '#22c55e', '#14b8a6', '#0ea5e9', '#2f80ed', '#6366f1', '#a855f7', '#ec4899', '#d97757', '#64748b', '#9ca3af'];
 const EMOJIS = ['⌨️', '💻', '📁', '📝', '🌐', '🎧', '🎵', '💬', '📧', '📅', '🧮', '⚙️', '✂️', '📊', '🔇', '🔊', '🌙', '🔒', '🚀', '🐙', '🐳', '🧪', '🛠️', '📦', '🎮', '📷', '🎙️', '⭐', '✳️', '🦊'];
 let osName = 'windows';
@@ -894,8 +923,8 @@ function renderPages() {
     return row;
   }), h('button', { class: 'btn', style: { width: '100%', marginTop: '8px' }, onclick: () => openTemplates(null) }, '＋ New page'),
     h('div', { class: 'row', style: { gap: '6px', marginTop: '8px' } },
-      h('button', { class: 'btn sm', style: { flex: '1' }, title: 'Save all pages to a file', onclick: () => exportPages(cfg.pages, 'phonebox-pages') }, '⭳ Export'),
-      h('button', { class: 'btn sm', style: { flex: '1' }, title: 'Load pages from a file', onclick: importPages }, '⭱ Import')));
+      h('button', { class: 'btn sm', style: { flex: '1' }, title: 'Save all pages to a file', onclick: () => exportPages(cfg.pages, 'phonebox-pages') }, icon('download', 'm'), 'Export'),
+      h('button', { class: 'btn sm', style: { flex: '1' }, title: 'Load pages from a file', onclick: importPages }, icon('upload', 'm'), 'Import')));
   renderPageEditor();
 }
 
@@ -925,8 +954,8 @@ function renderPageEditor() {
             if (!e.target.checked && cfg.pages.filter((x) => x.enabled !== false).length === 1) { e.target.checked = true; toast('At least one page must stay enabled', true); return; }
             p.enabled = e.target.checked; changed(); renderTabsOnly();
           } }), h('span')), 'Shown'),
-        h('button', { class: 'icon-btn', title: 'Move earlier', disabled: selPage === 0, onclick: () => move(-1) }, '↑'),
-        h('button', { class: 'icon-btn', title: 'Move later', disabled: selPage === cfg.pages.length - 1, onclick: () => move(1) }, '↓')),
+        h('button', { class: 'icon-btn', title: 'Move earlier', disabled: selPage === 0, onclick: () => move(-1) }, icon('chevron-up')),
+        h('button', { class: 'icon-btn', title: 'Move later', disabled: selPage === cfg.pages.length - 1, onclick: () => move(1) }, icon('chevron-down'))),
       h('div', { class: 'row', style: { gap: '6px', marginTop: '10px' } },
         h('button', { class: 'btn sm', onclick: () => openTemplates(selPage) }, 'Replace with template…'),
         h('button', { class: 'btn sm', onclick: () => { const c = JSON.parse(JSON.stringify(p)); c.id = ''; c.title += ' copy'; cfg.pages.splice(selPage + 1, 0, c); selPage++; renderPages(); changed(); } }, 'Duplicate page'),
@@ -935,7 +964,7 @@ function renderPageEditor() {
         h('span', { class: 'spacer' }),
         h('button', { class: 'btn sm' + (isHome(p) ? ' on' : ''), title: 'The page the panel comes back to (idle return, Back key)',
           onclick: () => { if (!p.id) { toast('Save first so the page gets an id', true); return; } cfg.display.homePage = p.id; renderPageEditor(); changed(); } },
-          isHome(p) ? '🏠 Home page' : '🏠 Make home page'),
+          icon('home', 'm'), isHome(p) ? 'Home page' : 'Make home page'),
         h('label', { class: 'hint', title: 'Return to the home page when nobody touched the panel for this long' }, 'Back home after ',
           h('select', { onchange: (e) => { p.idleSec = e.target.value === '' ? null : +e.target.value; changed(); } },
             ...[['', `default (${fmtIdle(cfg.display.idleReturnSec ?? 90)})`], ['0', 'never'], ['30', '30 s'], ['60', '1 min'], ['120', '2 min'], ['300', '5 min'], ['900', '15 min'], ['3600', '1 hour']]
@@ -1248,11 +1277,11 @@ function renderStackWidgetsOption(w, o) {
       }),
       h('span', { class: 'stack-row-ico' }, d.icon),
       h('span', { class: 'stack-row-name', title: 'Click to edit settings' }, d.name),
-      h('span', { class: 'stack-row-chevron', title: isOpen ? 'Close settings' : 'Open settings' }, isOpen ? '▾' : '▸'),
+      h('span', { class: 'stack-row-chevron', title: isOpen ? 'Close settings' : 'Open settings' }, icon(isOpen ? 'chevron-down' : 'chevron-right')),
       h('div', { class: 'stack-row-actions' },
-        h('button', { type: 'button', class: 'stack-btn-sm', title: 'Move up', disabled: i === 0, onclick: (e) => { e.stopPropagation(); move(i, i - 1); } }, '▲'),
-        h('button', { type: 'button', class: 'stack-btn-sm', title: 'Move down', disabled: i === items.length - 1, onclick: (e) => { e.stopPropagation(); move(i, i + 1); } }, '▼'),
-        h('button', { type: 'button', class: 'stack-btn-sm stack-btn-del', title: 'Remove', onclick: (e) => { e.stopPropagation(); remove(i); } }, '✕')
+        h('button', { type: 'button', class: 'stack-btn-sm', title: 'Move up', disabled: i === 0, onclick: (e) => { e.stopPropagation(); move(i, i - 1); } }, icon('chevron-up')),
+        h('button', { type: 'button', class: 'stack-btn-sm', title: 'Move down', disabled: i === items.length - 1, onclick: (e) => { e.stopPropagation(); move(i, i + 1); } }, icon('chevron-down')),
+        h('button', { type: 'button', class: 'stack-btn-sm stack-btn-del', title: 'Remove', onclick: (e) => { e.stopPropagation(); remove(i); } }, icon('x'))
       )
     );
     rowsAndConfigs.push(row);
@@ -1262,8 +1291,8 @@ function renderStackWidgetsOption(w, o) {
       const subOptions = (d.options || []).filter((opt) => opt.key !== 'widgets');
       const configBox = h('div', { class: 'stack-sub-config' },
         h('div', { class: 'stack-sub-header' },
-          h('span', { style: { fontWeight: '600', fontSize: '12px', color: 'var(--accent)' } }, `⚙️ ${d.icon} ${d.name} settings`),
-          h('button', { type: 'button', class: 'stack-btn-sm', title: t('panel.close'), onclick: (e) => { e.stopPropagation(); activeStackSubIdx = -1; renderInspector(); } }, '✕')
+          h('span', { style: { fontWeight: '600', fontSize: '12px', color: 'var(--accent)' } }, icon('settings', 'm'), `${d.icon} ${d.name} settings`),
+          h('button', { type: 'button', class: 'stack-btn-sm', title: t('panel.close'), onclick: (e) => { e.stopPropagation(); activeStackSubIdx = -1; renderInspector(); } }, icon('x'))
         ),
         ...(subOptions.length > 0
           ? subOptions.map((subO) => optionField(subW, subO, (key, val) => {
@@ -1301,7 +1330,7 @@ function renderStackWidgetsOption(w, o) {
       }
     }
   },
-    h('span', { style: { fontSize: '18px' } }, '＋'),
+    h('span', { style: { fontSize: '18px' } }, icon('plus')),
     h('span', {}, items.length ? 'Drag a widget here from the palette' : 'Stack is empty. Drag a widget here from the palette')
   );
 
@@ -1462,7 +1491,7 @@ function openTemplates(index) {
   $('modalBody').replaceChildren(
     h('h3', {}, index == null ? 'New page' : `Replace the widgets of "${cfg.pages[index].title}"`),
     h('div', { class: 'tpl-grid' },
-      h('button', { class: 'tpl', onclick: () => pick(null) }, h('div', { class: 'mini empty-mini' }, '＋'), h('b', {}, 'Blank page'), h('small', {}, 'Start from an empty grid.')),
+      h('button', { class: 'tpl', onclick: () => pick(null) }, h('div', { class: 'mini empty-mini' }, icon('plus')), h('b', {}, 'Blank page'), h('small', {}, 'Start from an empty grid.')),
       ...catalog.templates.map((t) => h('button', { class: 'tpl', onclick: () => pick(t) }, miniMap(t.widgets), h('b', {}, `${t.icon} ${t.title}`), h('small', {}, t.desc)))));
   $('modal').hidden = false;
 }
@@ -1543,7 +1572,7 @@ function renderPhones() {
       h('div', { class: 'row' },
         h('input', { type: 'text', value: conf?.name || '', placeholder: ph.model || 'Phone', style: { maxWidth: '220px' }, oninput: (e) => { entry(ph.id).name = e.target.value; changed(); } }),
         h('span', { class: 'hint' }, `${ph.model || 'Android device'} · ${ago(ph.lastSeen)}${ph.via ? ' over ' + ph.via : ''}${wvMajor ? ' · WebView ' + wvMajor : ''}`)),
-      ph.webviewProblem ? h('p', { class: 'hint', style: { margin: '6px 0 0', color: 'var(--warn)' } }, '⚠ ' + ph.webviewProblem) : null,
+      ph.webviewProblem ? h('p', { class: 'hint', style: { margin: '6px 0 0', color: 'var(--warn)' } }, icon('warn', 'm'), ph.webviewProblem) : null,
       h('label', { class: 'check', style: { marginTop: '8px' } },
         h('input', { type: 'checkbox', checked: all, onchange: (e) => { entry(ph.id).pages = e.target.checked ? null : cfg.pages.map((p) => p.id).filter(Boolean); changed(); renderPhones(); } }),
         'Shows all pages'),
@@ -1841,8 +1870,10 @@ async function pollCharge() {
     const s = await (await fetch('/api/charge')).json();
     const p = s.phone;
     const age = p ? Math.round((Date.now() - p.at) / 1000) : null;
-    $('chargeState').textContent = (p ? `Phone: ${p.level}% ${p.plugged ? '⚡ charging' : 'on battery'} (${age < 90 ? 'just now' : Math.round(age / 60) + ' min ago'})` : 'No report from the phone yet')
-      + (s.power ? ` · power ${s.power}` : '') + (s.error ? ` · ${s.error}` : '');
+    $('chargeState').replaceChildren(...(p
+      ? [`Phone: ${p.level}% `, ...(p.plugged ? [icon('zap', 'm'), 'charging'] : ['on battery']), ` (${age < 90 ? 'just now' : Math.round(age / 60) + ' min ago'})`]
+      : ['No report from the phone yet']),
+      s.power ? ` · power ${s.power}` : '', s.error ? ` · ${s.error}` : '');
   } catch (_) {}
 }
 setInterval(pollCharge, 5000);
@@ -1921,7 +1952,7 @@ function renderDeck() {
     dragSort(k, cfg.shortcuts, (from, to) => { selKey = to; renderDeck(); changed(); });
     deck.append(k);
   });
-  deck.append(h('div', { class: 'key add', onclick: addShortcut }, h('span', { class: 'ki' }, '＋'), h('span', { class: 'kl' }, 'New shortcut')));
+  deck.append(h('div', { class: 'key add', onclick: addShortcut }, h('span', { class: 'ki' }, icon('plus')), h('span', { class: 'kl' }, 'New shortcut')));
   renderEditor();
 }
 
@@ -1960,7 +1991,7 @@ function renderEditor() {
       h('div', { class: 'row', style: { gap: '6px' } },
         h('button', { class: 'btn sm', onclick: () => moveKey(-1), disabled: selKey === 0 }, '← Earlier'),
         h('button', { class: 'btn sm', onclick: () => moveKey(1), disabled: selKey === cfg.shortcuts.length - 1 }, 'Later →'),
-        h('button', { class: 'btn sm', onclick: testKey }, '▶ Test'),
+        h('button', { class: 'btn sm', onclick: testKey }, icon('play', 'm'), 'Test'),
         h('button', { class: 'btn sm danger', onclick: delKey }, 'Delete'))),
     h('div', { class: 'grid2' },
       h('div', {},
@@ -2483,9 +2514,9 @@ async function loadInfo() {
     $('adbFound').textContent = i.adb ? 'Found: ' + i.adb : 'adb not found — ' + ({ linux: 'sudo apt install adb', macos: 'brew install android-platform-tools' }[osName] || 'winget install Google.PlatformTools');
     $('appMissing').hidden = !(i.appMissing && i.appMissing.length);
     $('usbProblem').hidden = !i.usbProblem;
-    $('usbProblem').textContent = i.usbProblem ? '⚠ ' + i.usbProblem : '';
+    $('usbProblem').replaceChildren(...(i.usbProblem ? [icon('warn', 'm'), i.usbProblem] : []));
     $('webviewProblem').hidden = !i.webviewProblem;
-    $('webviewProblem').textContent = i.webviewProblem ? '⚠ ' + i.webviewProblem : '';
+    $('webviewProblem').replaceChildren(...(i.webviewProblem ? [icon('warn', 'm'), i.webviewProblem] : []));
     if (i.appMissing?.length) $('appMissingText').textContent = `${i.appMissing.join(', ')} has no PhoneBox app yet`;
     const sel = $('serial');
     const cur = cfg.deviceSerial || '';
