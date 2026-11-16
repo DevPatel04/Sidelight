@@ -217,7 +217,7 @@ public sealed class SystemMonitor(ILogger<SystemMonitor> log) : BackgroundServic
             try
             {
                 using var doc = JsonDocument.Parse(await _http.GetStringAsync("http://127.0.0.1:8085/data.json", ct));
-                _cpuTemp = FindTemp(doc.RootElement, names);
+                _cpuTemp = ParseCpuTemp(doc.RootElement, _cpuName);
                 try { _lhmGpus = Gpus.ParseLhm(doc.RootElement); }
                 catch (Exception ex)
                 {
@@ -237,44 +237,119 @@ public sealed class SystemMonitor(ILogger<SystemMonitor> log) : BackgroundServic
 #endif
     }
 
-    private static double? FindTemp(JsonElement node, string[] names)
+    // Restrict CPU temperature lookup to LHM's CPU hardware node so GPU and disk
+// sensors with similar labels can never be mistaken for CPU temperatures.
+internal static double? ParseCpuTemp(JsonElement root, string? cpuName = null)
+{
+    string[] names =
+    [
+        "Core (Tctl/Tdie)", "Tctl/Tdie", "CPU Package",
+        "Tdie", "Tctl", "Core (Tdie)"
+    ];
+
+    var temperatures = new List<double>();
+
+    void VisitHardware(JsonElement node)
     {
-        if (node.TryGetProperty("Text", out var text) && names.Contains(text.GetString())
-            && node.TryGetProperty("Value", out var val) && val.GetString() is { } s && s.Contains('°'))
+        if (IsCpuHardware(node, cpuName))
+            CollectCpuTemperatures(node, names, temperatures);
+
+        if (node.TryGetProperty("Children", out var children)
+            && children.ValueKind == JsonValueKind.Array)
         {
-            var num = s.Split(' ')[0].Replace(',', '.');
-            if (double.TryParse(num, NumberStyles.Float, CultureInfo.InvariantCulture, out var t)) return t;
+            foreach (var child in children.EnumerateArray())
+                VisitHardware(child);
         }
-        if (node.TryGetProperty("Children", out var kids))
-            foreach (var k in kids.EnumerateArray())
-                if (FindTemp(k, names) is { } t) return t;
-        return null;
     }
 
-    private static Dictionary<string, (long Rx, long Tx)> NetBytes()
+    VisitHardware(root);
+
+    return temperatures.Count == 0 ? null : temperatures.Max();
+}
+
+private static bool IsCpuHardware(JsonElement node, string? cpuName)
+{
+    if (node.TryGetProperty("HardwareId", out var id)
+        && id.GetString() is { } hardwareId
+        && (hardwareId.StartsWith("/intelcpu/", StringComparison.OrdinalIgnoreCase)
+            || hardwareId.StartsWith("/amdcpu/", StringComparison.OrdinalIgnoreCase)))
+        return true;
+
+    if (node.TryGetProperty("ImageURL", out var image)
+        && image.GetString() is { } imageUrl
+        && imageUrl.EndsWith("/cpu.png", StringComparison.OrdinalIgnoreCase))
+        return true;
+
+    return !string.IsNullOrWhiteSpace(cpuName)
+        && node.TryGetProperty("Text", out var text)
+        && string.Equals(
+            text.GetString()?.Trim(),
+            cpuName.Trim(),
+            StringComparison.OrdinalIgnoreCase);
+}
+
+private static void CollectCpuTemperatures(
+    JsonElement node,
+    string[] names,
+    List<double> temperatures)
+{
+    if (node.TryGetProperty("Text", out var textElement)
+        && textElement.GetString() is { } name
+        && (names.Contains(name, StringComparer.OrdinalIgnoreCase)
+            || Regex.IsMatch(
+                name,
+                @"^(?:CPU )?Core #\d+$",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+        && node.TryGetProperty("Value", out var valueElement)
+        && valueElement.GetString() is { } value
+        && value.Contains('°')
+        && (!node.TryGetProperty("Type", out var type)
+            || type.GetString() == "Temperature"))
     {
-        var counters = new Dictionary<string, (long Rx, long Tx)>();
-        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        var number = value.Split(' ')[0].Replace(',', '.');
+
+        if (double.TryParse(
+            number,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out var temperature))
         {
-            if (ni.OperationalStatus != OperationalStatus.Up) continue;
-            if (ni.NetworkInterfaceType is not (NetworkInterfaceType.Ethernet or NetworkInterfaceType.Wireless80211 or NetworkInterfaceType.GigabitEthernet)) continue;
-            var d = ni.Description + " " + ni.Name;
-            if (!OperatingSystem.IsWindows() && (ni.Name.StartsWith("docker") || ni.Name.StartsWith("veth") || ni.Name.StartsWith("br-")
-                || ni.Name.StartsWith("virbr") || ni.Name.StartsWith("utun") || ni.Name.StartsWith("awdl") || ni.Name.StartsWith("llw"))) continue;
-            if (d.Contains("Virtual", StringComparison.OrdinalIgnoreCase) || d.Contains("Hyper-V", StringComparison.OrdinalIgnoreCase)
-                || d.Contains("vEthernet", StringComparison.OrdinalIgnoreCase) || d.Contains("VMware", StringComparison.OrdinalIgnoreCase)
-                || d.Contains("WSL", StringComparison.OrdinalIgnoreCase) || d.Contains("TAP", StringComparison.Ordinal)
-                || d.Contains("Bluetooth", StringComparison.OrdinalIgnoreCase)) continue;
-            try
-            {
-                var s = ni.GetIPStatistics();
-                counters[ni.Id] = (s.BytesReceived, s.BytesSent);
-            }
-            catch { }
+            temperatures.Add(temperature);
         }
-        return counters;
     }
 
+    if (node.TryGetProperty("Children", out var children)
+        && children.ValueKind == JsonValueKind.Array)
+    {
+        foreach (var child in children.EnumerateArray())
+            CollectCpuTemperatures(child, names, temperatures);
+    }
+}
+
+private static IReadOnlyDictionary<string, (long Rx, long Tx)> NetBytes()
+{
+    var result = new Dictionary<string, (long Rx, long Tx)>();
+
+    foreach (var network in NetworkInterface.GetAllNetworkInterfaces())
+    {
+        if (network.OperationalStatus != OperationalStatus.Up ||
+            network.NetworkInterfaceType == NetworkInterfaceType.Loopback ||
+            network.NetworkInterfaceType == NetworkInterfaceType.Tunnel)
+            continue;
+
+        try
+        {
+            var stats = network.GetIPv4Statistics();
+            result[network.Id] = (stats.BytesReceived, stats.BytesSent);
+        }
+        catch
+        {
+            // Ignore interfaces whose statistics cannot be read.
+        }
+    }
+
+    return result;
+}
     internal static (double Down, double Up) NetworkRates(
         IReadOnlyDictionary<string, (long Rx, long Tx)> before,
         IReadOnlyDictionary<string, (long Rx, long Tx)> after, double seconds)
