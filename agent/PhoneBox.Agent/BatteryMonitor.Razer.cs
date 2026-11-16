@@ -174,40 +174,61 @@ public sealed partial class BatteryMonitor
 
     internal static string? RazerKindFromPid(int pid) => RazerDeviceInfo(pid).Kind;
 
+    internal static List<DeviceBattery> MergeRazerDevices(IEnumerable<(string PhysicalId, DeviceBattery Device)> readings)
+    {
+        var byPhysicalId = new Dictionary<string, DeviceBattery>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (id, dev) in readings)
+        {
+            if (!byPhysicalId.TryGetValue(id, out var existing) || PreferDevice(dev, existing))
+                byPhysicalId[id] = dev;
+        }
+
+        // Disambiguate distinct physical devices that share the same product name (e.g. two identical receivers)
+        // so MergeDevices preserves every physical peripheral.
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<DeviceBattery>(byPhysicalId.Count);
+        foreach (var dev in byPhysicalId.Values)
+        {
+            var n = counts.TryGetValue(dev.Name, out var c) ? c + 1 : 1;
+            counts[dev.Name] = n;
+            result.Add(n == 1 ? dev : dev with { Name = $"{dev.Name} ({n})" });
+        }
+        return result;
+    }
+
     internal static List<DeviceBattery> MergeDevices(IEnumerable<DeviceBattery> primary, IEnumerable<DeviceBattery> extra)
     {
         var byName = new Dictionary<string, DeviceBattery>(StringComparer.OrdinalIgnoreCase);
         foreach (var d in primary.Concat(extra))
         {
-            if (!byName.TryGetValue(d.Name, out var existing))
-            {
-                byName[d.Name] = d;
-                continue;
-            }
-            if ((d.Charging is not null && existing.Charging is null)
-                || (d.Charging == true && existing.Charging != true)
-                || (d.Charging == existing.Charging && d.Level > existing.Level))
+            if (!byName.TryGetValue(d.Name, out var existing) || PreferDevice(d, existing))
                 byName[d.Name] = d;
         }
         return byName.Values.ToList();
     }
+
+    private static bool PreferDevice(DeviceBattery candidate, DeviceBattery existing)
+        => (candidate.Charging is not null && existing.Charging is null)
+            || (candidate.Charging == true && existing.Charging != true)
+            || (candidate.Charging == existing.Charging && candidate.Level > existing.Level);
 
 #if WINDOWS
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
 
     private static List<DeviceBattery> WindowsRazer()
     {
-        var results = new List<DeviceBattery>();
-        var handledPids = new HashSet<int>();
+        var readings = new List<(string PhysicalId, DeviceBattery Device)>();
+        var handledDevices = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         try
         {
             var guid = HidInterfaceGuid;
             var set = SetupDiGetClassDevs(ref guid, IntPtr.Zero, IntPtr.Zero, 0x02 | 0x10); // DIGCF_PRESENT | DIGCF_DEVICEINTERFACE
-            if (set == IntPtr.Zero || set == new IntPtr(-1)) return results;
+            if (set == IntPtr.Zero || set == new IntPtr(-1)) return [];
 
             try
             {
                 var ifData = new SP_DEVICE_INTERFACE_DATA { cbSize = (uint)Marshal.SizeOf<SP_DEVICE_INTERFACE_DATA>() };
+                var devData = new SP_DEVINFO_DATA { cbSize = (uint)Marshal.SizeOf<SP_DEVINFO_DATA>() };
                 for (uint i = 0; SetupDiEnumDeviceInterfaces(set, IntPtr.Zero, ref guid, i, ref ifData); i++)
                 {
                     SetupDiGetDeviceInterfaceDetailW(set, ref ifData, IntPtr.Zero, 0, out var req, IntPtr.Zero);
@@ -217,9 +238,12 @@ public sealed partial class BatteryMonitor
                     try
                     {
                         Marshal.WriteInt32(mem, IntPtr.Size == 8 ? 8 : 6);
-                        if (!SetupDiGetDeviceInterfaceDetailW(set, ref ifData, mem, req, out _, IntPtr.Zero)) continue;
+                        if (!SetupDiGetDeviceInterfaceDetailW(set, ref ifData, mem, req, out _, ref devData)) continue;
                         var path = Marshal.PtrToStringUni(IntPtr.Add(mem, 4));
                         if (string.IsNullOrEmpty(path) || !path.Contains("vid_1532", StringComparison.OrdinalIgnoreCase)) continue;
+
+                        var physicalId = GetPhysicalDeviceId(path, devData.DevInst);
+                        if (handledDevices.Contains(physicalId)) continue;
 
                         using var handle = CreateFileW(path, 0, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
                         if (handle.IsInvalid) continue;
@@ -228,7 +252,6 @@ public sealed partial class BatteryMonitor
                         if (!HidD_GetAttributes(handle, ref attrs) || attrs.VendorID != RazerVendorId) continue;
 
                         int pid = attrs.ProductID;
-                        if (handledPids.Contains(pid)) continue;
                         if (!TryGetHidCaps(handle, out var caps)) continue;
 
                         DeviceBattery? dev = null;
@@ -241,8 +264,8 @@ public sealed partial class BatteryMonitor
 
                         if (dev is not null)
                         {
-                            handledPids.Add(pid);
-                            results.Add(dev);
+                            handledDevices.Add(physicalId);
+                            readings.Add((physicalId, dev));
                         }
                     }
                     catch { }
@@ -252,7 +275,28 @@ public sealed partial class BatteryMonitor
             finally { SetupDiDestroyDeviceInfoList(set); }
         }
         catch { }
-        return results;
+        return MergeRazerDevices(readings);
+    }
+
+    private static string GetPhysicalDeviceId(string path, uint devInst)
+    {
+        // Walk up from HID\... to the parent USB device node so multiple interfaces on one receiver share one ID,
+        // while two identical receivers on different USB ports stay distinct.
+        uint current = devInst;
+        for (int hop = 0; hop < 3; hop++)
+        {
+            if (CM_Get_Parent(out var parent, current, 0) != 0) break;
+            current = parent;
+            var buf = new char[256];
+            if (CM_Get_Device_IDW(current, buf, buf.Length, 0) == 0)
+            {
+                var id = new string(buf).TrimEnd('\0');
+                if (id.StartsWith("USB\\", StringComparison.OrdinalIgnoreCase)
+                    && !id.Contains("&MI_", StringComparison.OrdinalIgnoreCase))
+                    return id;
+            }
+        }
+        return devInst != 0 ? $"devinst:{devInst}" : path;
     }
 
     private static bool TryGetHidCaps(SafeFileHandle handle, out HIDP_CAPS caps)
@@ -442,6 +486,13 @@ public sealed partial class BatteryMonitor
     private static extern bool SetupDiEnumDeviceInterfaces(IntPtr set, IntPtr data, ref Guid classGuid, uint index, ref SP_DEVICE_INTERFACE_DATA ifData);
     [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool SetupDiGetDeviceInterfaceDetailW(IntPtr set, ref SP_DEVICE_INTERFACE_DATA ifData, IntPtr detail, uint size, out uint required, IntPtr data);
+    [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool SetupDiGetDeviceInterfaceDetailW(IntPtr set, ref SP_DEVICE_INTERFACE_DATA ifData, IntPtr detail, uint size, out uint required, ref SP_DEVINFO_DATA data);
+
+    [DllImport("cfgmgr32.dll")]
+    private static extern uint CM_Get_Parent(out uint parent, uint devInst, uint flags);
+    [DllImport("cfgmgr32.dll", CharSet = CharSet.Unicode)]
+    private static extern uint CM_Get_Device_IDW(uint devInst, char[] buffer, int bufferLen, uint flags);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(string fileName, uint access, uint share, IntPtr sec, uint disp, uint flags, IntPtr template);

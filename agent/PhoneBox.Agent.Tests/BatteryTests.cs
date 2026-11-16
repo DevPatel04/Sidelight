@@ -140,4 +140,22 @@ public class BatteryTests
         Assert.True(mouse.Charging);
         Assert.Equal(47, mouse.Level);
     }
+
+    [Fact]
+    public void MergeRazerDevices_DeduplicatesByPhysicalIdAndPreservesDistinctReceivers()
+    {
+        var readings = new[]
+        {
+            ("USB\\VID_1532&PID_0555\\PORT1", new DeviceBattery("Razer BlackShark V2 Pro 2.4", 29, "headphones", false)),
+            ("USB\\VID_1532&PID_0555\\PORT1", new DeviceBattery("Razer BlackShark V2 Pro 2.4", 29, "headphones", false)),
+            ("USB\\VID_1532&PID_0555\\PORT2", new DeviceBattery("Razer BlackShark V2 Pro 2.4", 82, "headphones", true)),
+        };
+
+        var razer = BatteryMonitor.MergeRazerDevices(readings);
+        var merged = BatteryMonitor.MergeDevices([], razer);
+
+        Assert.Equal(2, merged.Count);
+        Assert.Contains(merged, d => d.Name == "Razer BlackShark V2 Pro 2.4" && d.Level == 29 && d.Charging == false);
+        Assert.Contains(merged, d => d.Name == "Razer BlackShark V2 Pro 2.4 (2)" && d.Level == 82 && d.Charging == true);
+    }
 }

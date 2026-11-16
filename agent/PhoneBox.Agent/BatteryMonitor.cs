@@ -94,7 +94,7 @@ public sealed partial class BatteryMonitor(ILogger<BatteryMonitor> log) : Backgr
         // the same model paired twice (e.g. a mouse on two Easy-Switch channels): tell them apart by the address
         return found.Select(f =>
         {
-            var dupes = found.Count(x => x.Name == f.Name) > 1;
+            var dupes = found.Count(x => string.Equals(x.Name, f.Name, StringComparison.OrdinalIgnoreCase)) > 1;
             var addr = System.Text.RegularExpressions.Regex.Match(f.Id, @"DEV_([0-9A-F]{12})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             var name = dupes && addr.Success ? $"{f.Name} ({addr.Groups[1].Value[^4..]})" : f.Name;
             return new DeviceBattery(name, f.Level, KindOf(f.Name), null);
