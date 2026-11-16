@@ -1085,7 +1085,7 @@ export function syncPagePauseUi() {
 }
 
 /** Sets whether automatic page switching (idle return and rules) is paused. */
-export function setPagePaused(next, { feedback = false } = {}) {
+export function setPagePaused(next, { feedback = false, resume = true } = {}) {
   const val = !!(next && pages.length >= 2);
   if (val === pagePaused) return pagePaused;
   pagePaused = val;
@@ -1097,7 +1097,9 @@ export function setPagePaused(next, { feedback = false } = {}) {
     showPagePauseFeedback(pagePaused);
   }
   if (pagePaused && navQueue.length) navQueue = navQueue.filter((r) => r.kind !== 'home');
-  pump();
+  // leaving the page by hand ends the pause, but a waiting rule moves only after that page change has landed: the
+  // queue's own 250 ms timer picks it up, so a held rule records the page the user went to as the one to return to
+  if (resume) pump();
   return pagePaused;
 }
 
@@ -1136,7 +1138,7 @@ export function updateDots() {
 export let snapTimer = 0;
 export function goPage(i, instant = false) {
   i = Math.max(0, Math.min(pages.length - 1, i));
-  if (curPage >= 0 && i !== curPage && pagePaused) setPagePaused(false, { feedback: false });
+  if (curPage >= 0 && i !== curPage && pagePaused) setPagePaused(false, { feedback: false, resume: false });
   if (!instant) { pager.scrollTo({ left: i * window.innerWidth, behavior: 'smooth' }); return; }
   // scroll-snap-stop: always would stop a programmatic jump at the next page, so snapping is paused for the jump.
   pager.style.scrollSnapType = 'none';
@@ -1247,7 +1249,12 @@ function softGo(i) {
   if (i === curPage) return;
   if (Math.abs(i - curPage) === 1) { goPage(i); return; }
   pager.classList.add('fade');
-  setTimeout(() => { goPage(i, true); pager.classList.remove('fade'); }, 320);
+  const pausedBefore = pagePaused; // the Back key goes home through here while paused, and that must still work
+  setTimeout(() => {
+    pager.classList.remove('fade');
+    if (pagePaused && !pausedBefore) return; // paused during the fade: this automatic switch is dropped
+    goPage(i, true);
+  }, 320);
 }
 
 function perform(req) {
@@ -1407,7 +1414,7 @@ export function onScroll() {
   if (p === curPage) return;
   const prev = curPage;
   curPage = p;
-  if (prev >= 0 && pagePaused) setPagePaused(false, { feedback: false });
+  if (prev >= 0 && pagePaused) setPagePaused(false, { feedback: false, resume: false });
   updateDots();
   flashTitle();
   setActive();
