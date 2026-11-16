@@ -291,6 +291,22 @@ test('multi option preserves saved unlisted quota provider IDs when toggling cho
   expect(saved).toContain('alibaba');
 });
 
+// Apply JSON used to assign the paste verbatim: a fragment without sections every renderer reads
+// (pages, display, night…) threw inside renderPages and left cfg broken until a reload.
+test('Apply JSON fills defaults for a partial config instead of breaking the editor', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.goto('/settings/#advanced');
+  await page.locator('#json').fill('{"display": {"theme": "midnight"}}');
+  await page.locator('#applyJson').click();
+  await expect(page.locator('#jsonErr')).toHaveText('');
+  // the fragment has no pages array: defaults keep renderPages working — the empty list still shows its buttons
+  await page.locator('a[href="#pages"]').click();
+  await expect(page.locator('#pageTabs button', { hasText: 'New page' })).toBeVisible();
+  // and the form keeps answering: the night screen slider read its (defaulted) section without throwing
+  await page.locator('a[href="#general"]').click();
+  await expect(page.locator('#nbv')).not.toBeEmpty();
+});
+
 // PRIVACY.md: the phone sends the weather location to Open-Meteo only while a page has a widget that uses the weather.
 test('the weather is fetched only while a widget needs it', async ({ page }) => {
   const asked = [];
