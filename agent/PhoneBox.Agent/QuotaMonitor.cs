@@ -288,7 +288,9 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
                 _nextAntigravity = Environment.TickCount64 + (ok ? 60_000 : 30_000);
             }
 
-            await ClaudeTickAsync(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ct);
+            try { await ClaudeTickAsync(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
+            catch (Exception ex) { log.LogWarning("claude quota: {Msg}", ex.Message); } // never end the loop for Codex and Antigravity
             await Wake.Delay(TimeSpan.FromSeconds(30), ct);
         }
     }
@@ -316,7 +318,8 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     private long _claudeCredsReadAt;
 
     /// <summary>The shared schedule: when the next request may go out, and the message to show until then.</summary>
-    private sealed record ClaudeSchedule(long NextAt, int Failures, string? Error);
+    /// <param name="Refused">Fingerprint (a hash prefix, not the token) of the token Anthropic refused, and when.</param>
+    private sealed record ClaudeSchedule(long NextAt, int Failures, string? Error, string? Refused = null, long RefusedAt = 0);
 
     internal string ClaudeSchedulePath =>
         Path.Combine(Path.GetDirectoryName(ClaudeCachePath)!, Path.GetFileNameWithoutExtension(ClaudeCachePath) + "-schedule.json");
@@ -367,7 +370,8 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
             }
             plan = PlanLabel(Str(o, "subscriptionType"), Str(o, "rateLimitTier"));
             token = Str(o, "accessToken") ?? "";
-            expires = o.TryGetProperty("expiresAt", out var e) && e.TryGetInt64(out var ms) ? ms : 0;
+            // TryGetInt64 throws on a non-number; an unknown expiry is left to the server to judge
+            expires = o.TryGetProperty("expiresAt", out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out var ms) ? ms : 0;
         }
         catch (JsonException)
         {
@@ -386,10 +390,11 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
         }
 
         if (nowMs < _claudeNextAt) return;
-        AdoptShared(plan, nowMs);
-        if (nowMs < _claudeNextAt) return;
+        if (AdoptShared(plan, print, nowMs) || nowMs < _claudeNextAt) return;
 
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         var (result, retryAfter) = await FetchClaude(plan, token, nowMs, ct);
+        var answeredMs = nowMs + clock.ElapsedMilliseconds;
         long next;
         switch (result)
         {
@@ -413,13 +418,18 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
                 break;
             default:
                 if (result != ClaudeResult.Offline) _claudeOffline = 0;
-                next = nowMs + (long)ClaudeDelay(false, ++_claudeFailures, retryAfter).TotalMilliseconds;
+                // a Retry-After counts from the answer, not from when the request went out
+                next = (retryAfter is null ? nowMs : answeredMs) + (long)ClaudeDelay(false, ++_claudeFailures, retryAfter).TotalMilliseconds;
                 if (result == ClaudeResult.Limited)
                     _claude = Keep(plan, $"Anthropic is limiting quota checks; trying again at {DateTimeOffset.FromUnixTimeMilliseconds(next).ToLocalTime():HH:mm}");
                 break;
         }
+        // another agent may have been told to wait longer while this request ran: keep the longer wait
+        var error = _claude?.Error;
+        if (ReadClaudeSchedule() is { } other && other.NextAt > next && other.NextAt - nowMs <= ClaudeMaxWaitMs)
+            (next, error) = (other.NextAt, other.Error ?? error);
         _claudeNextAt = next;
-        SaveClaudeSchedule(new ClaudeSchedule(next, _claudeFailures, _claude?.Error));
+        SaveClaudeSchedule(new ClaudeSchedule(next, _claudeFailures, error, _claudeRefused, _claudeRefusedAt));
     }
 
     private const string RefusedMessage = "Anthropic did not accept the sign-in; it will refresh when Claude Code runs";
@@ -493,18 +503,27 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     /// Takes over what another agent on this computer (or this one before a restart) already knows: a newer reading,
     /// and the time the next request may go out.
     /// </summary>
-    private void AdoptShared(string plan, long nowMs)
+    /// <returns>True when the token was refused before (by another agent, or before a restart): don't send it.</returns>
+    private bool AdoptShared(string plan, string print, long nowMs)
     {
         if (ReadClaudeCache(nowMs) is { UpdatedAt: { } at } cached && at > (_claude?.UpdatedAt ?? 0) && at <= nowMs)
             _claude = cached with { Plan = plan };
         if (_claude?.UpdatedAt is { } updated && updated <= nowMs && nowMs - updated < ClaudeHealthyMs)
             _claudeNextAt = Math.Max(_claudeNextAt, updated + ClaudeHealthyMs);
 
+        var shared = ReadClaudeSchedule();
+        if (shared is { Refused: { } refused } && refused == print && nowMs - shared.RefusedAt is >= 0 and < ClaudeRefusedRetryMs)
+        {
+            (_claudeRefused, _claudeRefusedAt, _claudeAwaitingToken) = (refused, shared.RefusedAt, true);
+            _claude = Keep(plan, RefusedMessage);
+            return true;
+        }
         // a schedule further ahead than any wait was written before the clock was set back: it no longer applies
-        if (ReadClaudeSchedule() is not { } shared || shared.NextAt <= nowMs || shared.NextAt - nowMs > ClaudeMaxWaitMs) return;
+        if (shared is null || shared.NextAt <= nowMs || shared.NextAt - nowMs > ClaudeMaxWaitMs) return false;
         _claudeNextAt = Math.Max(_claudeNextAt, shared.NextAt);
         _claudeFailures = Math.Max(_claudeFailures, shared.Failures);
         if (shared.Error is { Length: > 0 } error) _claude = Keep(plan, error);
+        return false;
     }
 
     private static string Fingerprint(string token) =>

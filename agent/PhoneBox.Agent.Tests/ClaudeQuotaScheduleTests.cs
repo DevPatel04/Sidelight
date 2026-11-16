@@ -253,10 +253,76 @@ public sealed class ClaudeQuotaScheduleTests : IDisposable
         Assert.Equal(HttpRequestError.ConnectionError, ex.HttpRequestError);
     }
 
+    [Theory]
+    [InlineData("null")]
+    [InlineData("\"2026-11-16T10:00:00Z\"")]
+    [InlineData("1.5e300")]
+    public async Task AnExpiryThatIsNotAWholeNumberDoesNotEndTheChecks(string expiresAt)
+    {
+        // JsonElement.TryGetInt64 throws on a non-number; that used to end the whole usage loop
+        File.WriteAllText(Creds, $$$"""{"claudeAiOauth":{"accessToken":"token-1","expiresAt":{{{expiresAt}}}}}""");
+        _api.Respond(HttpStatusCode.OK, Usage);
+        var agent = Agent();
+        await agent.ClaudeTickAsync(_t0, default);
+        Assert.Equal(1, _api.Calls); // an unknown expiry is left to the server
+        Assert.Null(Claude(agent).Error);
+    }
+
+    [Fact]
+    public async Task ARefusedTokenStaysRefusedAcrossARestart()
+    {
+        SignIn("revoked", _t0 + 7_200_000);
+        _api.Respond(HttpStatusCode.Unauthorized, "");
+        await Agent().ClaudeTickAsync(_t0, default);
+
+        var restarted = Agent();
+        for (var t = _t0 + 2 * Minute; t < _t0 + 30 * Minute; t += 30_000) await restarted.ClaudeTickAsync(t, default);
+        Assert.Equal(1, _api.Calls);
+        Assert.NotNull(Claude(restarted).Error);
+
+        SignIn("renewed", _t0 + 7_200_000);
+        _api.Respond(HttpStatusCode.OK, Usage);
+        await restarted.ClaudeTickAsync(_t0 + 31 * Minute, default);
+        Assert.Equal(2, _api.Calls);
+    }
+
+    [Fact]
+    public async Task ALongerWaitAnotherAgentGotMeanwhileIsKept()
+    {
+        SignIn("token-1", _t0 + 7_200_000);
+        _api.Respond(HttpStatusCode.OK, Usage);
+        var agent = Agent();
+        // while this request runs, another agent on the computer gets a 429 that asks for 230 s
+        _api.OnSend = () => File.WriteAllText(agent.ClaudeSchedulePath,
+            $$"""{"nextAt":{{_t0 + 230_000}},"failures":1,"error":"Anthropic is limiting quota checks"}""");
+        await agent.ClaudeTickAsync(_t0, default);
+        _api.OnSend = null;
+        await agent.ClaudeTickAsync(_t0 + 200_000, default);
+        Assert.Equal(1, _api.Calls);
+        await agent.ClaudeTickAsync(_t0 + 231_000, default);
+        Assert.Equal(2, _api.Calls);
+    }
+
+    [Fact]
+    public async Task ARetryAfterCountsFromTheAnswer()
+    {
+        SignIn("token-1", _t0 + 7_200_000);
+        _api.Respond(HttpStatusCode.TooManyRequests, "{}", retryAfterSeconds: 120);
+        var agent = Agent();
+        _api.OnSend = () => Thread.Sleep(2_000); // a slow answer
+        await agent.ClaudeTickAsync(_t0, default);
+        _api.OnSend = null;
+        await agent.ClaudeTickAsync(_t0 + 125_500, default); // 120 + 5 s after the request went out, not after the answer
+        Assert.Equal(1, _api.Calls);
+        await agent.ClaudeTickAsync(_t0 + 128_000, default);
+        Assert.Equal(2, _api.Calls);
+    }
+
     private sealed class FakeAnthropic : HttpMessageHandler
     {
         private Func<HttpResponseMessage> _next = () => new HttpResponseMessage(HttpStatusCode.InternalServerError);
         public int Calls { get; private set; }
+        public Action? OnSend { get; set; }
 
         public void Respond(HttpStatusCode status, string body, int? retryAfterSeconds = null) => _next = () =>
         {
@@ -270,6 +336,7 @@ public sealed class ClaudeQuotaScheduleTests : IDisposable
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Calls++;
+            OnSend?.Invoke();
             Assert.Equal("https://api.anthropic.com/api/oauth/usage", request.RequestUri!.ToString());
             return Task.FromResult(_next());
         }
