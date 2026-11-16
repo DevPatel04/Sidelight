@@ -114,12 +114,18 @@ fi
 if [ "$apk" = 1 ]; then
   adb="$(command -v adb || true)"
   [ -n "$adb" ] || { echo "adb not found (see the top of this script)" >&2; exit 1; }
-  # the newest of a release APK in dist/ and the last local build
-  apkfile="$(ls -t "$root"/dist/PhoneBox-*.apk "$root/android/app/build/outputs/apk/release/app-release.apk" 2>/dev/null | head -n1 || true)"
-  if [ -z "$apkfile" ]; then
+  built="$root/android/app/build/outputs/apk/release/app-release.apk"
+  sources="$root/android/app/src"
+  apkfile=""
+  for candidate in "$root"/dist/PhoneBox-*.apk "$built"; do
+    if [ -f "$candidate" ] && { [ -z "$apkfile" ] || [ "$candidate" -nt "$apkfile" ]; }; then
+      apkfile="$candidate"
+    fi
+  done
+  if [ -z "$apkfile" ] || { [ -d "$sources" ] && [ -n "$(find "$sources" -type f -newer "$apkfile" -print -quit)" ]; }; then
     echo "==> Building the APK (needs the Android SDK)"
     (cd "$root/android" && chmod +x gradlew && ./gradlew assembleRelease --console=plain -q)
-    apkfile="$root/android/app/build/outputs/apk/release/app-release.apk"
+    apkfile="$built"
   fi
   echo "==> Installing $(basename "$apkfile") on the phone"
   # Bash 3.2 treats an empty array as unset under nounset (the macOS system shell).
