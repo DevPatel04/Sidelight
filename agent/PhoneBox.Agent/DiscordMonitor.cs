@@ -35,23 +35,53 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
 
     private static DiscordSnapshot Empty(string? error) => new(false, error, null, false, false, null, null, null, [], [], []);
 
-    public DiscordSnapshot Snapshot() { lock (_lock) return _snap with { Notifications = [.. _notes] }; }
+    private volatile bool _notesWanted;
+
+    /// <summary>Whether Discord notifications are subscribed to (and sent to the phone): only while an enabled Discord widget shows them.</summary>
+    internal bool NotificationsOn { get => _notesWanted; set => _notesWanted = value; }
+
+    internal static bool NotificationsWanted(AgentConfig cfg) =>
+        cfg.Widgets(enabledPagesOnly: true).Any(w => w.Type == "discord" && w.Bool("notifications") != false);
+
+    public DiscordSnapshot Snapshot() { lock (_lock) return _snap with { Notifications = _notesWanted ? [.. _notes] : [] }; }
+
+    /// <summary>The user cancelled, the approval timed out or Discord refused the secret: retrying cannot help until the settings change.</summary>
+    private sealed class LoginRefusedException(string message) : Exception(message);
+
+    private volatile bool _loggedIn;
+
+    /// <summary>5 s after the first failure, doubling up to 30 s while Discord stays unreachable.</summary>
+    internal static TimeSpan Backoff(int failures) => TimeSpan.FromSeconds(Math.Min(30, 5 * Math.Pow(2, Math.Max(0, failures - 1))));
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         string? lastError = null;
+        (string? Id, string? Secret)? refusedFor = null;
+        var failures = 0;
         while (!ct.IsCancellationRequested)
         {
             var cfg = config.Get().Discord;
-            if (!cfg.Enabled) { _snap = Empty(null); await Task.Delay(2000, ct); continue; }
+            if (!cfg.Enabled) { _snap = Empty(null); refusedFor = null; failures = 0; await Task.Delay(2000, ct); continue; }
+            // After a refused login, stay quiet (no new prompt, no new token request) until the client ID or secret change or Discord is switched off and on.
+            if (refusedFor is { } refused && refused == (cfg.ClientId, cfg.ClientSecret)) { await Task.Delay(2000, ct); continue; }
+            refusedFor = null;
+            _loggedIn = false;
             try { await RunConnection(cfg, ct); }
+            catch (LoginRefusedException ex)
+            {
+                refusedFor = (cfg.ClientId, cfg.ClientSecret);
+                _snap = Empty(ex.Message);
+                log.LogInformation("discord: {Msg}", ex.Message);
+                continue;
+            }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 var msg = ex is IOException or TimeoutException or SocketException ? "Discord is not running" : ex.Message;
                 _snap = Empty(msg);
                 if (msg != lastError) { log.LogInformation("discord: {Msg}", msg); lastError = msg; }
             }
-            await Task.Delay(5000, ct);
+            failures = _loggedIn ? 0 : failures + 1;
+            await Task.Delay(Backoff(failures), ct);
         }
     }
 
@@ -62,7 +92,7 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         await using var io = await OpenIpc(ct);
         // handshake
         await WriteFrame(io, 0, new JsonObject { ["v"] = 1, ["client_id"] = cfg.ClientId }, ct);
-        var ready = await ReadFrame(io, ct) ?? throw new IOException("Discord closed the connection");
+        var ready = (await ReadFrame(io, ct))?.Body ?? throw new IOException("Discord closed the connection");
         if (ready["evt"]?.GetValue<string>() != "READY") throw new Exception(ready["data"]?["message"]?.GetValue<string>() ?? "Discord refused the client ID");
         _io = io;
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -71,13 +101,23 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         {
             _snap = Empty("Waiting for you to approve PhoneBox in Discord…");
             var user = await Authenticate(cfg, ct);
-            log.LogInformation("discord: connected as {User}", user);
-            await Request("SUBSCRIBE", new JsonObject(), "NOTIFICATION_CREATE", ct);
+            _loggedIn = true;
+            log.LogInformation("discord: connected");
+            var subscribed = false;
             _guildChannels.Clear();
             var channelsAt = DateTime.MinValue;
             var channelsEvery = TimeSpan.FromSeconds(60);
             while (!ct.IsCancellationRequested && !reader.IsCompleted && config.Get().Discord.Enabled)
             {
+                // Notification text (DM content) is only asked for, and only sent on, while a widget shows it.
+                var wantNotes = NotificationsWanted(config.Get());
+                if (wantNotes != subscribed)
+                {
+                    await Request(wantNotes ? "SUBSCRIBE" : "UNSUBSCRIBE", new JsonObject(), "NOTIFICATION_CREATE", ct);
+                    subscribed = wantNotes;
+                    if (!wantNotes) lock (_lock) _notes.Clear();
+                    _notesWanted = wantNotes;
+                }
                 if (DateTime.UtcNow - channelsAt > channelsEvery)
                 {
                     channelsEvery = await RefreshVoiceChannels(ct) ? TimeSpan.FromSeconds(60) : TimeSpan.FromSeconds(10);
@@ -103,6 +143,7 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         finally
         {
             _io = null;
+            _notesWanted = false;
             stop.Cancel();
             try { await reader; } catch { }
             foreach (var p in _pending.Values) p.TrySetResult(null);
@@ -120,11 +161,17 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         {
             try { return await Auth(tokens.Access, ct); } catch (Exception ex) { log.LogInformation("discord: saved login no longer works ({Msg})", ex.Message); }
         }
-        var granted = await Request("AUTHORIZE", new JsonObject { ["client_id"] = cfg.ClientId, ["scopes"] = new JsonArray(Scopes.Select(s => (JsonNode)s).ToArray()) }, null, ct, TimeSpan.FromMinutes(2));
-        var code = granted?["code"]?.GetValue<string>() ?? throw new Exception("Discord did not give a login code");
+        const string retry = " PhoneBox will not ask again until you change the Discord settings (or turn Discord off and on).";
+        JsonNode? granted;
+        try { granted = await Request("AUTHORIZE", new JsonObject { ["client_id"] = cfg.ClientId, ["scopes"] = new JsonArray(Scopes.Select(s => (JsonNode)s).ToArray()) }, null, ct, TimeSpan.FromMinutes(2)); }
+        catch (TimeoutException) { throw new LoginRefusedException("PhoneBox was not approved in Discord in time." + retry); }
+        catch (Exception ex) when (ex is not (OperationCanceledException or IOException)) { throw new LoginRefusedException($"Discord login was refused ({ex.Message})." + retry); }
+        // no answer at all means the connection ended (Discord closed or restarted): that is not a refusal
+        var code = granted?["code"]?.GetValue<string>() ?? throw new IOException("Discord closed the connection");
         tokens = await Exchange(cfg, new() { ["grant_type"] = "authorization_code", ["code"] = code, ["redirect_uri"] = Redirect }, ct)
-            ?? throw new Exception("Discord refused the client secret or the redirect (add http://127.0.0.1 under OAuth2 › Redirects)");
-        return await Auth(tokens.Access, ct);
+            ?? throw new LoginRefusedException("Discord refused the client secret or the redirect (add http://127.0.0.1 under OAuth2 › Redirects)." + retry);
+        try { return await Auth(tokens.Access, ct); }
+        catch (Exception ex) when (ex is not (OperationCanceledException or IOException)) { throw new LoginRefusedException($"Discord refused the new login ({ex.Message})." + retry); }
     }
 
     private async Task<string> Auth(string token, CancellationToken ct)
@@ -169,25 +216,41 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
     private static partial System.Text.RegularExpressions.Regex IconUrl();
 
     // Server icons and avatars come from Discord's image host. The phone asks the agent for them (and never talks to
-    // Discord itself); the agent fetches each image once and keeps it in memory.
-    private static readonly ConcurrentDictionary<string, (byte[] Data, string Type)> ImageCache = new();
+    // Discord itself); the agent fetches each image once and keeps it in memory, up to a total size.
+    private const long ImageCacheLimit = 8 * 1024 * 1024;
+    private readonly ConcurrentDictionary<string, (byte[] Data, string Type)> _images = new();
+    private long _imageBytes;
     private static readonly HttpClient ImageHttp = new() { Timeout = TimeSpan.FromSeconds(10) };
 
-    /// <summary>kind is "guild" or "user"; id and hash are checked here, because they build the URL.</summary>
-    public static async Task<(byte[] Data, string Type)?> ImageAsync(string kind, string id, string hash, CancellationToken ct)
+    /// <summary>Only icons and avatars the agent itself reported (a server's icon, a member of your current call) are served.</summary>
+    internal bool IsKnownImage(string kind, string id, string hash)
     {
+        var s = _snap;
+        return kind switch
+        {
+            "guild" => s.Channels.Any(c => c.GuildId == id && c.GuildIcon == hash),
+            "user" => s.Members.Any(m => m.Id == id && m.Avatar == hash),
+            _ => false,
+        };
+    }
+
+    /// <summary>kind is "guild" or "user". Refused while Discord is off, for ids that are not in the current snapshot, and for anything that would not be a safe URL part.</summary>
+    public async Task<(byte[] Data, string Type)?> ImageAsync(string kind, string id, string hash, CancellationToken ct)
+    {
+        if (!config.Get().Discord.Enabled) return null;
         if (kind is not ("guild" or "user") || id.Length is 0 or > 24 || !id.All(char.IsAsciiDigit)
             || hash.Length is 0 or > 64 || !hash.All(c => char.IsAsciiLetterOrDigit(c) || c == '_')) return null;
+        if (!IsKnownImage(kind, id, hash)) return null;
         var key = $"{kind}/{id}/{hash}";
-        if (ImageCache.TryGetValue(key, out var hit)) return hit;
+        if (_images.TryGetValue(key, out var hit)) return hit;
         try
         {
             using var res = await ImageHttp.GetAsync($"https://cdn.discordapp.com/{(kind == "guild" ? "icons" : "avatars")}/{id}/{hash}.png?size=64", ct);
             if (!res.IsSuccessStatusCode) return null;
             var data = await res.Content.ReadAsByteArrayAsync(ct);
             if (data.Length is 0 or > 512 * 1024) return null;
-            if (ImageCache.Count > 300) ImageCache.Clear();
-            return ImageCache[key] = (data, "image/png");
+            if (Interlocked.Add(ref _imageBytes, data.Length) > ImageCacheLimit) { _images.Clear(); Interlocked.Exchange(ref _imageBytes, data.Length); }
+            return _images[key] = (data, "image/png");
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { return null; }
     }
@@ -229,15 +292,24 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         return complete;
     }
 
-    private async Task ReadLoop(Stream io, CancellationToken ct)
+    internal async Task ReadLoop(Stream io, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
-            var msg = await ReadFrame(io, ct);
-            if (msg is null) break;
+            var frame = await ReadFrame(io, ct);
+            if (frame is null) break;
+            var (op, msg) = frame.Value;
+            if (op == 3) // PING: answer with the same payload, through the same lock as every other write
+            {
+                await _send.WaitAsync(ct);
+                try { await WriteFrame(io, 4, msg as JsonObject ?? new JsonObject(), ct); } finally { _send.Release(); }
+                continue;
+            }
+            if (op == 4 || msg is null) continue; // PONG
             var evt = msg["evt"]?.GetValue<string>();
             if (evt == "NOTIFICATION_CREATE")
             {
+                if (!_notesWanted) continue;
                 var d = msg["data"];
                 var title = d?["title"]?.GetValue<string>() ?? "";
                 var body = d?["body"]?.GetValue<string>() ?? d?["message"]?["content"]?.GetValue<string>() ?? "";
@@ -369,7 +441,7 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         await io.FlushAsync(ct);
     }
 
-    private static async Task<JsonNode?> ReadFrame(Stream io, CancellationToken ct)
+    private static async Task<(int Op, JsonNode? Body)?> ReadFrame(Stream io, CancellationToken ct)
     {
         var head = new byte[8];
         if (!await ReadExact(io, head, ct)) return null;
@@ -378,7 +450,7 @@ public sealed partial class DiscordMonitor(ConfigStore config, ILogger<DiscordMo
         var body = new byte[len];
         if (!await ReadExact(io, body, ct)) return null;
         if (op == 2) return null; // close
-        return JsonNode.Parse(body);
+        return (op, body.Length == 0 ? null : JsonNode.Parse(body));
     }
 
     private static async Task<bool> ReadExact(Stream io, byte[] buf, CancellationToken ct)

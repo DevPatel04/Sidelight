@@ -478,8 +478,9 @@ app.MapGet("/api/discord", (DiscordMonitor dc, ConfigStore cfg) => Results.Json(
     snapshot = dc.Snapshot(),
     control = DiscordMonitor.ControlAllowed(cfg.Get()),
 }));
-app.MapGet("/api/discord/img/{kind}/{id}/{hash}", async (string kind, string id, string hash, CancellationToken ct) =>
-    await DiscordMonitor.ImageAsync(kind, id, hash, ct) is { } img
+// Ids go in the query string: the Android app lets image requests through by exact path (READ_ONLY_IMAGES).
+app.MapGet("/api/discord/img", async (string kind, string id, string hash, DiscordMonitor dc, CancellationToken ct) =>
+    await dc.ImageAsync(kind, id, hash, ct) is { } img
         ? Results.File(img.Data, img.Type, lastModified: null, entityTag: null, enableRangeProcessing: false) : Results.NotFound());
 app.MapPost("/api/discord/{action}", async (string action, string? channel, DiscordMonitor dc) =>
     await dc.ActAsync(action, channel) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true }));

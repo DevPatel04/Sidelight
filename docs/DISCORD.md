@@ -21,7 +21,7 @@ PhoneBox agent. Windows, macOS and Linux work through Discord's local socket; th
 
 ## 2. Enter it in PhoneBox
 
-1. Open the PhoneBox settings page and go to **Discord**.
+1. Open the PhoneBox settings page, choose **General** and find the **Discord** card.
 2. Turn on **Connect to the Discord app on this PC**.
 3. Paste the **Client ID** and **Client secret**, then save.
 4. Discord shows an approval window ("PhoneBox wants to access your Discord"). Click **Authorize**. This happens
@@ -37,7 +37,7 @@ Add a **Discord** widget to a page in the editor. Options:
 | Option | Meaning |
 |---|---|
 | Channels | Show your servers as tiles; tap one to see and join its voice channels |
-| Notifications | Show recent Discord notifications |
+| Notifications | Show recent Discord notifications. PhoneBox only asks Discord for them, and only sends them to the phone, while a widget with this option on is on an enabled page |
 | Control | Allow mute, deafen, leave and join from the phone. **Off by default** |
 
 Without **Control** the widget only displays state. Joining works only for voice channels the agent already listed.
@@ -56,5 +56,6 @@ never sent to the phone. See the Discord row in [PRIVACY.md](../PRIVACY.md) for 
 | "Invalid redirect" or similar login error | The redirect must be exactly `http://127.0.0.1` (no trailing slash, no port) |
 | Discord refuses the login | Add your account under **App Testers** in the Developer Portal |
 | Login keeps failing after changing the secret | Paste the new secret in Settings; delete `discord-token.json` next to `config.json` to force a fresh login |
-| Only some servers appear | The list comes from the Discord app; the agent retries every minute, so wait a little or restart Discord. If servers are still missing, please report it |
+| Only some servers appear | The widget lists voice channels of the first 60 servers Discord reports, so servers beyond that do not appear. For fewer than 60: the list comes from the Discord app and is retried every minute, so wait a little or restart Discord |
+| The login is not asked again after Cancel, a timeout or a wrong secret | On purpose: PhoneBox stops instead of showing a new prompt every few seconds. Change the client ID or secret, or turn **Connect to the Discord app** off and on, to try again |
 | Buttons do nothing | Turn on **Control** in the widget's options |
