@@ -153,6 +153,11 @@ permission prompts** and press *Install hook*: PhoneBox adds a `PermissionReques
 time, the hook returns no decision and Claude Code asks in the terminal as usual. Optionally only when you have been
 away from the keyboard for a minute.
 
+WorkBuddy speaks the same hook protocol. Add the same `PermissionRequest` entry to `~/.workbuddy/settings.json` by
+hand: *Install hook* writes to `~/.claude/settings.json` only. WorkBuddy keeps its sessions in `~/.workbuddy`, so the
+card takes the project name from the workspace name WorkBuddy stores
+(`~/.workbuddy/workspace-display-names.json`) instead of the folder name.
+
 ## Webhooks
 
 The agent accepts data as well as serving it, so anything that can make an HTTP request can put things on the panel:
