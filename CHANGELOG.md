@@ -6,6 +6,11 @@
 - `display.language` is checked like the other settings: a code PhoneBox has no translation for (or an empty one) falls
   back to `auto`, which follows the phone or the browser. It is also in the three default configuration files.
 
+**Setup**
+- When Smart App Control blocks the unsigned agent, `setup.ps1` no longer stops with "An Application Control policy
+  has blocked this file". It says that PhoneBox is installed but can't run until the agent is signed (#56), and it
+  no longer claims the release agent runs with Smart App Control on (#69).
+
 ## 0.9.10 — 2026-11-16
 
 PhoneBox now speaks 11 languages. This is also a reliability release: updates are checked against the release
