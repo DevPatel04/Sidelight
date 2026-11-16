@@ -11,6 +11,17 @@
 - The AI quotas load on networks that announce IPv6 but don't route it. The quota requests try the IPv4 addresses
   first, then the others, within one 10-second connect budget. Before, the Claude quota failed with "Socket is not
   connected" (#105, [sateesh2020](https://github.com/sateesh2020)).
+- The Claude quota check spends fewer of Anthropic's rate-limited requests and shows fewer errors:
+  - a restart (an update) or a second agent on the computer uses a reading under 3 minutes old, and still waits
+    out a `429`'s Retry-After, instead of asking again;
+  - an expired token is not sent, and a token Anthropic refused is not sent again; the token Claude Code renews is
+    used within a minute, instead of after a back-off of up to 15 minutes;
+  - when the network isn't back yet (after sleep), the last reading stays without an error and the check is
+    retried after 30 seconds, up to three times;
+  - a reply PhoneBox doesn't recognize (a captive portal, a changed format) keeps the last reading instead of
+    emptying the card.
+- The Codex quota skips a reading cut off mid-write for the complete one before it, instead of showing a JSON error,
+  and a session log that is busy for a moment keeps the last reading.
 
 ## 0.9.11 — 2026-11-16
 

@@ -112,9 +112,8 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     private volatile QuotaProvider? _claude;
     private volatile QuotaProvider? _codex;
     private volatile QuotaProvider? _antigravity;
-    private long _claudeNextAt;           // wall-clock ms of the next Claude check
-    private int _claudeFailures;          // consecutive failed checks, for the back-off
-    private TimeSpan? _claudeRetryAfter;  // what the last 429 / 503 asked for (Retry-After)
+    private long _claudeNextAt;           // wall-clock ms of the next Claude request
+    private int _claudeFailures;          // consecutive failed requests, for the back-off
     private long _nextCodexBar;
     private long _nextAntigravity;
     private volatile IReadOnlyList<QuotaProvider> _external = [];
@@ -230,35 +229,28 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     /// <summary>A cached reading older than this is not shown any more.</summary>
     private const long ClaudeCacheMaxAgeMs = 7L * 24 * 3600 * 1000;
 
-    internal void LoadClaudeCache(long nowMs)
+    internal void LoadClaudeCache(long nowMs) =>
+        _claude ??= ReadClaudeCache(nowMs); // limits whose reset has passed are shown as reset (see Snapshot)
+
+    /// <summary>The cached reading, without an error, or null when there is none, it's broken or it's too old.</summary>
+    private QuotaProvider? ReadClaudeCache(long nowMs)
     {
         try
         {
-            if (!File.Exists(ClaudeCachePath)) return;
+            if (!File.Exists(ClaudeCachePath)) return null;
             var cached = JsonSerializer.Deserialize<QuotaProvider>(File.ReadAllText(ClaudeCachePath), ConfigStore.WriteOpts);
-            if (cached is not { Id: "claude", Limits.Count: > 0, UpdatedAt: { } at } || nowMs - at > ClaudeCacheMaxAgeMs) return;
-            _claude ??= cached with { Error = null }; // limits whose reset has passed are shown as reset (see Snapshot)
+            if (cached is not { Id: "claude", Limits.Count: > 0, UpdatedAt: { } at } || nowMs - at > ClaudeCacheMaxAgeMs) return null;
+            return cached with { Error = null };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
         {
             log.LogDebug("claude quota cache: {Msg}", ex.Message);
+            return null;
         }
     }
 
-    internal void SaveClaudeCache(QuotaProvider reading)
-    {
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(ClaudeCachePath)!);
-            var tmp = ClaudeCachePath + ".tmp";
-            AppPaths.WriteAllTextPrivate(tmp, JsonSerializer.Serialize(reading, ConfigStore.WriteOpts));
-            File.Move(tmp, ClaudeCachePath, overwrite: true);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            log.LogDebug("claude quota cache: {Msg}", ex.Message);
-        }
-    }
+    internal void SaveClaudeCache(QuotaProvider reading) =>
+        WriteShared(ClaudeCachePath, JsonSerializer.Serialize(reading, ConfigStore.WriteOpts));
 
     private async Task RunUsageLoopAsync(CancellationToken ct)
     {
@@ -302,80 +294,250 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     }
 
     // ------------------------------------------------------------------ Claude
+    // The usage endpoint is rate limited per account and shared with Claude Code, so every request counts:
+    //  - an expired, missing or refused token is waited out locally (the sign-in is read once a minute), never sent;
+    //  - the schedule and the last reading are shared through files, so a restart (an update) or a second agent on
+    //    this computer doesn't ask again before the 3 minutes or a Retry-After are over;
+    //  - a token the server refused is not sent again; Claude Code renews it, and the renewed one is used at once.
+
+    internal const long ClaudeHealthyMs = 180_000;
+    private const long ClaudeMaxWaitMs = 3_605_000;  // the longest wait ClaudeDelay can ask for
+    private const long ClaudeTokenMarginMs = 60_000; // a token this close to expiry would be refused on the way
+    internal const int ClaudeOfflineRetries = 3;     // quick retries while the network is not reachable
+    internal const long ClaudeOfflineRetryMs = 30_000;
+    private const long ClaudeUnrecognizedMs = 900_000;
+    private const long ClaudeTokenRecheckMs = 60_000;
+
+    private int _claudeOffline;         // consecutive requests that could not reach the server
+    private string? _claudeRefused;     // fingerprint of the token the server refused (never the token itself)
+    private bool _claudeAwaitingToken;  // expired, missing or refused: only the sign-in is read until it changes
+    private long _claudeCredsReadAt;
+
+    /// <summary>The shared schedule: when the next request may go out, and the message to show until then.</summary>
+    private sealed record ClaudeSchedule(long NextAt, int Failures, string? Error);
+
+    internal string ClaudeSchedulePath =>
+        Path.Combine(Path.GetDirectoryName(ClaudeCachePath)!, Path.GetFileNameWithoutExtension(ClaudeCachePath) + "-schedule.json");
+
+    private enum ClaudeResult { Ok, Limited, Refused, Offline, Unrecognized, Failed }
+
     /// <summary>One pass of the usage loop for Claude, at wall-clock time <paramref name="nowMs"/>.</summary>
     internal async Task ClaudeTickAsync(long nowMs, CancellationToken ct)
     {
-        if (nowMs < _claudeNextAt) return;
-        // Every 3 minutes when healthy; on errors back off, and never ask again sooner than a 429 says.
-        var ok = await RefreshClaude(nowMs, ct);
-        _claudeFailures = ok ? 0 : _claudeFailures + 1;
-        _claudeNextAt = nowMs + (long)ClaudeDelay(ok, _claudeFailures, _claudeRetryAfter).TotalMilliseconds;
-        _claudeRetryAfter = null;
-    }
+        // The sign-in is read when a request is due, and once a minute while waiting for Claude Code to renew an
+        // expired or refused token (on macOS each read starts the `security` tool).
+        if (_claudeAwaitingToken ? nowMs - _claudeCredsReadAt < ClaudeTokenRecheckMs : nowMs < _claudeNextAt) return;
+        _claudeCredsReadAt = nowMs;
 
-    private async Task<bool> RefreshClaude(long nowMs, CancellationToken ct)
-    {
-        var path = CredentialsPath;
+        // Claude Code may be rewriting the file right now: try again on the next pass
         string? json = null;
-        // Claude Code may be rewriting the file right now: try again on the next round instead of ending the service
-        try { if (File.Exists(path)) json = await File.ReadAllTextAsync(path, ct); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+        try { if (File.Exists(CredentialsPath)) json = await File.ReadAllTextAsync(CredentialsPath, ct); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return; }
 #if !WINDOWS
         // macOS: Claude Code stores the credentials in the login Keychain instead of a file (read-only access).
-        if (json is null && OperatingSystem.IsMacOS() && path == DefaultCredentialsPath) json = Sh.Run("security", "find-generic-password", "-s", "Claude Code-credentials", "-w")?.Trim();
+        if (json is null && OperatingSystem.IsMacOS() && CredentialsPath == DefaultCredentialsPath)
+            json = Sh.Run("security", "find-generic-password", "-s", "Claude Code-credentials", "-w")?.Trim();
 #endif
-        if (string.IsNullOrEmpty(json)) { _claude = null; return true; }
+        if (string.IsNullOrEmpty(json))
+        {
+            // Claude Code is not set up here
+            _claude = null;
+            _claudeAwaitingToken = false;
+            _claudeNextAt = nowMs + ClaudeHealthyMs;
+            return;
+        }
 
-        string plan = "Claude";
+        string plan, token;
+        long expires;
         try
         {
             using var creds = JsonDocument.Parse(json);
-            var o = creds.RootElement.GetProperty("claudeAiOauth");
-            plan = PlanLabel(Str(o, "subscriptionType"), Str(o, "rateLimitTier"));
-            var token = Str(o, "accessToken");
-            var expires = o.TryGetProperty("expiresAt", out var e) && e.TryGetInt64(out var ms) ? ms : 0;
-
-            if (string.IsNullOrEmpty(token)) { _claude = Keep(plan, "Not signed in to Claude Code"); return false; }
-            if (expires > 0 && expires < nowMs)
+            if (creds.RootElement.ValueKind != JsonValueKind.Object
+                || !creds.RootElement.TryGetProperty("claudeAiOauth", out var o) || o.ValueKind != JsonValueKind.Object)
             {
-                _claude = Keep(plan, "Token expired; it will refresh when Claude Code runs");
-                return false;
+                _claude = Keep("Claude", "Not signed in to Claude Code");
+                _claudeAwaitingToken = true;
+                return;
             }
+            plan = PlanLabel(Str(o, "subscriptionType"), Str(o, "rateLimitTier"));
+            token = Str(o, "accessToken") ?? "";
+            expires = o.TryGetProperty("expiresAt", out var e) && e.TryGetInt64(out var ms) ? ms : 0;
+        }
+        catch (JsonException)
+        {
+            return; // read mid-write; the next pass reads the whole file
+        }
 
+        var print = token.Length == 0 ? "" : Fingerprint(token);
+        var wait = token.Length == 0 ? "Not signed in to Claude Code"
+            : expires > 0 && expires - nowMs < ClaudeTokenMarginMs ? "Token expired; it will refresh when Claude Code runs"
+            : print == _claudeRefused ? RefusedMessage : null;
+        _claudeAwaitingToken = wait is not null;
+        if (wait is not null)
+        {
+            _claude = Keep(plan, wait);
+            return;
+        }
+
+        if (nowMs < _claudeNextAt) return;
+        AdoptShared(plan, nowMs);
+        if (nowMs < _claudeNextAt) return;
+
+        var (result, retryAfter) = await FetchClaude(plan, token, nowMs, ct);
+        long next;
+        switch (result)
+        {
+            case ClaudeResult.Ok:
+                _claudeFailures = _claudeOffline = 0;
+                next = nowMs + ClaudeHealthyMs;
+                break;
+            case ClaudeResult.Refused:
+                _claudeRefused = print;
+                _claudeAwaitingToken = true;
+                next = nowMs + ClaudeTokenRecheckMs;
+                break;
+            case ClaudeResult.Offline when _claudeOffline <= ClaudeOfflineRetries:
+                // usually a computer that just woke up: keep the reading (its age is shown) and look again soon
+                next = nowMs + ClaudeOfflineRetryMs;
+                break;
+            case ClaudeResult.Unrecognized:
+                _claudeOffline = 0;
+                next = nowMs + Math.Max(ClaudeUnrecognizedMs, (long)ClaudeDelay(false, ++_claudeFailures, null).TotalMilliseconds);
+                break;
+            default:
+                if (result != ClaudeResult.Offline) _claudeOffline = 0;
+                next = nowMs + (long)ClaudeDelay(false, ++_claudeFailures, retryAfter).TotalMilliseconds;
+                if (result == ClaudeResult.Limited)
+                    _claude = Keep(plan, $"Anthropic is limiting quota checks; trying again at {DateTimeOffset.FromUnixTimeMilliseconds(next).ToLocalTime():HH:mm}");
+                break;
+        }
+        _claudeNextAt = next;
+        SaveClaudeSchedule(new ClaudeSchedule(next, _claudeFailures, _claude?.Error));
+    }
+
+    private const string RefusedMessage = "Anthropic did not accept the sign-in; it will refresh when Claude Code runs";
+
+    /// <summary>Sends the one request and sets <see cref="_claude"/> from its answer.</summary>
+    private async Task<(ClaudeResult, TimeSpan?)> FetchClaude(string plan, string token, long nowMs, CancellationToken ct)
+    {
+        try
+        {
             using var req = new HttpRequestMessage(HttpMethod.Get, "https://api.anthropic.com/api/oauth/usage");
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             req.Headers.Add("anthropic-beta", "oauth-2025-04-20");
             using var res = await Http.SendAsync(req, ct);
-            if (res.StatusCode is System.Net.HttpStatusCode.TooManyRequests or System.Net.HttpStatusCode.ServiceUnavailable)
+            _claudeOffline = 0;
+            if (res.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.ServiceUnavailable)
+                // Asking again before Retry-After only keeps the limit in place, so wait at least that long.
+                return (ClaudeResult.Limited, RetryAfter(res.Headers.RetryAfter) ?? TimeSpan.FromMinutes(5));
+            if (res.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
-                // The usage endpoint is rate limited per account (Claude Code and other tools use it too). Asking again
-                // before Retry-After only keeps the limit in place, so wait at least that long.
-                _claudeRetryAfter = RetryAfter(res.Headers.RetryAfter) ?? TimeSpan.FromMinutes(5);
-                var at = DateTimeOffset.FromUnixTimeMilliseconds(nowMs).ToLocalTime() + ClaudeDelay(false, _claudeFailures + 1, _claudeRetryAfter);
-                _claude = Keep(plan, $"Anthropic is limiting quota checks; trying again at {at:HH:mm}");
-                return false;
+                _claude = Keep(plan, RefusedMessage);
+                return (ClaudeResult.Refused, null);
             }
             if (!res.IsSuccessStatusCode)
             {
                 _claude = Keep(plan, $"Could not fetch quota (HTTP {(int)res.StatusCode})");
-                return false;
+                return (ClaudeResult.Failed, null);
             }
-            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
-            _claude = new QuotaProvider("claude", "Claude", plan, ParseClaudeLimits(doc.RootElement),
-                ClaudeExtra(doc.RootElement), nowMs, null);
+            var body = await res.Content.ReadAsStringAsync(ct);
+            List<QuotaLimit> limits = [];
+            string? extra = null;
+            try
+            {
+                using var doc = JsonDocument.Parse(body);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    limits = ParseClaudeLimits(doc.RootElement);
+                    extra = ClaudeExtra(doc.RootElement);
+                }
+            }
+            catch (JsonException) { }
+            if (limits.Count == 0)
+            {
+                // a captive portal, or a reply format this version doesn't know: keep the last reading and the cache
+                log.LogDebug("claude quota: unrecognized reply ({Length} bytes)", body.Length);
+                _claude = Keep(plan, "Anthropic sent a quota reply this version doesn't recognize");
+                return (ClaudeResult.Unrecognized, null);
+            }
+            _claude = new QuotaProvider("claude", "Claude", plan, limits, extra, nowMs, null);
             SaveClaudeCache(_claude);
-            return true;
+            return (ClaudeResult.Ok, null);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (HttpRequestException ex) when (ex.HttpRequestError is HttpRequestError.ConnectionError or HttpRequestError.NameResolutionError)
+        {
+            // the request never reached the server: show it only once the quick retries are used up, or when there is
+            // no reading to show instead
+            log.LogDebug("claude quota: {Msg}", ex.Message);
+            if (++_claudeOffline > ClaudeOfflineRetries || _claude is not { Limits.Count: > 0 })
+                _claude = Keep(plan, "Could not reach Anthropic: " + ex.Message);
+            return (ClaudeResult.Offline, null);
+        }
         catch (Exception ex)
         {
             log.LogDebug("claude quota: {Msg}", ex.Message);
             _claude = Keep(plan, "Could not fetch quota: " + ex.Message);
-            return false;
+            return (ClaudeResult.Failed, null);
         }
     }
 
-    /// <summary>On errors, keeps the last good values and attaches the error.</summary>
+    /// <summary>
+    /// Takes over what another agent on this computer (or this one before a restart) already knows: a newer reading,
+    /// and the time the next request may go out.
+    /// </summary>
+    private void AdoptShared(string plan, long nowMs)
+    {
+        if (ReadClaudeCache(nowMs) is { UpdatedAt: { } at } cached && at > (_claude?.UpdatedAt ?? 0) && at <= nowMs)
+            _claude = cached with { Plan = plan };
+        if (_claude?.UpdatedAt is { } updated && updated <= nowMs && nowMs - updated < ClaudeHealthyMs)
+            _claudeNextAt = Math.Max(_claudeNextAt, updated + ClaudeHealthyMs);
+
+        if (ReadClaudeSchedule() is not { } shared) return;
+        var nextAt = Math.Min(shared.NextAt, nowMs + ClaudeMaxWaitMs); // a clock that jumped can't silence it for days
+        if (nextAt <= nowMs) return;
+        _claudeNextAt = Math.Max(_claudeNextAt, nextAt);
+        _claudeFailures = Math.Max(_claudeFailures, shared.Failures);
+        if (shared.Error is { Length: > 0 } error) _claude = Keep(plan, error);
+    }
+
+    private static string Fingerprint(string token) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(token)))[..16];
+
+    private ClaudeSchedule? ReadClaudeSchedule()
+    {
+        try
+        {
+            return File.Exists(ClaudeSchedulePath)
+                ? JsonSerializer.Deserialize<ClaudeSchedule>(File.ReadAllText(ClaudeSchedulePath), ConfigStore.WriteOpts) : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
+        {
+            log.LogDebug("claude quota schedule: {Msg}", ex.Message);
+            return null;
+        }
+    }
+
+    private void SaveClaudeSchedule(ClaudeSchedule schedule) =>
+        WriteShared(ClaudeSchedulePath, JsonSerializer.Serialize(schedule, ConfigStore.WriteOpts));
+
+    /// <summary>Atomic replace through a temporary file of this writer's own, so two agents can't trip over each other.</summary>
+    private void WriteShared(string path, string text)
+    {
+        var tmp = $"{path}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            AppPaths.WriteAllTextPrivate(tmp, text);
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            log.LogDebug("claude quota files: {Msg}", ex.Message);
+            try { File.Delete(tmp); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+    }
+
     /// <summary>
     /// When to check the Claude quota next: 3 minutes after a success; after a failure 1, 2, 4 … minutes (at most 15),
     /// and never sooner than a Retry-After (at most an hour).
@@ -394,6 +556,7 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
         : header?.Date is { } date ? (date - DateTimeOffset.UtcNow is var left && left > TimeSpan.Zero ? left : TimeSpan.Zero)
         : null;
 
+    /// <summary>On errors, keeps the last good values and attaches the error.</summary>
     private QuotaProvider Keep(string plan, string error) =>
         _claude is { Limits.Count: > 0 } prev ? prev with { Plan = plan, Error = error }
             : new QuotaProvider("claude", "Claude", plan, [], null, null, error);
@@ -455,6 +618,10 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     internal void CodexTick()
     {
         try { _codex = ReadCodex(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && _codex is { Limits.Count: > 0 })
+        {
+            log.LogDebug("codex quota: {Msg}", ex.Message); // the log is busy for a moment; it's read again in 30 s
+        }
         catch (Exception ex) { _codex = Fail("codex", "Codex", ex.Message); }
     }
 
@@ -547,7 +714,10 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
             Long(last, "input_tokens"), Long(last, "output_tokens"), Long(token, "model_context_window"), updatedAt);
     }
 
-    /// <summary>Reads the last 1 MB of a file and returns the last line containing the given text.</summary>
+    /// <summary>
+    /// Reads the last 1 MB of a file and returns the last complete JSON line containing the given text. A line cut off
+    /// mid-write (Codex stopped, or the file read while it appends) is skipped for the one before it.
+    /// </summary>
     private static string? LastLineWith(string path, string needle)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
@@ -557,7 +727,15 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
         fs.ReadExactly(buf);
         var lines = Encoding.UTF8.GetString(buf).Split('\n');
         for (var i = lines.Length - 1; i >= 1; i--) // the first line may be partial
-            if (lines[i].Contains(needle) && lines[i].Contains("\"primary\"")) return lines[i];
+        {
+            if (!lines[i].Contains(needle) || !lines[i].Contains("\"primary\"")) continue;
+            try
+            {
+                using var _ = JsonDocument.Parse(lines[i]);
+                return lines[i];
+            }
+            catch (JsonException) { }
+        }
         return null;
     }
 

@@ -246,6 +246,9 @@ switchable ports). The panel keeps running over Wi-Fi while the USB power is off
 - **Claude quota:** read with the OAuth token Claude Code stores in `~/.claude/.credentials.json`, sent only to
   `api.anthropic.com/api/oauth/usage` (the endpoint behind Claude Code's `/usage`). The token is read-only: PhoneBox
   never refreshes it, so it can't interfere with Claude Code. This endpoint is undocumented and may change.
+  It is rate limited per account and shared with Claude Code, so PhoneBox asks at most every 3 minutes, and waits
+  longer after errors and as long as a `429` asks for, across restarts too. An expired or refused token is not sent:
+  PhoneBox waits until Claude Code renews it.
 - **Codex quota and sessions** are read from local files in `~/.codex/sessions`; Claude Code sessions from
   `~/.claude/sessions`.
 - **Native Antigravity quota:** the agent reads the running Antigravity server's port and CSRF token from its
