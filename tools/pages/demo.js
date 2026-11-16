@@ -38,6 +38,9 @@
     let c = store.get('pb-demo-config', null);
     if (c) return c;
     const { templates } = await loadCatalog();
+    // A tab can save a layout while the first catalog request is still pending.
+    c = store.get('pb-demo-config', null);
+    if (c) return c;
     const byId = Object.fromEntries(templates.map((t) => [t.id, t]));
     const rule = (r) => ({ enabled: true, match: null, value: null, page: null, text: null, level: null, key: null, pushValue: null, whileActive: true, shortcut: null,
       priority: 5, forSec: 0, cooldownMin: 0, days: null, during: null, countdownSec: null, op: null, arg: null, ...r });
