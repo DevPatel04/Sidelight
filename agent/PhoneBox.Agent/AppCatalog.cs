@@ -27,8 +27,11 @@ public sealed class AppCatalog(ConfigStore config, ILogger<AppCatalog> log)
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _iconGates = new(); // one conversion per app at a time
     private readonly SemaphoreSlim _iconSlots = new(2); // icon conversion spawns sips / qlmanage: at most two at a time
 
-    /// <summary>How long a failed conversion is remembered before it is tried again (a timeout on a busy computer).</summary>
-    internal long FailureRetryMs { get; init; } = 60_000;
+    /// <summary>
+    /// How long a failed conversion is remembered before it is tried again (a timeout on a busy computer). Shorter than
+    /// the panel's one retry after 15 s (widgets/pc.js), so that retry gets a fresh attempt instead of the cached failure.
+    /// </summary>
+    internal long FailureRetryMs { get; init; } = 10_000;
 
     /// <summary>For tests: the conversion instead of sips / Quick Look.</summary>
     internal Func<AppEntry, byte[]?> Converter { get; init; } = MakeIcon;
