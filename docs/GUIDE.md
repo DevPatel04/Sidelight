@@ -193,6 +193,7 @@ for senders that cannot set headers). That key opens only the webhook endpoints,
 | an AI session needs you / is working (optionally for some projects) | show a page |
 | music or video plays (optionally in some apps: `Spotify\|Music`) | show a notification (`{detail}` = what happened) |
 | an app is running (`zoom\|Teams\|obs64`) | push a value (e.g. `onair`, shown by a Pushed value widget) |
+| an app is in front (`Code\|obs64\|Safari` — needs Accessibility on macOS; not on Wayland) | |
 | the microphone / the camera is in use (Windows, Linux) | |
 | a calendar event is on (optionally by title) | |
 | OBS is recording or streaming | |
