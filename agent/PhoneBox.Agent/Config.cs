@@ -26,6 +26,8 @@ public sealed class AgentConfig
     public List<PhoneConfig> Phones { get; set; } = [];
     /// <summary>iCalendar feeds for the Agenda widget; the URLs are secrets and never go to the phone.</summary>
     public List<CalendarSource> Calendars { get; set; } = [];
+    /// <summary>RSS and Atom feeds for the Feeds widget; like the calendars, the addresses never go to the phone.</summary>
+    public List<FeedSource> Feeds { get; set; } = [];
     /// <summary>Home Assistant address and long-lived access token (the token never goes to the phone).</summary>
     public HomeAssistantConfig HomeAssistant { get; set; } = new();
     /// <summary>OBS Studio's WebSocket server (obs-websocket 5).</summary>
@@ -312,6 +314,12 @@ public sealed class PhoneConfig
     public List<string>? Pages { get; set; }
 }
 
+public sealed class FeedSource
+{
+    public string Name { get; set; } = "";
+    public string Url { get; set; } = "";
+}
+
 public sealed class CalendarSource
 {
     public string Name { get; set; } = "";
@@ -506,6 +514,8 @@ public sealed partial class ConfigStore(string path)
         c.HomeAssistant.Token = string.IsNullOrWhiteSpace(c.HomeAssistant.Token) ? null : c.HomeAssistant.Token.Trim();
         c.Calendars = (c.Calendars ?? []).Where(x => x is not null).Take(20).ToList();
         foreach (var cal in c.Calendars) { cal.Name = cal.Name?.Trim() ?? ""; cal.Url = cal.Url?.Trim() ?? ""; }
+        c.Feeds = (c.Feeds ?? []).Where(x => x is not null).Take(30).ToList();
+        foreach (var f in c.Feeds) { var n = f.Name?.Trim() ?? ""; f.Name = n.Length > 60 ? n[..60] : n; f.Url = f.Url?.Trim() ?? ""; }
 
         c.Charge ??= new();
         c.Charge.Min = Math.Clamp(c.Charge.Min, 5, 95);

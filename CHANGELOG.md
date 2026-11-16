@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+**New widget**
+- **News feeds**: headlines from your RSS and Atom feeds; tap one to open the article in the computer's browser
+  (#108, asked for by [Vampie](https://github.com/Vampie)). Add the feeds in Settings › General. The agent fetches
+  each at most every 15 minutes and only while a page shows the widget; the addresses stay on the computer.
+
 **Panel**
 - When the forecast can't be fetched, the weather says "Weather unavailable" and tries again after 2 minutes, instead
   of "Loading…" until the next 15-minute refresh; an error answer is no longer kept as the forecast (#159).

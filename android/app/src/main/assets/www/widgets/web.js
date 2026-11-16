@@ -1,4 +1,4 @@
-import { $, ago, h, safeFetch, store, t, tick } from '../main.js';
+import { $, API, PANEL_HEADERS, ago, api, h, haptic, safeFetch, store, t, tick, toast } from '../main.js';
 import { W } from '../registry.js';
 import { cached, every, fmtNum, lines, pctSpan, sparkLine } from './helpers.js';
 
@@ -29,6 +29,60 @@ W.hackernews = {
       } catch (_) { if (!list.querySelector('.hn-i')) list.replaceChildren(h('div', 'empty', t('w.offline'))); return false; }
     });
     return { update: load };
+  },
+};
+
+// Headlines from the RSS / Atom feeds set up on the PC. The agent fetches them (at most every 15 minutes); the
+// phone gets titles, the feed's name and times, and opens an article on the PC by its id.
+W.feeds = {
+  needs: ['tick'],
+  create(box, { o }) {
+    const only = String(o.feed || '').trim().toLowerCase();
+    const showSource = o.showSource !== false, showTime = o.showTime !== false;
+    const list = h('div', 'fd-list', h('div', 'empty', t('w.loading')));
+    const sub = h('span', 'w-sub', '');
+    box.style.setProperty('--c', '#f59e0b');
+    if (o.title !== '') box.append(h('div', 'w-title', o.title || 'News', sub));
+    box.append(list);
+    let data = null, lastKey = '', busy = null;
+    const open = async (it) => {
+      if (!it.openable || busy) return;
+      if (!data?.canOpen) { toast(t('w.feeds.needsWidget'), 'err'); return; }
+      haptic();
+      busy = it.id;
+      try {
+        const r = await fetch(`${API}/feeds/open?id=${encodeURIComponent(it.id)}`, { method: 'POST', cache: 'no-store', headers: PANEL_HEADERS });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok) toast(t('w.feeds.opening'), 'ok'); else toast(j.error || t('w.feeds.openFailed'), 'err');
+      } catch (_) { toast(t('panel.pcNoAnswer'), 'err'); }
+      busy = null;
+    };
+    const render = () => {
+      const items = (data?.items || []).filter((i) => !only || i.source.toLowerCase() === only);
+      const rows = Math.max(1, Math.floor((box.clientHeight - (o.title !== '' ? 30 : 6)) / 33));
+      const key = JSON.stringify([!!data, items.slice(0, rows).map((i) => i.id), data?.errors, rows, Math.floor(Date.now() / 60_000)]);
+      if (key === lastKey) return;
+      lastKey = key;
+      const err = (data?.errors || []).filter((e) => !only || e.toLowerCase().startsWith(only + ':'));
+      sub.textContent = err.length ? '⚠' : '';
+      sub.title = err.join('\n');
+      if (!data) return;
+      if (!items.length) {
+        list.replaceChildren(h('div', 'empty', err.length ? err[0] : data.updated && (data.items || []).length ? t('w.feeds.noneFrom', { name: o.feed }) : t('w.feeds.addInSettings')));
+        return;
+      }
+      list.replaceChildren(...items.slice(0, rows).map((it) => {
+        const meta = [showSource ? it.source : '', showTime && it.published ? ago(it.published) : ''].filter(Boolean).join(' · ');
+        const row = h('div', 'fd-i' + (it.openable ? ' link' : ''), h('div', 'fd-t', it.title), meta ? h('div', 'fd-m', meta) : null);
+        row.onclick = () => open(it);
+        return row;
+      }));
+    };
+    const load = every(60_000, async () => {
+      try { data = await api('/feeds', 'GET', 5000); lastKey = ''; render(); }
+      catch (_) { if (!data) list.replaceChildren(h('div', 'empty', t('w.offline'))); return false; }
+    });
+    return { update() { load(); render(); } };
   },
 };
 

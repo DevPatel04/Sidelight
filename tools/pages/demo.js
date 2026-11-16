@@ -323,6 +323,15 @@
     Array.from({ length: 13 }, (_, i) => `<line x1="150" y1="170" x2="${-300 + i * 75}" y2="300"/>`).join('') + '</g></svg>');
 
   // ---- router
+  // headlines as the agent sends them: no links, the phone opens one by its id
+  const DEMO_FEEDS = () => [
+    ['f1', 'A tiny e-ink weather station that runs for a year on one charge', 'Hackaday', 18],
+    ['f2', 'Rust 2.0 roadmap: what changes for async code', 'Tech news', 47],
+    ['f3', 'Why old phones make great desk dashboards', 'Blog', 95],
+    ['f4', 'The James Webb telescope finds water in a young planetary system', 'Science', 160],
+    ['f5', 'Ten keyboard shortcuts that save an hour a week', 'Tech news', 240],
+    ['f6', 'Inside the factory that still makes film cameras', 'Hackaday', 420],
+  ].map(([id, title, source, min]) => ({ id, title, source, published: now() - min * 60_000, openable: true }));
   const json = (o, status = 200, headers = {}) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers } });
   const parse = (body) => { if (body == null || body === '') return null; try { return JSON.parse(body); } catch (_) { return String(body); } };
 
@@ -539,6 +548,11 @@
       { name: 'MX Keys', level: 18, kind: 'keyboard', charging: null },
       { name: 'Xbox Wireless Controller', level: 40, kind: 'controller', charging: null },
     ] });
+    if (path === '/api/feeds') { const c = await config(); return json({ items: DEMO_FEEDS(), updated: now(), errors: [], canOpen: widgets(c).some((w) => w.type === 'feeds') }); }
+    if (path === '/api/feeds/open' && method === 'POST') {
+      if (!widgets(await config()).some((w) => w.type === 'feeds')) return json({ error: 'Add a News feeds widget to a page to open articles from the phone' }, 400);
+      return DEMO_FEEDS().some((i) => i.id === q.get('id') && i.openable) ? json({ ok: true }) : json({ error: 'That headline is no longer in the list' }, 400);
+    }
     if (path === '/api/apps') { const c = await config(); return json({ supported: true, canOpen: widgets(c).some((w) => w.type === 'apps'), apps: DEMO_APPS }); }
     if (path === '/api/apps/open' && method === 'POST') {
       if (!widgets(await config()).some((w) => w.type === 'apps')) return json({ error: 'Add an All apps widget to a page to open apps from the phone' }, 400);

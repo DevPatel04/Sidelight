@@ -160,8 +160,9 @@ table.items td.val { font-family: Consolas, monospace; font-size: 12px; max-widt
 .phone-row .row { gap: 10px; }
 .phone-pages { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; }
 .cal-row { display: grid; grid-template-columns: 160px minmax(0, 1fr) 44px auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.feed-row { grid-template-columns: 160px minmax(0, 1fr) auto; }
 .cal-row input[type=color] { width: 44px; height: 34px; padding: 2px; }
-@media (max-width: 700px) { .cal-row { grid-template-columns: 1fr 44px auto; } .cal-row .cal-url { grid-column: 1 / -1; grid-row: 2; } }
+@media (max-width: 700px) { .cal-row { grid-template-columns: 1fr 44px auto; } .feed-row { grid-template-columns: 1fr auto; } .cal-row .cal-url { grid-column: 1 / -1; grid-row: 2; } }
 
 /* shortcuts */
 .deck { display: grid; grid-template-columns: repeat(var(--cols, 4), minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
@@ -418,6 +419,13 @@ dd { margin: 0; word-break: break-all; }
           <i>Publish a calendar</i> (ICS link); iCloud › share as a public calendar (<code>webcal://</code> works). The addresses stay on this computer.</p>
         <div id="calList"></div>
         <button class="btn sm" id="calAdd" data-i18n="s.calendars.add">＋ Add a calendar</button>
+      </div>
+
+      <div class="card">
+        <h3 data-i18n="s.feeds.title">News feeds</h3>
+        <p class="hint" style="margin:0 0 12px" data-i18n="s.feeds.hint">RSS or Atom feeds for the News feeds widget. This computer fetches each one at most every 15 minutes, only while a page shows a News feeds widget; the addresses stay here.</p>
+        <div id="feedList"></div>
+        <button class="btn sm" id="feedAdd" data-i18n="s.feeds.add">＋ Add a feed</button>
       </div>
 
       <div class="card">
@@ -1644,6 +1652,20 @@ $('obsTest').onclick = async () => {
     $('obsState').textContent = r.result;
   } catch (_) { $('obsState').textContent = 'Could not check'; }
 };
+// ---------------------------------------------------------------- news feeds
+function renderFeeds() {
+  cfg.feeds ??= [];
+  $('feedList').replaceChildren(...cfg.feeds.map((f, i) => h('div', { class: 'cal-row feed-row' },
+    h('input', { type: 'text', value: f.name || '', maxlength: '60', placeholder: 'Name, e.g. News', oninput: (e) => { f.name = e.target.value; changed(); } }),
+    h('input', { type: 'text', class: 'cal-url', value: f.url || '', placeholder: 'https://example.com/feed.xml', spellcheck: 'false',
+      oninput: (e) => { f.url = e.target.value.trim(); changed(); } }),
+    h('button', { class: 'btn sm danger', onclick: () => { cfg.feeds.splice(i, 1); renderFeeds(); changed(); } }, 'Remove'))));
+}
+$('feedAdd').onclick = () => {
+  cfg.feeds ??= [];
+  cfg.feeds.push({ name: '', url: '' });
+  renderFeeds(); changed();
+};
 $('calAdd').onclick = () => {
   cfg.calendars ??= [];
   cfg.calendars.push({ name: '', url: '', color: CAL_COLORS[cfg.calendars.length % CAL_COLORS.length] });
@@ -1698,7 +1720,7 @@ const RULE_PRESETS = [
 let activeRules = [];
 
 function renderRules() {
-  cfg.rules ??= []; cfg.calendars ??= []; cfg.phones ??= []; cfg.homeAssistant ??= {}; cfg.obs ??= { enabled: false, url: 'ws://127.0.0.1:4455' }; cfg.discord ??= { enabled: false };
+  cfg.rules ??= []; cfg.calendars ??= []; cfg.feeds ??= []; cfg.phones ??= []; cfg.homeAssistant ??= {}; cfg.obs ??= { enabled: false, url: 'ws://127.0.0.1:4455' }; cfg.discord ??= { enabled: false };
   $('rulePresets').replaceChildren(...RULE_PRESETS.map(([label, make]) => h('button', { class: 'btn', onclick: () => {
     cfg.rules.push({ id: '', enabled: true, ...make() });
     renderRules(); changed();
@@ -2510,7 +2532,7 @@ async function load() {
   cfg = await res.json();
   fillDefaults();
   saved = JSON.stringify(cfg);
-  renderPages(); renderDeck(); renderRules(); renderCalendars(); renderCharge(); bindForm(); changed(); loadInfo(); loadPhones();
+  renderPages(); renderDeck(); renderRules(); renderCalendars(); renderFeeds(); renderCharge(); bindForm(); changed(); loadInfo(); loadPhones();
 }
 
 async function save() {
@@ -2525,7 +2547,7 @@ async function save() {
 }
 
 $('save').onclick = save;
-$('revert').onclick = () => { cfg = JSON.parse(saved); renderPages(); renderDeck(); renderRules(); renderCalendars(); renderPhones(); renderCharge(); bindForm(); changed(); };
+$('revert').onclick = () => { cfg = JSON.parse(saved); renderPages(); renderDeck(); renderRules(); renderCalendars(); renderFeeds(); renderPhones(); renderCharge(); bindForm(); changed(); };
 // Over USB this also wakes the phone and brings the panel to the front (adb); over Wi-Fi the phone switches to the
 // page selected in the editor through the live stream.
 $('openPhone').onclick = async () => {
@@ -2610,7 +2632,7 @@ $('applyJson').onclick = () => {
     cfg = c;
     fillDefaults();
     $('jsonErr').textContent = '';
-    renderPages(); renderDeck(); renderRules(); renderCalendars(); renderPhones(); renderCharge(); bindForm(); changed(); toast(t('s.jsonLoaded'));
+    renderPages(); renderDeck(); renderRules(); renderCalendars(); renderFeeds(); renderPhones(); renderCharge(); bindForm(); changed(); toast(t('s.jsonLoaded'));
   }
   catch (e) { $('jsonErr').textContent = e.message; }
 };

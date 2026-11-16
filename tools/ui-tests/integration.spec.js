@@ -434,3 +434,30 @@ test('the charge guard serves the battery the phone reports', async ({ page }) =
   await expect.poll(() => page.evaluate(() => fetch('/api/charge').then((r) => r.json()).then((j) => j.phone)), { timeout: 15000 })
     .toMatchObject({ level: 82, plugged: true, temp: 29.5 });
 });
+
+// The agent sends headlines without their links; a tap asks the agent to open the article by its id.
+test('news feeds list headlines and open one on the PC by its id', async ({ page }) => {
+  await layout(page, [widget('feeds', { title: 'News', feed: '', showSource: true, showTime: true })]);
+  // the demo answers inside the page, so the call is recorded there
+  await page.evaluate(() => {
+    const real = window.fetch;
+    window.__opened = [];
+    window.fetch = (url, init) => {
+      if (String(url).includes('/feeds/open')) window.__opened.push({ id: new URL(String(url), location.href).searchParams.get('id'), method: init?.method });
+      return real(url, init);
+    };
+  });
+  const rows = page.locator('.w-feeds .fd-i');
+  await expect(rows.first()).toContainText('e-ink weather station');
+  await expect(rows.first().locator('.fd-m')).toContainText('Hackaday');
+  await rows.first().click();
+  await expect.poll(() => page.evaluate(() => window.__opened)).toEqual([{ id: 'f1', method: 'POST' }]);
+  await expect(page.locator('#toast')).toContainText('Opening on the PC');
+
+  // one feed only, by its name
+  await layout(page, [widget('feeds', { title: 'Tech', feed: 'tech news', showSource: false, showTime: false })]);
+  await expect(page.locator('.w-feeds .fd-i').first()).toContainText('Rust 2.0');
+  await expect(page.locator('.w-feeds .fd-m')).toHaveCount(0);
+  await layout(page, [widget('feeds', { title: 'None', feed: 'nothing like this' })]);
+  await expect(page.locator('.w-feeds .empty')).toHaveText('No headlines from "nothing like this"');
+});
