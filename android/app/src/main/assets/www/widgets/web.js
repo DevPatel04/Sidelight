@@ -43,13 +43,19 @@ W.exchange = {
       try {
         const from = new Date(Date.now() - 31 * 864e5).toISOString().slice(0, 10);
         const d = await cached(`fx:${base}:${syms}`, `https://api.frankfurter.dev/v1/${from}..?base=${base}&symbols=${syms.join(',')}`, 60 * 60_000);
-        const days = Object.keys(d.rates).sort();
+        const days = Object.keys(d.rates || {}).sort();
+        if (!days.length) {
+          box.querySelector('.w-sub').textContent = '';
+          list.replaceChildren(h('div', 'empty', t('w.ratesUnavailable')));
+          return false;
+        }
         box.querySelector('.w-sub').textContent = 'ECB · ' + days[days.length - 1];
         list.replaceChildren(...syms.map((s) => {
-          const series = days.map((k) => d.rates[k][s]).filter((x) => x != null);
-          const last = series[series.length - 1], prev = series.length > 1 ? series[series.length - 2] : last;
+          const series = days.map((k) => d.rates[k]?.[s]).filter((v) => Number.isFinite(v) && v > 0);
+          const last = series[series.length - 1], prev = series[series.length - 2];
+          const change = prev === undefined ? h('span', 'chg', '—') : pctSpan(((last - prev) / prev) * 100);
           const c = h('canvas', 'fx-sp');
-          const row = h('div', 'fx-i', h('b', null, s), h('span', 'fx-v', fmtNum(last)), pctSpan(((last - prev) / prev) * 100), c);
+          const row = h('div', 'fx-i', h('b', null, s), h('span', 'fx-v', fmtNum(last)), change, c);
           requestAnimationFrame(() => sparkLine(c, series, last >= series[0] ? '#22c55e' : '#ef4444'));
           return row;
         }));
