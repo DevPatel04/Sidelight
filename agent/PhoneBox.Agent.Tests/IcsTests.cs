@@ -110,6 +110,17 @@ public class IcsTests
         Assert.Equal([9, 11, 13, 17, 19], everyOther);
     }
 
+    [Theory]
+    [InlineData("20240311T090000Z", "MO", "8,9,10,11,12,13,14", "03-11,04-08,05-13")]
+    [InlineData("20240331T090000Z", "SU", "-7,-6,-5,-4,-3,-2,-1", "03-31,04-28,05-26")]
+    public void MonthlyRulesCombineWeekdayAndMonthDay(string first, string byDay, string byMonthDay, string dates)
+    {
+        var start = new DateTime(2024, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+        var events = Ics.Parse(Cal($"UID:m\nDTSTART:{first}\nRRULE:FREQ=MONTHLY;BYDAY={byDay};BYMONTHDAY={byMonthDay};COUNT=3"),
+            start, start.AddMonths(4));
+        Assert.Equal(dates, string.Join(",", events.Select(e => Utc(e.Start).ToString("MM-dd"))));
+    }
+
     [Fact]
     public void MonthlySecondTuesday()
     {

@@ -250,20 +250,28 @@ public static class Ics
     {
         var m = new DateTime(first.Year, first.Month, 1).AddMonths(months);
         var days = DateTime.DaysInMonth(m.Year, m.Month);
+        int MonthDay(int day) => day > 0 ? day : days + day + 1;
         if (byDay.Count > 0)
         {
             foreach (var (nth, day) in byDay)
             {
                 var all = Enumerable.Range(1, days).Select(d => m.AddDays(d - 1)).Where(d => d.DayOfWeek == day).ToList();
-                if (nth == 0) foreach (var d in all) yield return d + first.TimeOfDay;
-                else if (nth > 0 && nth <= all.Count) yield return all[nth - 1] + first.TimeOfDay;
-                else if (nth < 0 && -nth <= all.Count) yield return all[all.Count + nth] + first.TimeOfDay;
+                IEnumerable<DateTime> matching = nth switch
+                {
+                    0 => all,
+                    > 0 when nth <= all.Count => [all[nth - 1]],
+                    < 0 when nth >= -all.Count => [all[all.Count + nth]],
+                    _ => [],
+                };
+                foreach (var d in matching)
+                    if (byMonthDay.Count == 0 || byMonthDay.Any(md => MonthDay(md) == d.Day))
+                        yield return d + first.TimeOfDay;
             }
             yield break;
         }
         foreach (var md in byMonthDay.Count > 0 ? byMonthDay : [first.Day])
         {
-            var d = md > 0 ? md : days + md + 1;
+            var d = MonthDay(md);
             if (d >= 1 && d <= days) yield return m.AddDays(d - 1) + first.TimeOfDay;
         }
     }
