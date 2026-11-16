@@ -52,7 +52,7 @@ export async function consoleAct(body) {
       at = performance.now();
       notify(data.state);
     }
-    if (!data.ok) throw new Error(data.error || 'Console action failed');
+    if (!data.ok) throw new Error(data.error || t('w.console.actionFailed'));
     return data;
   } finally {
     clearTimeout(timer);
@@ -93,7 +93,7 @@ function makeAxisDispatcher(getTarget, canControl) {
           await consoleAct({ kind: 'axis', profileId: target.profileId, axis: target.axis, delta });
         } catch (e) {
           queued = 0;
-          toast(e?.message || 'Axis action failed', 'err');
+          toast(e?.message || t('w.console.axisFailed'), 'err');
           break;
         }
       }
@@ -191,7 +191,7 @@ W['app-keypad'] = {
       picker.dataset.key = key;
       const items = [];
       if (o.mode !== 'pinned' && cfg.console?.autoFollow !== false) {
-        const autoBtn = h('button', 'ck-pick' + (!state?.pinnedProfileId ? ' on' : ''), '⚡ Auto-follow active app');
+        const autoBtn = h('button', 'ck-pick' + (!state?.pinnedProfileId ? ' on' : ''), t('w.console.autoFollow'));
         autoBtn.type = 'button';
         autoBtn.onclick = async () => {
           haptic();
@@ -244,7 +244,7 @@ W['app-keypad'] = {
       if (o.showHeader !== false) {
         const titleBtn = h('button', 'ck-title');
         titleBtn.type = 'button';
-        titleBtn.setAttribute('aria-label', 'Switch console profile');
+        titleBtn.setAttribute('aria-label', t('w.console.switchProfile'));
         titleBtn.append(appBadge(profile), h('span', 'ck-name', profile.name));
         if (subs.length > 1 && sub) titleBtn.append(h('span', 'ck-sub', sub.name));
         titleBtn.onclick = () => {
@@ -256,12 +256,12 @@ W['app-keypad'] = {
         const pinBtn = h('button', 'ck-pin');
         pinBtn.type = 'button';
         if (o.mode === 'pinned') {
-          pinBtn.textContent = '📌 Locked';
+          pinBtn.textContent = t('w.console.locked');
           pinBtn.disabled = true;
         } else {
-          pinBtn.textContent = isPinnedServer ? '📌 Pinned' : '⚡ Auto';
+          pinBtn.textContent = isPinnedServer ? t('w.console.pinned') : t('w.console.auto');
           pinBtn.classList.toggle('on', isPinnedServer);
-          pinBtn.setAttribute('aria-label', 'Pin profile');
+          pinBtn.setAttribute('aria-label', t('w.console.pinProfile'));
           pinBtn.setAttribute('aria-pressed', String(isPinnedServer));
           pinBtn.onclick = async () => {
             haptic();
@@ -295,7 +295,7 @@ W['app-keypad'] = {
         const activeOn = !!slot.toggle && !!state?.slotStates?.[stateKey];
         keyBtn.classList.toggle('on', activeOn);
         if (slot.toggle) keyBtn.setAttribute('aria-pressed', String(activeOn));
-        keyBtn.setAttribute('aria-label', slot.label || 'Key');
+        keyBtn.setAttribute('aria-label', slot.label || t('w.console.key'));
 
         const ico = h('span', 'ck-key-ico', slot.icon || '🔘');
         const lbl = h('span', 'ck-key-lbl', slot.label || '');
@@ -312,7 +312,7 @@ W['app-keypad'] = {
           try {
             await consoleAct({ kind: 'slot', profileId: profile.id, subPageId: sub.id, slot: i });
           } catch (e) {
-            toast(e?.message || 'Shortcut failed', 'err');
+            toast(e?.message || t('w.console.shortcutFailed'), 'err');
           } finally {
             keyBtn.disabled = false;
           }
@@ -326,7 +326,7 @@ W['app-keypad'] = {
         dots.replaceChildren(...subs.map((sp, idx) => {
           const d = h('button', 'ck-dot' + (sp.id === sub?.id ? ' on' : ''));
           d.type = 'button';
-          d.setAttribute('aria-label', `Sub-page ${idx + 1}: ${sp.name}`);
+          d.setAttribute('aria-label', t('w.console.subPageAria', { n: idx + 1, name: sp.name }));
           d.onclick = () => { haptic(); subByProfile.set(profile.id, sp.id); render(); };
           return d;
         }));
@@ -405,7 +405,7 @@ W['app-dial'] = {
     const ring = h('div', 'cd-ring');
     ring.setAttribute('data-no-page-swipe', '1');
     ring.setAttribute('role', 'slider');
-    ring.setAttribute('aria-label', 'Rotary dial');
+    ring.setAttribute('aria-label', t('w.console.rotaryDial'));
     const { svg, rotor } = makeDialSvg();
     const center = h('button', 'cd-center');
     center.type = 'button';
@@ -485,7 +485,7 @@ W['app-dial'] = {
       if (!profile || !axis || !axis.hasTap) return;
       haptic();
       try { await consoleAct({ kind: 'axis-tap', profileId: profile.id, axis: axis.index }); }
-      catch (e) { toast(e?.message || 'Tap action failed', 'err'); }
+      catch (e) { toast(e?.message || t('w.console.tapFailed'), 'err'); }
     };
 
     function render() {
@@ -514,9 +514,9 @@ W['app-dial'] = {
           h('span', 'cd-axis-name', axis.name),
         );
         center.disabled = !axis.hasTap;
-        ring.setAttribute('aria-label', `${profile.name}: ${axis.name} dial`);
+        ring.setAttribute('aria-label', t('w.console.dialAria', { profile: profile.name, axis: axis.name }));
       } else {
-        center.replaceChildren(h('span', 'cd-axis-name', 'No axis'));
+        center.replaceChildren(h('span', 'cd-axis-name', t('w.console.noAxis')));
         center.disabled = true;
       }
 
@@ -575,7 +575,7 @@ W['app-roller'] = {
     const track = h('div', 'cr-track');
     track.setAttribute('data-no-page-swipe', '1');
     track.setAttribute('role', 'slider');
-    track.setAttribute('aria-label', 'Roller axis');
+    track.setAttribute('aria-label', t('w.console.rollerAxis'));
     const tap = h('button', 'cr-tap', '⏺');
     tap.type = 'button';
     root.append(meta, track, tap);
@@ -654,7 +654,7 @@ W['app-roller'] = {
       if (!profile || !axis || !axis.hasTap) return;
       haptic();
       try { await consoleAct({ kind: 'axis-tap', profileId: profile.id, axis: axis.index }); }
-      catch (e) { toast(e?.message || 'Tap action failed', 'err'); }
+      catch (e) { toast(e?.message || t('w.console.tapFailed'), 'err'); }
     };
 
     function render() {
@@ -674,12 +674,12 @@ W['app-roller'] = {
       root.style.setProperty('--ck-accent', profile.color || '#38bdf8');
       meta.replaceChildren(
         h('span', 'cr-ico', axis?.icon || profile.icon || '🎚️'),
-        h('span', 'cr-name', axis ? axis.name : `Axis #${axisIdx}`),
+        h('span', 'cr-name', axis ? axis.name : t('w.console.axisNum', { n: axisIdx })),
         h('span', 'cr-prof', profile.name),
       );
-      track.setAttribute('aria-label', `${profile.name}: ${axis?.name || 'Roller'} axis`);
+      track.setAttribute('aria-label', t('w.console.rollerAria', { profile: profile.name, axis: axis?.name || t('w.console.roller') }));
       tap.hidden = o.showReset === false || !axis?.hasTap;
-      tap.setAttribute('aria-label', `Tap ${axis?.name || 'axis'}`);
+      tap.setAttribute('aria-label', t('w.console.tapAxisAria', { axis: axis?.name || t('w.console.axis') }));
     }
 
     const onUpdate = (next) => {

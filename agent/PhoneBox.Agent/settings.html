@@ -393,18 +393,18 @@ dd { margin: 0; word-break: break-all; }
     </section>
 
     <section id="console">
-      <h2>App Console</h2>
-      <p class="lead">Context-aware application profiles for <b>App console</b>, <b>App dial</b>, and <b>App roller</b> widgets. Off by default: enable App Console below and turn on <b>Allow phone control</b> on each console widget. Key, text, and macro actions require an <b>App process match</b> on the profile; <code>shortcut:</code> and <code>deck:</code> actions trigger configured PhoneBox shortcuts and Control Deck tasks on this computer.</p>
+      <h2 data-i18n="s.console.title">App Console</h2>
+      <p class="lead" data-i18n="s.console.lead">Context-aware application profiles for <b>App console</b>, <b>App dial</b>, and <b>App roller</b> widgets. Off by default: enable App Console below and turn on <b>Allow phone control</b> on each console widget. Key, text, and macro actions require an <b>App process match</b> on the profile; <code>shortcut:</code> and <code>deck:</code> actions trigger configured PhoneBox shortcuts and Control Deck tasks on this computer.</p>
       <div class="card row" style="justify-content:space-between;align-items:center">
         <div class="row" style="gap:16px">
-          <label class="check"><input type="checkbox" id="conEnabled"> Enable App Console</label>
-          <label class="check"><input type="checkbox" id="conFollow"> Auto-follow active desktop app</label>
-          <label class="check"><input type="checkbox" id="conFocus"> Bring matching app to front before sending keys</label>
+          <label class="check"><input type="checkbox" id="conEnabled"> <span data-i18n="s.console.enable">Enable App Console</span></label>
+          <label class="check"><input type="checkbox" id="conFollow"> <span data-i18n="s.console.autoFollow">Auto-follow active desktop app</span></label>
+          <label class="check"><input type="checkbox" id="conFocus"> <span data-i18n="s.console.focusBeforeKeys">Bring matching app to front before sending keys</span></label>
         </div>
         <div class="row" style="gap:8px">
-          <button class="btn sm" id="conPresetBtn">＋ Add from preset</button>
-          <button class="btn sm" id="conWinBtn">🪟 Pick running app</button>
-          <button class="btn sm" id="conNewBtn">＋ Blank profile</button>
+          <button class="btn sm" id="conPresetBtn" data-i18n="s.console.addPreset">＋ Add from preset</button>
+          <button class="btn sm" id="conWinBtn" data-i18n="s.console.pickApp">🪟 Pick running app</button>
+          <button class="btn sm" id="conNewBtn" data-i18n="s.console.blankProfile">＋ Blank profile</button>
         </div>
       </div>
       <div class="con-layout">
@@ -1467,7 +1467,7 @@ function optionField(w, o, onValChange) {
         ...cfg.shortcuts.map((s) => h('option', { value: s.id, selected: s.id === v }, `${s.icon} ${s.label}`))),
         h('span', { class: 'hint' }, 'New shortcuts get their id when you save.'));
     case 'console-profile':
-      return field(h('select', { onchange: (e) => set(o.key, e.target.value) }, h('option', { value: '' }, '(Automatic / default profile)'),
+      return field(h('select', { onchange: (e) => set(o.key, e.target.value) }, h('option', { value: '' }, t('s.console.autoProfileOption')),
         ...(cfg.console?.profiles || []).map((p) => h('option', { value: p.id, selected: p.id === v }, `${p.icon || '🎛️'} ${p.name || p.id}`))));
     case 'shortcuts': {
       const cur = () => { const x = optVal(w, o); return Array.isArray(x) ? x : []; };
@@ -2276,13 +2276,13 @@ function keyComboFromEvent(e) {
 }
 
 function recordButton(onRecorded) {
-  const btn = h('button', { type: 'button', class: 'btn sm con-rec' }, '⏺ Record keys');
+  const btn = h('button', { type: 'button', class: 'btn sm con-rec' }, t('s.console.recordKeys'));
   btn.onclick = () => {
     btn.classList.add('recording');
-    btn.textContent = 'Press shortcut… (Esc to cancel)';
+    btn.textContent = t('s.console.pressShortcut');
     const stop = () => {
       btn.classList.remove('recording');
-      btn.textContent = '⏺ Record keys';
+      btn.textContent = t('s.console.recordKeys');
       window.removeEventListener('keydown', onKey, true);
     };
     const onKey = (e) => {
@@ -2299,30 +2299,32 @@ function recordButton(onRecorded) {
 
 function openConsolePresets() {
   $('modalBody').replaceChildren(
-    h('h3', {}, 'Add Console Profile from Preset'),
+    h('h3', {}, t('s.console.presetModalTitle')),
     h('div', { class: 'tpl-grid' }, ...buildConsolePresets().map((pr) =>
       h('button', { type: 'button', class: 'tpl', onclick: () => { closeModal(); addConsoleProfile(pr); } },
         h('b', {}, `${pr.icon} ${pr.name}`),
-        h('small', {}, pr.isDefault ? 'Fallback when no app matches' : `Matches: ${pr.appMatch}${pr.titleMatch ? ' · Title: ' + pr.titleMatch : ''}`),
-        h('small', {}, `${pr.subPages[0]?.slots?.length || 0} keys · ${(pr.axes || []).length} axes`)))));
+        h('small', {}, pr.isDefault
+          ? t('s.console.presetFallback')
+          : t('s.console.presetMatches', { match: pr.appMatch }) + (pr.titleMatch ? t('s.console.presetTitleSuffix', { title: pr.titleMatch }) : '')),
+        h('small', {}, t('s.console.presetSummary', { keys: pr.subPages[0]?.slots?.length || 0, axes: (pr.axes || []).length }))))));
   $('modal').hidden = false;
 }
 
 async function openWindowPicker() {
-  $('modalBody').replaceChildren(h('h3', {}, 'Pick a Running Application'), h('p', { class: 'hint' }, 'Loading open windows…'));
+  $('modalBody').replaceChildren(h('h3', {}, t('s.console.winModalTitle')), h('p', { class: 'hint' }, t('s.console.winLoading')));
   $('modal').hidden = false;
   let list = [];
   try { list = await (await fetch('/api/console/windows')).json(); } catch (_) {}
   if (!Array.isArray(list) || !list.length) {
-    $('modalBody').replaceChildren(h('h3', {}, 'Pick a Running Application'), h('p', { class: 'hint' }, 'No visible application windows were detected.'));
+    $('modalBody').replaceChildren(h('h3', {}, t('s.console.winModalTitle')), h('p', { class: 'hint' }, t('s.console.winEmpty')));
     return;
   }
   const cur = (cfg.console?.profiles || [])[selConProfile];
   $('modalBody').replaceChildren(
-    h('h3', {}, 'Pick a Running Application'),
+    h('h3', {}, t('s.console.winModalTitle')),
     h('p', { class: 'hint' }, cur && !cur.isDefault
-      ? `Click an app to apply its process matcher to "${cur.name}", or choose Create new profile.`
-      : 'Click an app to create a new profile targeting its process.'),
+      ? t('s.console.winHintExisting', { name: cur.name })
+      : t('s.console.winHintNew')),
     h('div', { class: 'con-win-list' }, ...list.map((win) => {
       const img = window.PhoneBoxDemo ? null : h('img', { src: `/api/procs/icon?name=${encodeURIComponent(win.process)}`, alt: '' });
       if (img) img.onerror = () => { img.style.display = 'none'; };
@@ -2362,9 +2364,9 @@ function renderConsole() {
       onclick: () => { selConProfile = i; selConSub = 0; selConSlot = 0; renderConsole(); } },
       h('span', { style: { fontSize: '20px' } }, p.icon || '🎛️'),
       h('div', { class: 'con-ptab-main' },
-        h('b', {}, p.name || '(untitled)'),
-        h('small', {}, p.isDefault ? 'Default fallback' : (p.appMatch || p.titleMatch || 'No match rule'))),
-      p.isDefault ? h('span', { class: 'con-badge' }, 'Default') : null)));
+        h('b', {}, p.name || t('s.console.untitled')),
+        h('small', {}, p.isDefault ? t('s.console.defaultFallback') : (p.appMatch || p.titleMatch || t('s.console.noMatchRule')))),
+      p.isDefault ? h('span', { class: 'con-badge' }, t('s.console.defaultBadge')) : null)));
   renderConsoleEditor();
 }
 
@@ -2373,7 +2375,7 @@ function renderConsoleEditor() {
   ed.textContent = '';
   const profiles = cfg.console?.profiles || [];
   const p = profiles[selConProfile];
-  if (!p) { ed.append(h('p', { class: 'lead', style: { margin: 0 } }, 'No profiles yet. Click "Add from preset" or "Blank profile" above.')); return; }
+  if (!p) { ed.append(h('p', { class: 'lead', style: { margin: 0 } }, t('s.console.empty'))); return; }
 
   p.subPages = p.subPages?.length ? p.subPages : [{ id: '', name: 'Main', slots: [] }];
   p.axes ??= [];
@@ -2390,9 +2392,9 @@ function renderConsoleEditor() {
     h('input', { type: 'text', value: val ?? '', placeholder: ph, oninput: (e) => onInput(e.target.value) }));
 
   const deckPickList = [
-    ['media:playpause', 'Media: Play / Pause'], ['media:next', 'Media: Next track'], ['media:prev', 'Media: Previous track'],
-    ['audio:mute', 'System Audio: Mute toggle'], ['obs:record', 'OBS: Toggle recording'], ['obs:stream', 'OBS: Toggle stream'],
-    ['obs:pause', 'OBS: Pause recording'], ['obs:mic', 'OBS: Toggle mic mute'],
+    ['media:playpause', t('s.console.deckPick.mediaPlayPause')], ['media:next', t('s.console.deckPick.mediaNext')], ['media:prev', t('s.console.deckPick.mediaPrev')],
+    ['audio:mute', t('s.console.deckPick.audioMute')], ['obs:record', t('s.console.deckPick.obsRecord')], ['obs:stream', t('s.console.deckPick.obsStream')],
+    ['obs:pause', t('s.console.deckPick.obsPause')], ['obs:mic', t('s.console.deckPick.obsMic')],
   ];
 
   // Ensure slot array is large enough for editing
@@ -2406,7 +2408,7 @@ function renderConsoleEditor() {
     if (slot.kind === 'keys') {
       const kIn = h('input', { type: 'text', value: slot.keys ?? '', placeholder: 'e.g. Ctrl+Shift+B', style: { flex: '1' },
         oninput: (e) => { slot.keys = e.target.value; upd(false); renderSlotGrid(); } });
-      const hIn = h('input', { type: 'text', value: slot.hint ?? '', maxlength: 20, placeholder: 'Badge label (optional, max 20)',
+      const hIn = h('input', { type: 'text', value: slot.hint ?? '', maxlength: 20, placeholder: t('s.console.badgeHintPlaceholder'),
         oninput: (e) => { slot.hint = e.target.value; upd(false); renderSlotGrid(); } });
       const rec = recordButton((combo) => {
         const prev = slot.keys;
@@ -2415,45 +2417,45 @@ function renderConsoleEditor() {
         upd(false); renderSlotGrid();
       });
       extra.push(
-        h('div', { class: 'field' }, h('label', {}, 'Keys'), h('div', { class: 'row' }, kIn, rec)),
-        h('div', { class: 'field' }, h('label', {}, 'Phone badge hint'), hIn));
-      if (!p.appMatch?.trim()) extra.push(h('p', { class: 'hint' }, 'Set "App process match" on this profile above; keystrokes are blocked without a process match.'));
+        h('div', { class: 'field' }, h('label', {}, t('s.console.keys')), h('div', { class: 'row' }, kIn, rec)),
+        h('div', { class: 'field' }, h('label', {}, t('s.console.badgeHint')), hIn));
+      if (!p.appMatch?.trim()) extra.push(h('p', { class: 'hint' }, t('s.console.appMatchRequiredKeys')));
     } else if (slot.kind === 'text') {
-      extra.push(h('div', { class: 'field' }, h('label', {}, 'Text to type'),
+      extra.push(h('div', { class: 'field' }, h('label', {}, t('s.console.textToType')),
         h('textarea', { rows: 2, oninput: (e) => { slot.text = e.target.value; upd(false); } }, slot.text ?? '')));
-      if (!p.appMatch?.trim()) extra.push(h('p', { class: 'hint' }, 'Set "App process match" on this profile above; typing text is blocked without a process match.'));
+      if (!p.appMatch?.trim()) extra.push(h('p', { class: 'hint' }, t('s.console.appMatchRequiredText')));
     } else if (slot.kind === 'macro') {
-      extra.push(h('div', { class: 'field' }, h('label', {}, 'Macro steps (one per line)'),
+      extra.push(h('div', { class: 'field' }, h('label', {}, t('s.console.macroSteps')),
         h('textarea', { rows: 4, placeholder: 'keys:Ctrl+C\nwait:150\ntext:Done', oninput: (e) => { slot.steps = e.target.value.split('\n').map((x) => x.trim()).filter(Boolean); upd(false); } }, (slot.steps || []).join('\n')),
-        h('span', { class: 'hint' }, 'Steps: keys:Combo, text:String, wait:ms, shortcut:<id>, or deck:<target>. shortcut: and deck: run configured PhoneBox shortcuts and Control Deck tasks (including commands).')));
+        h('span', { class: 'hint' }, t('s.console.macroHint'))));
     } else if (slot.kind === 'shortcut') {
-      extra.push(h('div', { class: 'field' }, h('label', {}, 'Shortcut'),
+      extra.push(h('div', { class: 'field' }, h('label', {}, t('s.console.shortcut')),
         h('select', { onchange: (e) => { slot.target = e.target.value; upd(false); renderSlotGrid(); } },
-          h('option', { value: '' }, '(pick a shortcut)'),
+          h('option', { value: '' }, t('s.console.pickShortcut')),
           ...(cfg.shortcuts || []).map((sc) => h('option', { value: sc.id, selected: sc.id === slot.target }, `${sc.icon || ''} ${sc.label}`.trim()))),
-        h('span', { class: 'hint' }, 'shortcut: triggers the selected configured PhoneBox shortcut (app, URL, script, or macro) on this computer.')));
+        h('span', { class: 'hint' }, t('s.console.shortcutHint'))));
     } else if (slot.kind === 'deck') {
       const tIn = h('input', { type: 'text', value: slot.target ?? '', placeholder: 'e.g. media:playpause, obs:scene:Main', style: { flex: '1' },
         oninput: (e) => { slot.target = e.target.value; upd(false); renderSlotGrid(); } });
       const dSel = h('select', { onchange: (e) => { if (e.target.value) { slot.target = e.target.value; tIn.value = e.target.value; upd(false); renderSlotGrid(); } e.target.value = ''; } },
-        h('option', { value: '' }, 'Quick pick deck command…'),
+        h('option', { value: '' }, t('s.console.pickDeck')),
         ...deckPickList.map(([k, l]) => h('option', { value: k }, l)),
-        ...(cfg.controls?.actions || []).map((a) => h('option', { value: `action:${a.id}` }, `Action: ${a.label || a.id}`)));
-      extra.push(h('div', { class: 'field' }, h('label', {}, 'Deck target'), h('div', { class: 'row' }, tIn, dSel),
-        h('span', { class: 'hint' }, 'deck: runs media, audio, OBS, or a configured Control Deck task/action (action:<id>) on this computer.')));
+        ...(cfg.controls?.actions || []).map((a) => h('option', { value: `action:${a.id}` }, t('s.console.deckAction', { name: a.label || a.id }))));
+      extra.push(h('div', { class: 'field' }, h('label', {}, t('s.console.deckTarget')), h('div', { class: 'row' }, tIn, dSel),
+        h('span', { class: 'hint' }, t('s.console.deckHint'))));
     }
     slotInspector.append(
-      h('h3', {}, `Slot #${selConSlot + 1} (${sub.name})`),
+      h('h3', {}, t('s.console.slotHeading', { n: selConSlot + 1, name: sub.name })),
       h('div', { class: 'grid2' },
         h('div', {},
-          h('div', { class: 'field' }, h('label', {}, 'Action kind'),
-            h('select', { onchange: (e) => { slot.kind = e.target.value; if (slot.kind === 'keys' && !slot.label) slot.label = 'Key'; upd(false); renderSlotGrid(); buildSlotInspector(); } },
-              ...[['keys', 'Keyboard shortcut'], ['deck', 'Control Deck / Media / OBS'], ['shortcut', 'PhoneBox Shortcut'], ['macro', 'Macro steps'], ['text', 'Type text'], ['empty', 'Empty spacer']].map(([k, l]) => h('option', { value: k, selected: k === slot.kind }, l)))),
-          slot.kind !== 'empty' ? textIn('Label', slot.label, 'Key label', (v) => { slot.label = v; upd(false); renderSlotGrid(); }) : null,
-          slot.kind !== 'empty' ? textIn('Icon (emoji)', slot.icon, '🔘', (v) => { slot.icon = v; upd(false); renderSlotGrid(); }) : null),
+          h('div', { class: 'field' }, h('label', {}, t('s.console.actionKind')),
+            h('select', { onchange: (e) => { slot.kind = e.target.value; if (slot.kind === 'keys' && !slot.label) slot.label = t('s.console.slotKey'); upd(false); renderSlotGrid(); buildSlotInspector(); } },
+              ...[['keys', t('s.console.kind.keys')], ['deck', t('s.console.kind.deck')], ['shortcut', t('s.console.kind.shortcut')], ['macro', t('s.console.kind.macro')], ['text', t('s.console.kind.text')], ['empty', t('s.console.kind.empty')]].map(([k, l]) => h('option', { value: k, selected: k === slot.kind }, l)))),
+          slot.kind !== 'empty' ? textIn(t('s.console.label'), slot.label, t('s.console.keyLabel'), (v) => { slot.label = v; upd(false); renderSlotGrid(); }) : null,
+          slot.kind !== 'empty' ? textIn(t('s.console.iconEmoji'), slot.icon, '🔘', (v) => { slot.icon = v; upd(false); renderSlotGrid(); }) : null),
         h('div', {},
           ...extra,
-          slot.kind !== 'empty' ? h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!slot.toggle, onchange: (e) => { slot.toggle = e.target.checked; upd(false); } }), 'Show toggle state on phone') : null)));
+          slot.kind !== 'empty' ? h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!slot.toggle, onchange: (e) => { slot.toggle = e.target.checked; upd(false); } }), t('s.console.showToggle')) : null)));
   };
 
   const slotGrid = h('div', { class: 'con-slot-grid', style: { '--cols': cols } });
@@ -2466,7 +2468,7 @@ function renderConsoleEditor() {
       nodes.push(h('button', { type: 'button', class: 'con-slot' + (empty ? ' empty' : '') + (i === selConSlot ? ' sel' : ''),
         onclick: () => { selConSlot = i; renderConsoleEditor(); } },
         h('span', { style: { fontSize: '18px' } }, empty ? '＋' : (sl.icon || '🔘')),
-        h('span', {}, empty ? 'Empty' : (sl.label || 'Key')),
+        h('span', {}, empty ? t('s.console.slotEmpty') : (sl.label || t('s.console.slotKey'))),
         !empty && sl.hint ? h('small', {}, sl.hint) : null));
     }
     slotGrid.replaceChildren(...nodes);
@@ -2478,38 +2480,38 @@ function renderConsoleEditor() {
   const renderAxes = () => {
     axesWrap.replaceChildren(
       h('div', { class: 'row', style: { justifyContent: 'space-between', marginBottom: '8px' } },
-        h('h3', { style: { margin: 0 } }, 'Numbered Dial & Roller Axes (1–8)'),
+        h('h3', { style: { margin: 0 } }, t('s.console.axesHeading')),
         h('button', { type: 'button', class: 'btn sm', onclick: () => {
           const used = new Set((p.axes || []).map((a) => a.index));
           let idx = 1; while (used.has(idx) && idx <= 8) idx++;
-          if (idx > 8) { toast('Maximum 8 axes per profile', true); return; }
-          p.axes.push({ index: idx, name: `Axis ${idx}`, icon: '🎚️', kind: 'keys', prevKeys: '', nextKeys: '', tapAction: '', appTarget: '', sensitivity: 'normal' });
+          if (idx > 8) { toast(t('s.console.maxAxes'), true); return; }
+          p.axes.push({ index: idx, name: t('s.console.axisN', { n: idx }), icon: '🎚️', kind: 'keys', prevKeys: '', nextKeys: '', tapAction: '', appTarget: '', sensitivity: 'normal' });
           upd(false); renderAxes();
-        } }, '＋ Add axis')),
+        } }, t('s.console.addAxis'))),
       ...(p.axes || []).map((ax, ai) => {
         const card = h('div', { class: 'con-axis-card' });
         const row1 = h('div', { class: 'row' },
           h('select', { style: { width: '76px' }, onchange: (e) => { ax.index = +e.target.value; upd(false); } },
             ...[1, 2, 3, 4, 5, 6, 7, 8].map((n) => h('option', { value: n, selected: n === ax.index }, `#${n}`))),
           h('input', { type: 'text', value: ax.icon || '🎚️', style: { width: '54px', textAlign: 'center' }, oninput: (e) => { ax.icon = e.target.value; upd(false); } }),
-          h('input', { type: 'text', value: ax.name || '', placeholder: 'Axis name', style: { flex: '1' }, oninput: (e) => { ax.name = e.target.value; upd(false); } }),
+          h('input', { type: 'text', value: ax.name || '', placeholder: t('s.console.axisName'), style: { flex: '1' }, oninput: (e) => { ax.name = e.target.value; upd(false); } }),
           h('select', { onchange: (e) => { ax.kind = e.target.value; upd(false); renderAxes(); } },
-            ...[['keys', 'Keys (CCW / CW)'], ['system-volume', 'System volume'], ['app-volume', 'App volume (Windows)'], ['mic-gain', 'Mic gain (Windows)'], ['media-seek', 'Media seek'], ['brightness', 'Monitor brightness (Windows)']].map(([k, l]) => h('option', { value: k, selected: k === ax.kind }, l))),
+            ...[['keys', t('s.console.axisKind.keys')], ['system-volume', t('s.console.axisKind.systemVolume')], ['app-volume', t('s.console.axisKind.appVolume')], ['mic-gain', t('s.console.axisKind.micGain')], ['media-seek', t('s.console.axisKind.mediaSeek')], ['brightness', t('s.console.axisKind.brightness')]].map(([k, l]) => h('option', { value: k, selected: k === ax.kind }, l))),
           h('select', { onchange: (e) => { ax.sensitivity = e.target.value; upd(false); } },
-            ...[['fine', 'Fine'], ['normal', 'Normal'], ['coarse', 'Coarse']].map(([k, l]) => h('option', { value: k, selected: k === ax.sensitivity }, l))),
-          h('button', { type: 'button', class: 'btn sm danger', onclick: () => { p.axes.splice(ai, 1); upd(false); renderAxes(); } }, 'Remove'));
+            ...[['fine', t('s.console.sens.fine')], ['normal', t('s.console.sens.normal')], ['coarse', t('s.console.sens.coarse')]].map(([k, l]) => h('option', { value: k, selected: k === ax.sensitivity }, l))),
+          h('button', { type: 'button', class: 'btn sm danger', onclick: () => { p.axes.splice(ai, 1); upd(false); renderAxes(); } }, t('s.console.remove')));
         card.append(row1);
         if (ax.kind === 'keys') {
-          const pIn = h('input', { type: 'text', value: ax.prevKeys || '', placeholder: 'CCW / Up key', style: { flex: '1' }, oninput: (e) => { ax.prevKeys = e.target.value; upd(false); } });
-          const nIn = h('input', { type: 'text', value: ax.nextKeys || '', placeholder: 'CW / Down key', style: { flex: '1' }, oninput: (e) => { ax.nextKeys = e.target.value; upd(false); } });
+          const pIn = h('input', { type: 'text', value: ax.prevKeys || '', placeholder: t('s.console.ccwKey'), style: { flex: '1' }, oninput: (e) => { ax.prevKeys = e.target.value; upd(false); } });
+          const nIn = h('input', { type: 'text', value: ax.nextKeys || '', placeholder: t('s.console.cwKey'), style: { flex: '1' }, oninput: (e) => { ax.nextKeys = e.target.value; upd(false); } });
           card.append(h('div', { class: 'row' },
-            h('span', { class: 'hint' }, 'CCW:'), pIn, recordButton((c) => { ax.prevKeys = c; pIn.value = c; upd(false); }),
-            h('span', { class: 'hint' }, 'CW:'), nIn, recordButton((c) => { ax.nextKeys = c; nIn.value = c; upd(false); })));
+            h('span', { class: 'hint' }, t('s.console.ccw')), pIn, recordButton((c) => { ax.prevKeys = c; pIn.value = c; upd(false); }),
+            h('span', { class: 'hint' }, t('s.console.cw')), nIn, recordButton((c) => { ax.nextKeys = c; nIn.value = c; upd(false); })));
         } else if (['app-volume', 'mic-gain', 'brightness'].includes(ax.kind)) {
-          card.append(h('input', { type: 'text', value: ax.appTarget || '', placeholder: 'Target app/device match (blank = auto)', oninput: (e) => { ax.appTarget = e.target.value; upd(false); } }));
+          card.append(h('input', { type: 'text', value: ax.appTarget || '', placeholder: t('s.console.targetMatch'), oninput: (e) => { ax.appTarget = e.target.value; upd(false); } }));
         }
-        card.append(h('input', { type: 'text', value: ax.tapAction || '', placeholder: 'Center tap action (e.g. Space, shortcut:<id>, deck:audio:mute)', oninput: (e) => { ax.tapAction = e.target.value; upd(false); } }),
-          h('span', { class: 'hint' }, 'Key combo (requires App process match), shortcut:<id> (runs a PhoneBox shortcut), or deck:<target> (runs media/OBS/Control Deck task).'));
+        card.append(h('input', { type: 'text', value: ax.tapAction || '', placeholder: t('s.console.tapActionPlaceholder'), oninput: (e) => { ax.tapAction = e.target.value; upd(false); } }),
+          h('span', { class: 'hint' }, t('s.console.tapActionHint')));
         return card;
       }));
   };
@@ -2517,28 +2519,28 @@ function renderConsoleEditor() {
 
   ed.append(
     h('div', { class: 'row', style: { justifyContent: 'space-between', marginBottom: '10px' } },
-      h('h3', { style: { margin: 0 } }, `${p.icon || '🎛️'} ${p.name || 'Profile'}`),
+      h('h3', { style: { margin: 0 } }, `${p.icon || '🎛️'} ${p.name || t('s.console.profile')}`),
       h('div', { class: 'row', style: { gap: '8px' } },
-        h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: p.enabled !== false, onchange: (e) => { p.enabled = e.target.checked; upd(true); } }), 'Enabled'),
-        h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!p.isDefault, onchange: (e) => { if (e.target.checked) cfg.console.profiles.forEach((x) => { x.isDefault = false; }); p.isDefault = e.target.checked; upd(true); } }), 'Default fallback'),
-        h('button', { type: 'button', class: 'btn sm danger', onclick: () => { cfg.console.profiles.splice(selConProfile, 1); selConProfile = Math.max(0, selConProfile - 1); selConSub = 0; selConSlot = 0; upd(true); } }, 'Delete'))),
+        h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: p.enabled !== false, onchange: (e) => { p.enabled = e.target.checked; upd(true); } }), t('s.console.enabled')),
+        h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!p.isDefault, onchange: (e) => { if (e.target.checked) cfg.console.profiles.forEach((x) => { x.isDefault = false; }); p.isDefault = e.target.checked; upd(true); } }), t('s.console.defaultFallback')),
+        h('button', { type: 'button', class: 'btn sm danger', onclick: () => { cfg.console.profiles.splice(selConProfile, 1); selConProfile = Math.max(0, selConProfile - 1); selConSub = 0; selConSlot = 0; upd(true); } }, t('s.console.delete')))),
     h('div', { class: 'grid2' },
       h('div', {},
-        textIn('Profile name', p.name, 'e.g. OBS Studio', (v) => { p.name = v; upd(true); }),
+        textIn(t('s.console.profileName'), p.name, 'e.g. OBS Studio', (v) => { p.name = v; upd(true); }),
         h('div', { class: 'row' },
-          h('div', { class: 'field' }, h('label', {}, 'Icon'), h('input', { type: 'text', class: 'icon-input', value: p.icon || '🎛️', oninput: (e) => { p.icon = e.target.value; upd(true); } })),
-          h('div', { class: 'field' }, h('label', {}, 'Accent colour'), h('input', { type: 'color', value: p.color || '#38bdf8', oninput: (e) => { p.color = e.target.value; upd(false); } })),
-          h('div', { class: 'field' }, h('label', {}, 'Cols'), h('input', { type: 'number', min: 2, max: 6, value: cols, style: { width: '70px' }, onchange: (e) => { p.columns = Math.max(2, Math.min(6, +e.target.value || 4)); upd(false); renderConsoleEditor(); } })),
-          h('div', { class: 'field' }, h('label', {}, 'Rows'), h('input', { type: 'number', min: 1, max: 4, value: rows, style: { width: '70px' }, onchange: (e) => { p.rows = Math.max(1, Math.min(4, +e.target.value || 2)); upd(false); renderConsoleEditor(); } })))),
+          h('div', { class: 'field' }, h('label', {}, t('s.console.icon')), h('input', { type: 'text', class: 'icon-input', value: p.icon || '🎛️', oninput: (e) => { p.icon = e.target.value; upd(true); } })),
+          h('div', { class: 'field' }, h('label', {}, t('s.console.accentColour')), h('input', { type: 'color', value: p.color || '#38bdf8', oninput: (e) => { p.color = e.target.value; upd(false); } })),
+          h('div', { class: 'field' }, h('label', {}, t('s.console.cols')), h('input', { type: 'number', min: 2, max: 6, value: cols, style: { width: '70px' }, onchange: (e) => { p.columns = Math.max(2, Math.min(6, +e.target.value || 4)); upd(false); renderConsoleEditor(); } })),
+          h('div', { class: 'field' }, h('label', {}, t('s.console.rows')), h('input', { type: 'number', min: 1, max: 4, value: rows, style: { width: '70px' }, onchange: (e) => { p.rows = Math.max(1, Math.min(4, +e.target.value || 2)); upd(false); renderConsoleEditor(); } })))),
       h('div', {},
-        textIn('App process match (separate alternatives with |)', p.appMatch, 'e.g. obs64|obs', (v) => { p.appMatch = v; upd(true); }),
-        textIn('Window title match (optional)', p.titleMatch, 'e.g. YouTube|Twitch', (v) => { p.titleMatch = v; upd(true); }))),
+        textIn(t('s.console.appMatch'), p.appMatch, 'e.g. obs64|obs', (v) => { p.appMatch = v; upd(true); }),
+        textIn(t('s.console.titleMatch'), p.titleMatch, 'e.g. YouTube|Twitch', (v) => { p.titleMatch = v; upd(true); }))),
     h('div', { class: 'con-subs' },
-      h('span', { class: 'hint' }, 'Sub-pages:'),
+      h('span', { class: 'hint' }, t('s.console.subPages')),
       ...p.subPages.map((sp, si) => h('button', { type: 'button', class: 'btn sm' + (si === selConSub ? ' primary' : ''),
-        onclick: () => { selConSub = si; selConSlot = 0; renderConsoleEditor(); } }, sp.name || `Page ${si + 1}`)),
-      h('button', { type: 'button', class: 'btn sm', onclick: () => { p.subPages.push({ id: '', name: `Page ${p.subPages.length + 1}`, slots: [] }); selConSub = p.subPages.length - 1; selConSlot = 0; upd(false); renderConsoleEditor(); } }, '＋ Sub-page'),
-      p.subPages.length > 1 ? h('button', { type: 'button', class: 'btn sm danger', onclick: () => { p.subPages.splice(selConSub, 1); selConSub = Math.max(0, selConSub - 1); selConSlot = 0; upd(false); renderConsoleEditor(); } }, 'Delete sub-page') : null),
+        onclick: () => { selConSub = si; selConSlot = 0; renderConsoleEditor(); } }, sp.name || t('s.console.pageN', { n: si + 1 }))),
+      h('button', { type: 'button', class: 'btn sm', onclick: () => { p.subPages.push({ id: '', name: t('s.console.pageN', { n: p.subPages.length + 1 }), slots: [] }); selConSub = p.subPages.length - 1; selConSlot = 0; upd(false); renderConsoleEditor(); } }, t('s.console.addSubPage')),
+      p.subPages.length > 1 ? h('button', { type: 'button', class: 'btn sm danger', onclick: () => { p.subPages.splice(selConSub, 1); selConSub = Math.max(0, selConSub - 1); selConSlot = 0; upd(false); renderConsoleEditor(); } }, t('s.console.deleteSubPage')) : null),
     slotGrid,
     slotInspector,
     axesWrap);
@@ -2546,7 +2548,7 @@ function renderConsoleEditor() {
 
 $('conPresetBtn').onclick = openConsolePresets;
 $('conWinBtn').onclick = openWindowPicker;
-$('conNewBtn').onclick = () => addConsoleProfile({ name: 'New Profile', icon: '🎛️', color: '#38bdf8', columns: 4, rows: 2, appMatch: '', subPages: [{ name: 'Main', slots: [] }], axes: [] });
+$('conNewBtn').onclick = () => addConsoleProfile({ name: t('s.console.newProfileName'), icon: '🎛️', color: '#38bdf8', columns: 4, rows: 2, appMatch: '', subPages: [{ name: 'Main', slots: [] }], axes: [] });
 
 // ---------------------------------------------------------------- general
 function renderControlSettings() {
@@ -2904,6 +2906,7 @@ function bindLanguage() {
     applyLanguageUi(cfg.display.language);
     renderAppearanceSettings();
     renderPages(); // the pages editor and inspector hold localized strings too
+    renderConsole();
     if (typeof queuePreview === 'function') queuePreview();
     changed();
   };
