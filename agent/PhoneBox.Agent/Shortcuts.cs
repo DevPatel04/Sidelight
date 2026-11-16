@@ -132,22 +132,31 @@ public static class Shortcuts
         {
             Process.Start(psi);
         }
-        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2 /* not found */ && TerminalStandIns(sc.Cmd) is [var alt, ..])
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 2 /* not found */ && TerminalStandIns(sc.Cmd)
+            .Select(t => Path.Combine(Environment.SystemDirectory, t == "powershell.exe" ? @"WindowsPowerShell\v1.0\powershell.exe" : t))
+            .FirstOrDefault(File.Exists) is { } alt)
         {
-            psi.FileName = alt;
-            psi.Arguments = "";
-            Process.Start(psi);
+            StartStandIn(alt, sc);
         }
 #else
         // a missing program does not throw here: .NET hands the name to xdg-open, which fails on its own
         if (TerminalStandIns(sc.Cmd, Environment.GetEnvironmentVariable("TERMINAL")) is { Length: > 0 } alts && Sh.Which(sc.Cmd) is null
-            && alts.FirstOrDefault(t => Sh.Which(t) is not null) is { } alt)
+            && alts.Select(Sh.Which).FirstOrDefault(p => p is not null) is { } alt)
         {
-            psi.FileName = alt;
-            psi.Arguments = "";
+            StartStandIn(alt, sc);
+            return;
         }
         Process.Start(psi);
 #endif
+    }
+
+    // A stand-in is a fixed program at a full path on disk: start it directly, without the shell and without arguments.
+    // (The agent has no console on Windows, so a console program started this way gets its own window.)
+    private static void StartStandIn(string path, Shortcut sc)
+    {
+        var start = new ProcessStartInfo(path) { UseShellExecute = false };
+        if (!string.IsNullOrEmpty(sc.Cwd)) start.WorkingDirectory = Home(sc.Cwd);
+        Process.Start(start)?.Dispose();
     }
 
     /// <summary>
