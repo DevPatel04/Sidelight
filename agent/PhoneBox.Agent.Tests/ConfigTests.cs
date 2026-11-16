@@ -231,6 +231,24 @@ public class ConfigConcurrencyTests
     }
 
     [Fact]
+    public void DeletingSettingsInvalidatesTheVersionHeldByOpenTabs()
+    {
+        var (store, path) = NewStore();
+        try
+        {
+            var version = store.Version;
+            var stale = With(store, c => c.Night.Start = "01:11");
+            File.Delete(path);
+
+            Assert.Equal(ConfigStore.Conflict, store.Save(stale, version));
+            Assert.False(File.Exists(path));
+            Assert.Null(store.Save(stale, store.Version));
+            Assert.True(File.Exists(path));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void AnUpToDateSaveAndASaveWithoutAVersionGoThrough()
     {
         var (s, path) = NewStore();

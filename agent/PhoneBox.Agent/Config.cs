@@ -408,7 +408,7 @@ public sealed partial class ConfigStore(string path)
 
         lock (_lock)
         {
-            if (expectedVersion is { } expected && File.Exists(path) && File.GetLastWriteTimeUtc(path).Ticks != expected) return Conflict;
+            if (expectedVersion is { } expected && File.GetLastWriteTimeUtc(path).Ticks != expected) return Conflict;
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
             var tmp = path + ".tmp";
             // owner-only on macOS/Linux: the file holds the Wi-Fi, webhook and Home Assistant keys
