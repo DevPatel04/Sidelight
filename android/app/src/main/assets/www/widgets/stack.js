@@ -174,7 +174,7 @@ W.stack = {
         });
       }
 
-      for (const need of nextChild.def?.needs || []) {
+      for (const need of nextChild.needs) {
         try { nextChild.inst.update?.(need); } catch (_) {}
       }
     }
