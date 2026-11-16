@@ -535,3 +535,16 @@ test('the pairing page hands a checked link to the app and clears it from the ad
   await expect(page.locator('#ok')).toBeHidden();
   await ctx.close();
 });
+
+test('interface chrome uses inline SVG icons instead of emoji', async ({ page }) => {
+  const errors = watchErrors(page);
+  // Sheet close, nav chip, offline pill and the WebView notice all carry inline icons.
+  for (const sel of ['#psClose svg.ico', '#ncGo svg.ico', '#ncX svg.ico', '#offline svg.ico']) {
+    await expect(page.locator(sel)).toBeAttached();
+  }
+  await expect(page.locator('#webviewWarn svg.ico')).toHaveCount(2); // warning mark + close
+  // Toasts pick up a kind icon next to their message.
+  await page.evaluate(() => window.PhoneBoxDemo.emit('notify', { title: 'Build', text: 'done' }));
+  await expect(page.locator('#toast svg.ico')).toBeVisible();
+  expect(errors).toEqual([]);
+});

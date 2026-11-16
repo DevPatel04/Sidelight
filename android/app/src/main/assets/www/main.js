@@ -148,6 +148,28 @@ export function h(tag, cls, ...kids) {
   return e;
 }
 
+/* Interface icons: Lucide (https://lucide.dev), ISC license — a small inline set keeps the
+   panel's chrome consistent across platforms and works fully offline. Icons are decorative
+   (aria-hidden); the controls they sit in carry the accessible names. */
+const ICONS = {
+  x: 'M18 6 6 18M6 6l12 12',
+  hourglass: 'M5 22h14M5 2h14M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2',
+  wifiOff: 'M8.5 16.5a5 5 0 0 1 7 0M2 8.82a15 15 0 0 1 4.17-2.65M10.66 5c4.01-.36 8.14.9 11.34 3.76M16.85 11.25a10 10 0 0 1 2.22 1.68M5 13a10 10 0 0 1 5.24-2.76M12 20h.01M2 2l20 20',
+  warn: 'M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01',
+  check: 'M20 6 9 17l-5-5',
+  err: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 8v4M12 16h.01',
+  info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01',
+  pause: 'M6 4h4v16H6zM14 4h4v16h-4z',
+  play: 'M6 3l14 9-14 9V3z',
+};
+export function icon(name, cls = '') {
+  const t = document.createElement('template');
+  t.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICONS[name] || ''}"/></svg>`;
+  const s = t.content.firstElementChild;
+  s.setAttribute('class', 'ico' + (cls ? ' ' + cls : ''));
+  return s;
+}
+
 export const pad = (n) => String(n).padStart(2, '0');
 // Clock times follow display.hour12: false ("14:05", default), true ("2:05 PM") or "auto" (follow the phone). Pass hours 0-23.
 export function hour12() {
@@ -194,7 +216,9 @@ export const color = (c) => (c && c.startsWith('--') ? cssVar(c) : c);
 export let toastTimer = 0;
 export function toast(msg, kind = '', title = '', seconds = 2.6) {
   const t = $('toast');
-  t.replaceChildren(...(title ? [h('b', null, title), h('span', null, msg)] : [h('span', null, msg)]));
+  const ic = { ok: 'check', err: 'err', warn: 'warn' }[kind] || 'info';
+  const msgSpan = h('span', null, icon(ic, 'm'), msg);
+  t.replaceChildren(...(title ? [h('b', null, title), msgSpan] : [msgSpan]));
   t.className = 'toast on ' + kind;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (t.className = 'toast ' + kind), Math.max(1, seconds) * 1000);
@@ -1295,7 +1319,7 @@ export function renderRulesBtn() {
   const paused = rulesPaused && rulesPaused > Date.now();
   b.hidden = PREVIEW || !online;
   b.classList.toggle('on', !!paused);
-  b.textContent = paused ? t('panel.rulesPausedUntil', { time: fmtHM(new Date(rulesPaused)) }) : t('panel.pauseRules1h');
+  b.replaceChildren(icon(paused ? 'play' : 'pause', 'm'), paused ? t('panel.rulesPausedUntil', { time: fmtHM(new Date(rulesPaused)) }) : t('panel.pauseRules1h'));
 }
 
 export let titleTimer = 0;
