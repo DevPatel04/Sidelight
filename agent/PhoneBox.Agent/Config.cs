@@ -18,6 +18,8 @@ public sealed class AgentConfig
     public LanConfig Lan { get; set; } = new();
     public UpdateConfig Updates { get; set; } = new();
     public ClaudeConfig Claude { get; set; } = new();
+    public AntigravityConfig Antigravity { get; set; } = new();
+    public CursorConfig Cursor { get; set; } = new();
     public List<PageConfig> Pages { get; set; } = [];
     public List<Shortcut> Shortcuts { get; set; } = [];
     public List<RuleConfig> Rules { get; set; } = [];
@@ -187,6 +189,29 @@ public sealed class ClaudeConfig
     public bool PhoneApprovals { get; set; } = true;
     /// <summary>How long the phone may take before Claude Code asks in the terminal instead.</summary>
     public int TimeoutSec { get; set; } = 90;
+    /// <summary>Only use the phone when the PC has been idle for a minute (you are away from the keyboard).</summary>
+    public bool OnlyWhenAway { get; set; }
+}
+
+public sealed class AntigravityConfig
+{
+    /// <summary>Show Antigravity CLI tool calls (commands, edits, web) on the phone (needs the hook, see Settings › General).</summary>
+    public bool PhoneApprovals { get; set; } = true;
+    /// <summary>
+    /// How long the phone may take. Shorter than Claude's: agy waits for the hook before it shows its own prompt,
+    /// so this is also how long you wait at the PC when nobody answers on the phone.
+    /// </summary>
+    public int TimeoutSec { get; set; } = 30;
+    /// <summary>Only use the phone when the PC has been idle for a minute (you are away from the keyboard).</summary>
+    public bool OnlyWhenAway { get; set; }
+}
+
+public sealed class CursorConfig
+{
+    /// <summary>Show Cursor's agent commands and MCP calls on the phone (needs the hooks, see Settings › General).</summary>
+    public bool PhoneApprovals { get; set; } = true;
+    /// <summary>How long the phone may take; Cursor's agent waits that long before it asks in the editor.</summary>
+    public int TimeoutSec { get; set; } = 60;
     /// <summary>Only use the phone when the PC has been idle for a minute (you are away from the keyboard).</summary>
     public bool OnlyWhenAway { get; set; }
 }
@@ -484,6 +509,10 @@ public sealed partial class ConfigStore(string path)
         if (c.Ping.Host.Length > 253 || c.Ping.Host.Any(ch => ch <= ' ' || ch > '~')) c.Ping.Host = PingMonitor.DefaultHost;
         c.Claude ??= new();
         c.Claude.TimeoutSec = Math.Clamp(c.Claude.TimeoutSec, 10, 3600);
+        c.Antigravity ??= new();
+        c.Antigravity.TimeoutSec = Math.Clamp(c.Antigravity.TimeoutSec, 10, 3600);
+        c.Cursor ??= new();
+        c.Cursor.TimeoutSec = Math.Clamp(c.Cursor.TimeoutSec, 10, 3600);
         if (string.IsNullOrWhiteSpace(c.Updates.Repo)) c.Updates.Repo = "ersinkoc/phonebox";
         c.Lan.Port = Math.Clamp(c.Lan.Port, 1024, 65535);
         if (string.IsNullOrWhiteSpace(c.Lan.Token)) c.Lan.Token = NewToken();

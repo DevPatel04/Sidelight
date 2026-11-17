@@ -66,6 +66,8 @@
       lan: { enabled: true, port: 8766, token: 'demo', webhookToken: 'demo-webhook-key' },
       updates: { auto: true, repo: 'ersinkoc/phonebox' },
       claude: { phoneApprovals: true, timeoutSec: 90, onlyWhenAway: false },
+      antigravity: { phoneApprovals: true, timeoutSec: 30, onlyWhenAway: false },
+      cursor: { phoneApprovals: true, timeoutSec: 60, onlyWhenAway: false },
       pages: PAGES.filter((id) => byId[id]).map((id) => {
         const t = byId[id], seen = {};
         return { appearance: null, id, title: t.title, icon: t.icon, enabled: true, idleSec: null, widgets: t.widgets.map((w) => {
@@ -697,6 +699,8 @@
     if (path === '/api/update') return json({ status: { agentVersion: VERSION, appVersion: VERSION, latest: VERSION, releaseUrl: 'https://github.com/ersinkoc/phonebox/releases/latest', agentUpdate: false, appUpdate: false,
       lastCheck: now() - 3600e3, state: 'idle', error: null }, auto: (await config()).updates?.auto !== false, installed: true });
     if (path === '/api/claude/hook') return json({ installed: false, path: '~/.claude/settings.json' });
+    if (path === '/api/antigravity/hook') return json({ installed: false, path: '~/.gemini/config/hooks.json' });
+    if (path === '/api/cursor/hook') return json({ installed: false, path: '~/.cursor/hooks.json' });
     if (method !== 'GET') return json({ ok: true });
     return json({ error: 'not in the demo' }, 404);
   }
