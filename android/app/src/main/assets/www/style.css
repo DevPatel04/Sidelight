@@ -1190,3 +1190,12 @@ body.waking::after { opacity: 0; pointer-events: auto; transition: opacity .2s e
 .dc-text { margin-top: 10px; font-size: 16px; max-width: 100%; max-height: 4.2em; overflow: hidden; word-break: break-word; }
 .dc-text:empty { display: none; }
 .dc-note { margin-top: 6px; font-size: 13px; color: var(--muted); }
+/* Settings › Display › controls at the top (#181): the page dots and the Allow / Deny buttons move up, for a panel that
+   stands below the screen, where the bottom edge is hard to reach */
+body.controls-top #dots { bottom: auto; top: 0; }
+body.controls-top #ptitle { top: 34px; }
+/* the space the dots need moves from the bottom to the top */
+body.controls-top .page { padding-top: 17px; padding-bottom: 10px; }
+/* the header stays first; the buttons come right after it, above the request */
+body.controls-top .ap-head { order: -2; }
+body.controls-top .ap-foot { order: -1; margin-bottom: 4px; }
