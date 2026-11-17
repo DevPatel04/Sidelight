@@ -88,7 +88,7 @@ public static class ClaudeHook
     }
 
     /// <summary>The questions and their choices as plain text: "Header: Question" and one line per choice.</summary>
-    internal static string QuestionDetail(JsonElement ti)
+    internal static string QuestionDetail(JsonElement ti, string asker = "Claude")
     {
         var sb = new System.Text.StringBuilder();
         if (ti.ValueKind == JsonValueKind.Object && ti.TryGetProperty("questions", out var qs) && qs.ValueKind == JsonValueKind.Array)
@@ -106,17 +106,17 @@ public static class ClaudeHook
                     }
             }
         var s = sb.ToString();
-        if (s.Length == 0) s = "Claude is asking something; answer it in the terminal on your PC.";
+        if (s.Length == 0) s = asker + " is asking something; answer it in the terminal on your PC.";
         return s.Length > 3000 ? s[..3000] + "…" : s;
     }
 
-    private static string Head(string text, int lines)
+    internal static string Head(string text, int lines)
     {
         var l = text.Split('\n');
         return string.Join('\n', l.Take(lines)) + (l.Length > lines ? $"\n… ({l.Length - lines} more lines)" : "");
     }
 
-    private static string? Str(JsonElement e, string name) =>
+    internal static string? Str(JsonElement e, string name) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
     // ---------------------------------------------------------------- install / remove the hook in ~/.claude/settings.json

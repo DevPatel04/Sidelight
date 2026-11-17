@@ -584,6 +584,33 @@ dd { margin: 0; word-break: break-all; }
       </div>
 
       <div class="card">
+        <h3>Cursor agent permission prompts</h3>
+        <p class="hint" style="margin:0 0 12px">When Cursor's agent wants to run a terminal command or call an MCP tool, the phone shows it with
+          <b>Allow</b> and <b>Deny</b>. <b>Deny</b> always blocks it. <b>Allow</b> lets it run without asking in Cursor's <i>Run Everything</i>
+          and <i>Allowlist</i> modes; in other modes Cursor may still ask in the editor. If nobody answers, Cursor asks in the editor;
+          with no phone connected nothing changes. Edits to files are not sent. Needs Cursor 3.21 or newer for the editor fallback, and a
+          hook in <code>~/.cursor/hooks.json</code>; PhoneBox adds it for you (a backup is kept next to the file).</p>
+        <div class="row" style="margin-bottom:12px"><button class="btn" id="cursorHookBtn" data-i18n="s.claude.installHook">Install hook</button><span class="hint" id="cursorHookState"></span></div>
+        <div class="row" style="margin-bottom:8px"><label class="switch"><input type="checkbox" data-bind="cursor.phoneApprovals"><span></span></label> <span data-i18n="s.claude.askOnPhone">Ask on the phone</span></div>
+        <label class="check"><input type="checkbox" data-bind="cursor.onlyWhenAway"> Only when I am away from the PC (no keyboard or mouse for a minute)</label>
+        <div class="field" style="max-width:260px;margin-top:12px"><label>Seconds to answer before Cursor asks in the editor</label><input type="number" min="10" max="3600" data-bind="cursor.timeoutSec" data-type="int">
+          <span class="hint">After changing this, remove and install the hook again.</span></div>
+      </div>
+
+      <div class="card">
+        <h3>Antigravity CLI permission prompts</h3>
+        <p class="hint" style="margin:0 0 12px">When the Antigravity CLI (<code>agy</code>) wants to run a command, change a file or go to the web, the phone shows
+          the request with <b>Allow</b> and <b>Deny</b>. agy waits for the phone before it asks itself, so while this is on it pauses until you answer
+          or the time runs out; then it asks in the terminal as usual. Calls your agy rules already allow also come to the phone.
+          This needs a hook in <code>~/.gemini/config/hooks.json</code>; PhoneBox adds it for you (a backup is kept next to the file).</p>
+        <div class="row" style="margin-bottom:12px"><button class="btn" id="agyHookBtn" data-i18n="s.claude.installHook">Install hook</button><span class="hint" id="agyHookState"></span></div>
+        <div class="row" style="margin-bottom:8px"><label class="switch"><input type="checkbox" data-bind="antigravity.phoneApprovals"><span></span></label> <span data-i18n="s.claude.askOnPhone">Ask on the phone</span></div>
+        <label class="check"><input type="checkbox" data-bind="antigravity.onlyWhenAway"> Only when I am away from the PC (no keyboard or mouse for a minute)</label>
+        <div class="field" style="max-width:260px;margin-top:12px"><label>Seconds to answer before the terminal takes over</label><input type="number" min="10" max="3600" data-bind="antigravity.timeoutSec" data-type="int">
+          <span class="hint">After changing this, remove and install the hook again.</span></div>
+      </div>
+
+      <div class="card">
         <h3 data-i18n="s.quotas.title">AI quotas &amp; CodexBar</h3>
         <p class="hint" style="margin:0 0 12px">Choose which AI coding services to track and show on the panel, and configure rotation.</p>
         <div class="field"><label>Tracked AI services</label>
@@ -2584,6 +2611,15 @@ async function loadInfo() {
     $('hookBtn').dataset.i18n = hk.installed ? 's.claude.removeHook' : 's.claude.installHook';
     $('hookBtn').textContent = t($('hookBtn').dataset.i18n);
     $('hookBtn').dataset.installed = hk.installed ? '1' : '';
+    for (const [api, id] of [['antigravity', 'agyHook'], ['cursor', 'cursorHook']]) {
+      try {
+        const st = await (await fetch(`/api/${api}/hook`)).json();
+        $(id + 'State').textContent = st.installed ? 'Installed in ' + st.path : 'Not installed';
+        $(id + 'Btn').dataset.i18n = st.installed ? 's.claude.removeHook' : 's.claude.installHook';
+        $(id + 'Btn').textContent = t($(id + 'Btn').dataset.i18n);
+        $(id + 'Btn').dataset.installed = st.installed ? '1' : '';
+      } catch (_) {}
+    }
     $('info').replaceChildren(
       h('dt', {}, 'Version'), h('dd', {}, i.version),
       h('dt', {}, 'Settings file'), h('dd', {}, h('code', {}, i.configPath)),
@@ -2596,7 +2632,7 @@ async function loadInfo() {
 // The form reads every section it binds and renders, so a config without one — an older export, or a
 // hand-trimmed paste in Apply JSON — gets the same defaults a fresh load does before anything renders.
 function fillDefaults() {
-  cfg.pages = fitPages(cfg.pages); cfg.shortcuts ??= []; cfg.rules ??= []; cfg.display ??= {}; cfg.night = { enabled: true, start: '00:30', end: '07:30', brightness: 0.02, ...cfg.night }; cfg.weather ??= {}; cfg.photos ??= { folder: '', subfolders: true }; cfg.lan ??= { enabled: false, port: 8766 }; cfg.updates ??= { auto: true, repo: 'ersinkoc/phonebox' }; cfg.claude ??= { phoneApprovals: true, timeoutSec: 90, onlyWhenAway: false };
+  cfg.pages = fitPages(cfg.pages); cfg.shortcuts ??= []; cfg.rules ??= []; cfg.display ??= {}; cfg.night = { enabled: true, start: '00:30', end: '07:30', brightness: 0.02, ...cfg.night }; cfg.weather ??= {}; cfg.photos ??= { folder: '', subfolders: true }; cfg.lan ??= { enabled: false, port: 8766 }; cfg.updates ??= { auto: true, repo: 'ersinkoc/phonebox' }; cfg.claude ??= { phoneApprovals: true, timeoutSec: 90, onlyWhenAway: false }; cfg.antigravity ??= { phoneApprovals: true, timeoutSec: 30, onlyWhenAway: false }; cfg.cursor ??= { phoneApprovals: true, timeoutSec: 60, onlyWhenAway: false };
   cfg.codexBar ??= { providers: ['claude', 'codex', 'antigravity'], rotate: true, pageSize: 2, rotateInterval: 8 };
   for (const [k, v] of Object.entries({ language: 'auto', hour12: false, idleReturnSec: 90, switchCountdownSec: 3, touchGraceSec: 20, minDwellSec: 15, holdMaxMin: 30, keepAwake: true,
     showSeconds: true, vibrate: true, volumeKeys: true, artTint: true, proximityWake: true, orientation: 'landscape', theme: 'default', accent: '#2dd4bf' })) cfg.display[k] ??= v;
@@ -2692,6 +2728,15 @@ $('hookBtn').onclick = async () => {
   r.ok ? toast(remove ? 'Hook removed' : 'Hook installed — new Claude Code sessions pick it up') : toast(j.error || 'Could not change the hook', true);
   loadInfo();
 };
+for (const [api, id, who] of [['antigravity', 'agyHook', 'new agy sessions pick it up'], ['cursor', 'cursorHook', 'Cursor picks it up on its own']]) {
+  $(id + 'Btn').onclick = async () => {
+    const remove = !!$(id + 'Btn').dataset.installed;
+    const r = await fetch(`/api/${api}/hook`, { method: remove ? 'DELETE' : 'POST' });
+    const j = await r.json().catch(() => ({}));
+    r.ok ? toast(remove ? 'Hook removed' : 'Hook installed — ' + who) : toast(j.error || 'Could not change the hook', true);
+    loadInfo();
+  };
+}
 $('modalClose').onclick = closeModal;
 $('lanPair').onclick = pairOverWifi;
 $('modal').onclick = (e) => { if (e.target.id === 'modal') closeModal(); };

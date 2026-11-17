@@ -619,7 +619,31 @@ app.MapGet("/api/claude/hook", () => Results.Json(new { installed = ClaudeHook.I
 app.MapPost("/api/claude/hook", (ConfigStore cfg) => ClaudeHook.Configure(true, Port, cfg.Get().Claude.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
 app.MapDelete("/api/claude/hook", (ConfigStore cfg) => ClaudeHook.Configure(false, Port, cfg.Get().Claude.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
 
-// Permission prompts waiting for the phone (posted by the Claude Code hook, see ClaudeHook.cs).
+// Antigravity CLI PreToolUse hook (local only): always answers, since agy reads an empty reply as a denial.
+app.MapPost(AntigravityHook.Endpoint, async (HttpRequest req, ConfigStore cfg, ApprovalStore approvals) =>
+{
+    JsonElement input;
+    try { input = (await JsonDocument.ParseAsync(req.Body)).RootElement.Clone(); }
+    catch (JsonException) { return Results.Json(AntigravityHook.NoDecision); }
+    return Results.Json(await AntigravityHook.HandleAsync(input, cfg, approvals, req.HttpContext.RequestAborted));
+});
+app.MapGet("/api/antigravity/hook", () => Results.Json(new { installed = AntigravityHook.Installed(), path = AntigravityHook.HooksPath }));
+app.MapPost("/api/antigravity/hook", (ConfigStore cfg) => AntigravityHook.Configure(true, Port, cfg.Get().Antigravity.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
+app.MapDelete("/api/antigravity/hook", (ConfigStore cfg) => AntigravityHook.Configure(false, Port, cfg.Get().Antigravity.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
+
+// Cursor beforeShellExecution / beforeMCPExecution hooks (local only); see CursorHook.cs for what each answer means.
+app.MapPost(CursorHook.Endpoint, async (HttpRequest req, ConfigStore cfg, ApprovalStore approvals) =>
+{
+    JsonElement input;
+    try { input = (await JsonDocument.ParseAsync(req.Body)).RootElement.Clone(); }
+    catch (JsonException) { return Results.Json(CursorHook.NoChange); }
+    return Results.Json(await CursorHook.HandleAsync(input, cfg, approvals, req.HttpContext.RequestAborted));
+});
+app.MapGet("/api/cursor/hook", () => Results.Json(new { installed = CursorHook.Installed(), path = CursorHook.HooksPath }));
+app.MapPost("/api/cursor/hook", (ConfigStore cfg) => CursorHook.Configure(true, Port, cfg.Get().Cursor.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
+app.MapDelete("/api/cursor/hook", (ConfigStore cfg) => CursorHook.Configure(false, Port, cfg.Get().Cursor.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
+
+// Permission prompts waiting for the phone (posted by the Claude Code, Antigravity and Cursor hooks).
 app.MapGet("/api/approvals", (ApprovalStore a) => Results.Json(new { items = a.Snapshot() }));
 app.MapPost("/api/approvals/{id}", (string id, string decision, ApprovalStore a) => a.Decide(id, decision) ? Results.Ok() : Results.NotFound());
 
