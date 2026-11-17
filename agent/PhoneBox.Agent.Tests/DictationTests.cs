@@ -21,7 +21,7 @@ public sealed class DictationTests : IDisposable
             """);
         return new Dictation(new ConfigStore(_path), NullLogger<Dictation>.Instance)
         {
-            TypeText = text => { _typed.Add(text); return true; },
+            TypeText = (text, _) => { _typed.Add(text); return true; },
             SendCombo = combo => { _keys.Add(string.Join("+", combo)); return true; },
             Focused = () => _focused,
             CheckElevation = true,
@@ -82,7 +82,7 @@ public sealed class DictationTests : IDisposable
     {
         using var cts = new CancellationTokenSource();
         var d = Make(enter: true);
-        d.TypeText = text => { _typed.Add(text); cts.Cancel(); return true; }; // the phone gave up while typing
+        d.TypeText = (text, _) => { _typed.Add(text); cts.Cancel(); return true; }; // the phone gave up while typing
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => d.TypeAsync(null, "p/d", "rm -rf build", cts.Token));
         Assert.Empty(_keys);
     }
@@ -93,7 +93,7 @@ public sealed class DictationTests : IDisposable
         var d = Make();
         var first = new TaskCompletionSource();
         var release = new TaskCompletionSource();
-        d.TypeText = text => { _typed.Add(text); first.TrySetResult(); release.Task.Wait(); return true; };
+        d.TypeText = (text, _) => { _typed.Add(text); first.TrySetResult(); release.Task.Wait(); return true; };
         var running = Task.Run(() => d.TypeAsync(null, "p/d", "one", default));
         await first.Task;
         var waiting = d.TypeAsync(null, "p/d", "two", default);
@@ -117,7 +117,7 @@ public sealed class DictationTests : IDisposable
     public async Task ARefusedTypingIsReported()
     {
         var d = Make();
-        d.TypeText = _ => false;
+        d.TypeText = (_, _) => false;
         Assert.Equal(500, (await d.TypeAsync(null, "p/d", "x", default)).Status);
     }
 }

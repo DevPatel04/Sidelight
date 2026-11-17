@@ -582,8 +582,7 @@
     if (path === '/api/dictate' && method === 'POST') {
       if (panelWidget(await config(), q.get('widget'), 'dictate')?.options?.control !== true)
         return json({ error: 'typing is off: turn on "Type the text on the computer" in the dictation widget\'s settings' }, 403);
-      let text = '';
-      try { text = String(JSON.parse(body).text || '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').trim(); } catch (_) {}
+      const text = String(q.get('text') || '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').trim();
       return text ? json({ ok: true }) : json({ error: 'nothing to type' }, 400);
     }
     // App console: the demo PC always has Photoshop in front; like AppConsole, only enabled pages count

@@ -71,9 +71,12 @@ class Dictation(private val activity: Activity, private val js: (String) -> Unit
     /** Stops listening and delivers what was heard so far, if [id] is the session running. */
     fun stop(id: Int) = main.post { if (id == session) recognizer?.stopListening() }
 
-    /** Drops the session without a result, if [id] is the one running or waiting; 0 = whatever runs (panel paused). */
+    /**
+     * Drops the session without a result, if [id] is the one running or waiting. 0 = whatever runs (the panel paused):
+     * a request waiting for the permission prompt stays, as that prompt itself pauses the panel.
+     */
     fun cancel(id: Int) = main.post {
-        waitingFor?.takeIf { id == 0 || it.id == id }?.let { waitingFor = null; send("error", "cancelled", it.id) }
+        waitingFor?.takeIf { id != 0 && it.id == id }?.let { waitingFor = null; send("error", "cancelled", it.id) }
         if (recognizer != null && (id == 0 || id == session)) { val was = session; end(); send("error", "cancelled", was) }
     }
 
@@ -82,7 +85,12 @@ class Dictation(private val activity: Activity, private val js: (String) -> Unit
         if (!available()) { send("error", "unavailable", request.id); return }
         // "on the phone only" is a promise: only Android 12's on-device recognizer keeps it
         if (request.offline && Build.VERSION.SDK_INT < 31) { send("error", "offline-unsupported", request.id); return }
-        val r = if (request.offline) SpeechRecognizer.createOnDeviceSpeechRecognizer(activity) else SpeechRecognizer.createSpeechRecognizer(activity)
+        val r = try {
+            if (request.offline) SpeechRecognizer.createOnDeviceSpeechRecognizer(activity) else SpeechRecognizer.createSpeechRecognizer(activity)
+        } catch (_: UnsupportedOperationException) {
+            // Android 12+ without an on-device recognizer (isOnDeviceRecognitionAvailable is Android 13)
+            send("error", "offline-unavailable", request.id); return
+        }
         recognizer = r
         session = request.id
         val id = request.id

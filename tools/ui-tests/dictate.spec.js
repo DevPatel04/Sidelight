@@ -36,7 +36,7 @@ async function layout(page, options, { app = true } = {}) {
     window.__posts = [];
     const demo = window.fetch;
     window.fetch = (url, init) => {
-      if (init && init.method === 'POST' && String(url).includes('/dictate')) window.__posts.push([String(url).replace(/^.*\/agent\/api/, ''), init.body]);
+      if (init && init.method === 'POST' && String(url).includes('/dictate')) window.__posts.push([String(url).replace(/^.*\/agent\/api/, ''), init.body ?? null]);
       return demo(url, init);
     };
   });
@@ -47,7 +47,8 @@ test('dictation sends what the phone heard for its own widget', async ({ page })
   await layout(page, { control: true, language: 'tr-TR' });
   await page.locator('.dc-mic').click();
   await expect(page.locator('.dc-text')).toHaveText('hello world');
-  await expect.poll(() => page.evaluate(() => window.__posts)).toEqual([['/dictate?widget=test%2Fdc', JSON.stringify({ text: 'hello world' })]]);
+  // in the query, no body: the app's transport doesn't carry request bodies
+  await expect.poll(() => page.evaluate(() => window.__posts)).toEqual([['/dictate?widget=test%2Fdc&text=hello%20world', null]]);
   await expect(page.locator('.dc-note')).toHaveText('Typed on the computer');
   expect(await page.evaluate(() => window.__listen)).toEqual([{ lang: 'tr-TR', offline: false }]);
   expect(errors).toEqual([]);

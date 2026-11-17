@@ -490,16 +490,11 @@ app.MapPost("/api/ha/test", async (HomeAssistantConfig body) =>
     Results.Json(new { result = await HomeAssistant.TestAsync(body.Url ?? "", body.Token ?? "") }));
 
 // Dictation (widget): text the phone recognized, typed into the app in front (only if that widget allows it).
-app.MapPost("/api/dictate", async (string? widget, HttpRequest req, Dictation dictation, CancellationToken ct) =>
+// The text is in the query: the phone's WebView sees no request bodies, so its transport (USB and Wi-Fi) sends POSTs
+// without one, like every other panel request. Kestrel's 8 KB request line bounds it; request URLs aren't logged.
+app.MapPost("/api/dictate", async (string? widget, string? text, HttpRequest req, Dictation dictation, CancellationToken ct) =>
 {
-    // the longest dictation (2000 characters, JSON-escaped) fits in 16 KB: nothing more is read or parsed
-    var buffer = new byte[16 * 1024 + 1];
-    var read = await req.Body.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, ct);
-    if (read > 16 * 1024) return Results.Json(new { error = "the text is too long" }, statusCode: StatusCodes.Status413PayloadTooLarge);
-    DictateBody? body;
-    try { body = JsonSerializer.Deserialize<DictateBody>(buffer.AsSpan(0, read), DictateBody.Json); }
-    catch (JsonException) { return Results.BadRequest(new { error = "not a dictation" }); }
-    var (status, error) = await dictation.TypeAsync(req.Headers["X-PhoneBox-Device"].ToString(), widget, body?.Text, ct);
+    var (status, error) = await dictation.TypeAsync(req.Headers["X-PhoneBox-Device"].ToString(), widget, text, ct);
     return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
 });
 
@@ -767,8 +762,3 @@ static void AddMonitor<T>(IServiceCollection s) where T : class, IHostedService
 /// <summary>Body of POST /api/pair/claim.</summary>
 internal sealed record PairClaim(string? Code);
 
-/// <summary>POST /api/dictate: the recognized text.</summary>
-internal sealed record DictateBody(string? Text)
-{
-    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-}

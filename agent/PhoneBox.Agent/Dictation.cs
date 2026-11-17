@@ -11,7 +11,7 @@ public sealed class Dictation(ConfigStore config, ILogger<Dictation> log)
     public const string WidgetType = "dictate";
     public const int MaxChars = 2000;
 
-    internal Func<string, bool> TypeText { get; set; } = KeySender.TryTypeText;
+    internal Func<string, CancellationToken, bool> TypeText { get; set; } = KeySender.TryTypeText;
     internal Func<List<string>, bool> SendCombo { get; set; } = KeySender.SendCombo;
     internal Func<FocusedApp?> Focused { get; set; } = AppConsole.FocusedNow;
     internal bool CheckElevation { get; set; } = OperatingSystem.IsWindows();
@@ -47,7 +47,7 @@ public sealed class Dictation(ConfigStore config, ILogger<Dictation> log)
             var enter = w.Bool("enter") == true;
             ct.ThrowIfCancellationRequested();
             // a trailing space keeps the next dictation from running into this one
-            if (!TypeText(enter ? line : line + " ")) return (500, "the computer refused the typing");
+            if (!TypeText(enter ? line : line + " ", ct)) return (500, "the computer refused the typing");
             // a cancelled request never presses Enter: that would send or run what the caller gave up on
             ct.ThrowIfCancellationRequested();
             if (enter && !SendCombo(["enter"])) return (500, "the computer refused the Enter key");

@@ -16,7 +16,7 @@ const ERRORS = {
   '1': 'w.dictate.network', '2': 'w.dictate.network', '4': 'w.dictate.network', '13': 'w.dictate.network',
   '6': 'w.dictate.noMatch', '7': 'w.dictate.noMatch',
   '9': 'w.dictate.permission', permission: 'w.dictate.permission', 'permission-blocked': 'w.dictate.permissionBlocked',
-  unavailable: 'w.dictate.unavailable', 'offline-unsupported': 'w.dictate.offlineUnsupported',
+  unavailable: 'w.dictate.unavailable', 'offline-unsupported': 'w.dictate.offlineUnsupported', 'offline-unavailable': 'w.dictate.network',
 };
 
 W.dictate = {
@@ -33,16 +33,22 @@ W.dictate = {
     let alive = true, session = 0;
     const can = !!(bridge && bridge.listen && bridge.canListen);
     const visible = () => !document.body.classList.contains('night') && pages[curPage] === page && !box.closest('.stack-item:not(.active)');
-    const done = () => { sessions.delete(session); session = 0; mic.classList.remove('on'); };
+    let watch = 0;
+    const done = () => { sessions.delete(session); session = 0; mic.classList.remove('on'); clearInterval(watch); watch = 0; };
+    // update() reaches only widgets near the shown page and stops at night, so a session watches by itself
+    const guard = () => { if (session && !visible()) { bridge.cancelListening(session); done(); say('w.dictate.tap'); } };
     const say = (key) => { note.textContent = key ? t(key) : ''; };
 
     async function send(text) {
       if (o.control !== true) { say('w.dictate.controlOff'); return; }
       const ctl = new AbortController();
       const timer = setTimeout(() => ctl.abort(), 10_000);
+      // in the query: the app's transport sends no request bodies; cut to fit the agent's 8 KB request line
+      let part = text;
+      while (part && encodeURIComponent(part).length > 6000) part = part.slice(0, Math.floor(part.length * 0.9));
       try {
-        const r = await fetch(`${API}/dictate?${wq}`, { method: 'POST', cache: 'no-store', signal: ctl.signal,
-          headers: { ...PANEL_HEADERS, 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+        const r = await fetch(`${API}/dictate?${wq}&text=${encodeURIComponent(part)}`, { method: 'POST', cache: 'no-store', signal: ctl.signal,
+          headers: PANEL_HEADERS });
         if (!r.ok) {
           let error = 'HTTP ' + r.status;
           try { error = (await r.json()).error || error; } catch (_) {}
@@ -77,6 +83,7 @@ W.dictate = {
       session = bridge.listen(String(o.language || '').trim(), o.offline === true) || 0;
       if (!session) return;
       sessions.set(session, onSpeech);
+      watch = setInterval(guard, 500);
       mic.classList.add('on');
       said.textContent = '';
       say('w.dictate.listening');
@@ -88,7 +95,7 @@ W.dictate = {
     return {
       update() {
         // the microphone closes when the widget leaves the screen (another page or card, the night screen)
-        if (session && !visible()) { bridge.cancelListening(session); done(); say('w.dictate.tap'); }
+        guard();
       },
       destroy() {
         alive = false;
