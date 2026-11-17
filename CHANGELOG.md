@@ -18,6 +18,9 @@
   version in #48 by [blx10](https://github.com/blx10).
 
 **Agent**
+- Settings › General › Ping: choose which network adapters the network meters count. With a VPN that tunnels the same
+  traffic, or a driver that reports it twice, the meters showed double; tick only the adapter you use (#190,
+  [h2r2me453](https://github.com/h2r2me453); also a way around #169). None ticked keeps the automatic choice.
 - Windows: the CPU temperature also works on older Intel processors that LibreHardwareMonitor reports only per core
   ("CPU Core #1"…): the hottest core of the CPU is shown when there is no package reading (idea and first version in
   #164, [anandyakshit](https://github.com/anandyakshit)).
