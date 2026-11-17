@@ -41,9 +41,15 @@ public sealed class Dictation(ConfigStore config, ILogger<Dictation> log)
         if (!await _typing.WaitAsync(TimeSpan.FromSeconds(2), ct)) return (429, "still typing the previous text");
         try
         {
+            // the switch can be turned off while this waited for the previous text: decide with the settings of now
+            w = PanelWidgets.Find(config.Get(), deviceId, widget, WidgetType);
+            if (w?.Bool("control") != true) return (403, "typing was turned off");
             var enter = w.Bool("enter") == true;
+            ct.ThrowIfCancellationRequested();
             // a trailing space keeps the next dictation from running into this one
             if (!TypeText(enter ? line : line + " ")) return (500, "the computer refused the typing");
+            // a cancelled request never presses Enter: that would send or run what the caller gave up on
+            ct.ThrowIfCancellationRequested();
             if (enter && !SendCombo(["enter"])) return (500, "the computer refused the Enter key");
             return (200, null);
         }

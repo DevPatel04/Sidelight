@@ -7,15 +7,16 @@ import { W } from '../registry.js';
 // "Type the text on the computer" option is on. The microphone is open only while the button shows it, at most a
 // minute, and never while the widget is out of sight. Nothing is stored.
 
-// The bridge has one recognizer; the widget that started it gets its results.
-let listener = null;
-window.onAndroidSpeech = (kind, text) => { if (listener) listener(kind, text); };
+// Each recognition session has an id from the bridge; its events go to the widget that started it, so one widget's
+// session never ends or answers another's.
+const sessions = new Map();
+window.onAndroidSpeech = (kind, text, id) => { const handler = sessions.get(id); if (handler) handler(kind, text); };
 
 const ERRORS = {
   '1': 'w.dictate.network', '2': 'w.dictate.network', '4': 'w.dictate.network', '13': 'w.dictate.network',
   '6': 'w.dictate.noMatch', '7': 'w.dictate.noMatch',
   '9': 'w.dictate.permission', permission: 'w.dictate.permission', 'permission-blocked': 'w.dictate.permissionBlocked',
-  unavailable: 'w.dictate.unavailable',
+  unavailable: 'w.dictate.unavailable', 'offline-unsupported': 'w.dictate.offlineUnsupported',
 };
 
 W.dictate = {
@@ -29,10 +30,10 @@ W.dictate = {
     const note = h('div', 'dc-note', t('w.dictate.tap'));
     box.append(mic, said, note);
 
-    let alive = true, listening = false;
+    let alive = true, session = 0;
     const can = !!(bridge && bridge.listen && bridge.canListen);
     const visible = () => !document.body.classList.contains('night') && pages[curPage] === page && !box.closest('.stack-item:not(.active)');
-    const set = (on) => { listening = on; mic.classList.toggle('on', on); if (!on && listener === onSpeech) listener = null; };
+    const done = () => { sessions.delete(session); session = 0; mic.classList.remove('on'); };
     const say = (key) => { note.textContent = key ? t(key) : ''; };
 
     async function send(text) {
@@ -58,11 +59,11 @@ W.dictate = {
       if (kind === 'ready') { said.textContent = ''; say('w.dictate.listening'); }
       else if (kind === 'partial') said.textContent = text;
       else if (kind === 'final') {
-        set(false);
+        done();
         said.textContent = text;
         if (text.trim()) send(text); else say('w.dictate.noMatch');
       } else if (kind === 'error') {
-        set(false);
+        done();
         say(text === 'cancelled' ? 'w.dictate.tap' : ERRORS[text] || 'w.dictate.noMatch');
       }
     }
@@ -70,14 +71,15 @@ W.dictate = {
     mic.onclick = () => {
       haptic();
       if (!can) { say('w.dictate.update'); return; }
-      if (listening) { bridge.stopListening(); return; }
+      if (session) { bridge.stopListening(session); return; }
       if (!bridge.canListen()) { say('w.dictate.unavailable'); return; }
-      if (listener && listener !== onSpeech) bridge.cancelListening(); // another dictation widget had it
-      listener = onSpeech;
-      set(true);
+      // a session another widget runs is cancelled by the bridge, and that widget hears so through its own id
+      session = bridge.listen(String(o.language || '').trim(), o.offline === true) || 0;
+      if (!session) return;
+      sessions.set(session, onSpeech);
+      mic.classList.add('on');
       said.textContent = '';
       say('w.dictate.listening');
-      bridge.listen(String(o.language || '').trim(), o.offline === true);
     };
 
     if (!can) say('w.dictate.update');
@@ -86,12 +88,12 @@ W.dictate = {
     return {
       update() {
         // the microphone closes when the widget leaves the screen (another page or card, the night screen)
-        if (listening && !visible()) { bridge.cancelListening(); set(false); say('w.dictate.tap'); }
+        if (session && !visible()) { bridge.cancelListening(session); done(); say('w.dictate.tap'); }
       },
       destroy() {
         alive = false;
-        if (listening) bridge.cancelListening();
-        set(false);
+        if (session) bridge.cancelListening(session);
+        done();
       },
     };
   },

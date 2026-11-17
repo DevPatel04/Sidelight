@@ -240,7 +240,7 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     override fun onPause() {
-        dictation.cancel() // the microphone is never left open behind another app or a dark screen
+        dictation.cancel(0) // the microphone is never left open behind another app or a dark screen
         sensors?.unregisterListener(this)
         stream.stop()
         web.onPause()
@@ -433,18 +433,19 @@ class MainActivity : Activity(), SensorEventListener {
         @JavascriptInterface
         fun canListen(key: String): Boolean = ok(key) && dictation.available()
 
-        /** Dictation widget: listens once ([lang] a BCP 47 tag or ""); results arrive through window.onAndroidSpeech. */
+        /**
+         * Dictation widget: listens once ([lang] a BCP 47 tag or "") and returns the session's id; results arrive
+         * through window.onAndroidSpeech(kind, text, id).
+         */
         @JavascriptInterface
-        fun listen(key: String, lang: String, offline: Boolean) {
-            if (!ok(key)) return
-            dictation.start(lang.take(20).filter { it.isLetterOrDigit() || it == '-' }, offline)
-        }
+        fun listen(key: String, lang: String, offline: Boolean): Int =
+            if (!ok(key)) 0 else dictation.start(lang.take(20).filter { it.isLetterOrDigit() || it == '-' }, offline)
 
         @JavascriptInterface
-        fun stopListening(key: String) { if (ok(key)) dictation.stop() }
+        fun stopListening(key: String, id: Int) { if (ok(key) && id > 0) dictation.stop(id) }
 
         @JavascriptInterface
-        fun cancelListening(key: String) { if (ok(key)) dictation.cancel() }
+        fun cancelListening(key: String, id: Int) { if (ok(key) && id > 0) dictation.cancel(id) }
     }
 
     companion object {

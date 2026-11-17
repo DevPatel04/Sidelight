@@ -78,6 +78,35 @@ public sealed class DictationTests : IDisposable
     }
 
     [Fact]
+    public async Task ACancelledRequestNeverPressesEnter()
+    {
+        using var cts = new CancellationTokenSource();
+        var d = Make(enter: true);
+        d.TypeText = text => { _typed.Add(text); cts.Cancel(); return true; }; // the phone gave up while typing
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => d.TypeAsync(null, "p/d", "rm -rf build", cts.Token));
+        Assert.Empty(_keys);
+    }
+
+    [Fact]
+    public async Task TheSwitchIsReadAgainAfterWaitingForTheTextBefore()
+    {
+        var d = Make();
+        var first = new TaskCompletionSource();
+        var release = new TaskCompletionSource();
+        d.TypeText = text => { _typed.Add(text); first.TrySetResult(); release.Task.Wait(); return true; };
+        var running = Task.Run(() => d.TypeAsync(null, "p/d", "one", default));
+        await first.Task;
+        var waiting = d.TypeAsync(null, "p/d", "two", default);
+        // turned off while the second text waits for the first
+        File.WriteAllText(_path, File.ReadAllText(_path).Replace("\"control\": true", "\"control\": false"));
+        File.SetLastWriteTimeUtc(_path, DateTime.UtcNow.AddMinutes(1));
+        release.SetResult();
+        await running;
+        Assert.Equal(403, (await waiting).Status);
+        Assert.Equal(["one "], _typed);
+    }
+
+    [Fact]
     public async Task LongTextIsCut()
     {
         await Make().TypeAsync(null, "p/d", new string('a', 5000), default);

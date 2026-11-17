@@ -6,16 +6,21 @@ async function layout(page, options, { app = true } = {}) {
   if (app) {
     await page.addInitScript(() => {
       window.__listen = [];
+      window.__cancelled = [];
+      let next = 0;
       window.Android = {
         canListen: () => true,
         listen: (key, lang, offline) => {
+          const id = ++next;
           window.__listen.push({ lang, offline });
-          setTimeout(() => window.onAndroidSpeech('ready', ''), 10);
-          setTimeout(() => window.onAndroidSpeech('partial', 'hello'), 30);
-          setTimeout(() => window.onAndroidSpeech('final', 'hello world'), 60);
+          if (window.__hold) return id; // a session that keeps listening until it is cancelled
+          setTimeout(() => window.onAndroidSpeech('ready', '', id), 10);
+          setTimeout(() => window.onAndroidSpeech('partial', 'hello', id), 30);
+          setTimeout(() => window.onAndroidSpeech('final', 'hello world', id), 60);
+          return id;
         },
         stopListening: () => {},
-        cancelListening: () => { window.__cancelled = (window.__cancelled || 0) + 1; },
+        cancelListening: (key, id) => { window.__cancelled.push(id); setTimeout(() => window.onAndroidSpeech('error', 'cancelled', id), 5); },
       };
     });
   }
@@ -53,6 +58,18 @@ test('dictation without its switch keeps the text on the phone', async ({ page }
   await expect(page.locator('.dc-note')).toContainText('Type the text on the computer');
   await page.locator('.dc-mic').click();
   await expect(page.locator('.dc-text')).toHaveText('hello world');
+  expect(await page.evaluate(() => window.__posts)).toEqual([]);
+});
+
+test('a session from another widget never answers or ends this one', async ({ page }) => {
+  await layout(page, { control: true });
+  await page.evaluate(() => { window.__hold = true; });
+  await page.locator('.dc-mic').click();
+  await expect(page.locator('.dc-mic')).toHaveClass(/on/);
+  // events for an id this widget didn't start (another widget's session) are ignored
+  await page.evaluate(() => { window.onAndroidSpeech('final', 'not mine', 99); window.onAndroidSpeech('error', 'cancelled', 99); });
+  await expect(page.locator('.dc-mic')).toHaveClass(/on/);
+  await expect(page.locator('.dc-text')).toHaveText('');
   expect(await page.evaluate(() => window.__posts)).toEqual([]);
 });
 

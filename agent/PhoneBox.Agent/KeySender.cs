@@ -150,7 +150,6 @@ public static class KeySender
 #else
     public static bool SendCombo(List<string> combo) { Send(combo); return true; }
 
-    public static bool TryTypeText(string text) { TypeText(text); return true; }
 
     private static void Send(List<string> combo)
     {
@@ -179,12 +178,15 @@ public static class KeySender
         throw new InvalidOperationException("sending keys needs xdotool (X11) or wtype (Wayland)");
     }
 
-    public static void TypeText(string text)
+    public static void TypeText(string text) => TryTypeText(text);
+
+    /// <summary>Types the text; false when xdotool or wtype failed (macOS throws when it refuses).</summary>
+    public static bool TryTypeText(string text)
     {
-        if (OperatingSystem.IsMacOS()) { Osa($"tell application \"System Events\" to keystroke \"{text.Replace("\\", "\\\\").Replace("\"", "\\\"")}\""); return; }
-        if (Sh.Which("xdotool") is not null && Environment.GetEnvironmentVariable("WAYLAND_DISPLAY") is null) { Sh.Run("xdotool", "type", "--delay", "8", "--", text); return; }
-        if (Sh.Which("wtype") is not null) { Sh.Run("wtype", "--", text); return; }
-        if (Sh.Which("xdotool") is not null) { Sh.Run("xdotool", "type", "--delay", "8", "--", text); return; }
+        if (OperatingSystem.IsMacOS()) { Osa($"tell application \"System Events\" to keystroke \"{text.Replace("\\", "\\\\").Replace("\"", "\\\"")}\""); return true; }
+        if (Sh.Which("xdotool") is not null && Environment.GetEnvironmentVariable("WAYLAND_DISPLAY") is null) return Sh.Run("xdotool", "type", "--delay", "8", "--", text) is not null;
+        if (Sh.Which("wtype") is not null) return Sh.Run("wtype", "--", text) is not null;
+        if (Sh.Which("xdotool") is not null) return Sh.Run("xdotool", "type", "--delay", "8", "--", text) is not null;
         throw new InvalidOperationException("typing needs xdotool (X11) or wtype (Wayland)");
     }
 

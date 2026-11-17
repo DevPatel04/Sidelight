@@ -490,9 +490,16 @@ app.MapPost("/api/ha/test", async (HomeAssistantConfig body) =>
     Results.Json(new { result = await HomeAssistant.TestAsync(body.Url ?? "", body.Token ?? "") }));
 
 // Dictation (widget): text the phone recognized, typed into the app in front (only if that widget allows it).
-app.MapPost("/api/dictate", async (string? widget, DictateBody body, HttpRequest req, Dictation dictation, CancellationToken ct) =>
+app.MapPost("/api/dictate", async (string? widget, HttpRequest req, Dictation dictation, CancellationToken ct) =>
 {
-    var (status, error) = await dictation.TypeAsync(req.Headers["X-PhoneBox-Device"].ToString(), widget, body.Text, ct);
+    // the longest dictation (2000 characters, JSON-escaped) fits in 16 KB: nothing more is read or parsed
+    var buffer = new byte[16 * 1024 + 1];
+    var read = await req.Body.ReadAtLeastAsync(buffer, buffer.Length, throwOnEndOfStream: false, ct);
+    if (read > 16 * 1024) return Results.Json(new { error = "the text is too long" }, statusCode: StatusCodes.Status413PayloadTooLarge);
+    DictateBody? body;
+    try { body = JsonSerializer.Deserialize<DictateBody>(buffer.AsSpan(0, read), DictateBody.Json); }
+    catch (JsonException) { return Results.BadRequest(new { error = "not a dictation" }); }
+    var (status, error) = await dictation.TypeAsync(req.Headers["X-PhoneBox-Device"].ToString(), widget, body?.Text, ct);
     return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
 });
 
@@ -761,4 +768,7 @@ static void AddMonitor<T>(IServiceCollection s) where T : class, IHostedService
 internal sealed record PairClaim(string? Code);
 
 /// <summary>POST /api/dictate: the recognized text.</summary>
-internal sealed record DictateBody(string? Text);
+internal sealed record DictateBody(string? Text)
+{
+    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+}
