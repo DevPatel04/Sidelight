@@ -302,7 +302,9 @@ test('the page dots and the Allow / Deny buttons can sit at the top (#181)', asy
   await expect(prompt).toBeVisible();
   const allow = await prompt.getByRole('button', { name: 'Allow' }).boundingBox();
   const tool = await page.locator('#apTool').boundingBox();
+  const head = await page.locator('.ap-head').boundingBox();
   expect(allow.y).toBeLessThan(tool.y); // the buttons come before the request
+  expect(head.y).toBeLessThan(allow.y); // and after the header
 });
 
 test('a question from Claude is shown with its choices and left for the terminal', async ({ page }) => {
