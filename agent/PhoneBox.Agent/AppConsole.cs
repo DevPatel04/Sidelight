@@ -171,7 +171,7 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
 #endif
     }
 
-    private static FocusedApp? FocusedNow()
+    internal static FocusedApp? FocusedNow()
     {
 #if WINDOWS
         var hwnd = GetForegroundWindow();

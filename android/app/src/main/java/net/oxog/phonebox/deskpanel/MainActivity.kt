@@ -49,6 +49,7 @@ import org.json.JSONObject
 class MainActivity : Activity(), SensorEventListener {
 
     private lateinit var web: WebView
+    private val dictation by lazy { Dictation(this) { script -> web.evaluateJavascript(script, null) } }
     private lateinit var link: AgentLink
     private lateinit var stream: AgentStream
     @Volatile private var volumeKeysFlipPages = true
@@ -232,7 +233,14 @@ class MainActivity : Activity(), SensorEventListener {
         sensors?.getDefaultSensor(Sensor.TYPE_PROXIMITY)?.let { sensors?.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) }
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == Dictation.PERMISSION_REQUEST)
+            dictation.onPermission(grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
+    }
+
     override fun onPause() {
+        dictation.cancel() // the microphone is never left open behind another app or a dark screen
         sensors?.unregisterListener(this)
         stream.stop()
         web.onPause()
@@ -420,6 +428,23 @@ class MainActivity : Activity(), SensorEventListener {
 
         @JavascriptInterface
         fun version(key: String): String = if (ok(key)) packageManager.getPackageInfo(packageName, 0).versionName ?: "" else ""
+
+        /** Dictation widget: true when the phone has a speech recognizer. */
+        @JavascriptInterface
+        fun canListen(key: String): Boolean = ok(key) && dictation.available()
+
+        /** Dictation widget: listens once ([lang] a BCP 47 tag or ""); results arrive through window.onAndroidSpeech. */
+        @JavascriptInterface
+        fun listen(key: String, lang: String, offline: Boolean) {
+            if (!ok(key)) return
+            dictation.start(lang.take(20).filter { it.isLetterOrDigit() || it == '-' }, offline)
+        }
+
+        @JavascriptInterface
+        fun stopListening(key: String) { if (ok(key)) dictation.stop() }
+
+        @JavascriptInterface
+        fun cancelListening(key: String) { if (ok(key)) dictation.cancel() }
     }
 
     companion object {

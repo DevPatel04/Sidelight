@@ -62,6 +62,7 @@ builder.Services.AddSingleton<CommandRunner>();
 builder.Services.AddSingleton<ApprovalStore>();
 builder.Services.AddSingleton<HomeAssistant>();
 builder.Services.AddSingleton<AppConsole>();
+builder.Services.AddSingleton<Dictation>();
 AddMonitor<SystemMonitor>(builder.Services);
 AddMonitor<MediaMonitor>(builder.Services);
 AddMonitor<QuotaMonitor>(builder.Services);
@@ -488,6 +489,13 @@ app.MapPost("/api/ha/toggle/{id}", async (string id, HomeAssistant ha) =>
 app.MapPost("/api/ha/test", async (HomeAssistantConfig body) =>
     Results.Json(new { result = await HomeAssistant.TestAsync(body.Url ?? "", body.Token ?? "") }));
 
+// Dictation (widget): text the phone recognized, typed into the app in front (only if that widget allows it).
+app.MapPost("/api/dictate", async (string? widget, DictateBody body, HttpRequest req, Dictation dictation, CancellationToken ct) =>
+{
+    var (status, error) = await dictation.TypeAsync(req.Headers["X-PhoneBox-Device"].ToString(), widget, body.Text, ct);
+    return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
+});
+
 // App console (widget): the focused app's profile (labels only) and its keys, by profile id and slot.
 app.MapGet("/api/console", (string? widget, HttpRequest req, AppConsole console) =>
 {
@@ -751,3 +759,6 @@ static void AddMonitor<T>(IServiceCollection s) where T : class, IHostedService
 
 /// <summary>Body of POST /api/pair/claim.</summary>
 internal sealed record PairClaim(string? Code);
+
+/// <summary>POST /api/dictate: the recognized text.</summary>
+internal sealed record DictateBody(string? Text);

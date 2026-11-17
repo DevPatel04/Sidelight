@@ -103,7 +103,10 @@ public static class KeySender
         return SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf<INPUT>()) == inputs.Count;
     }
 
-    public static void TypeText(string text)
+    public static void TypeText(string text) => TryTypeText(text);
+
+    /// <summary>Types the text; false when Windows took none or only part of the input.</summary>
+    public static bool TryTypeText(string text)
     {
         var inputs = new List<INPUT>();
         foreach (var ch in text.Replace("\r\n", "\n"))
@@ -112,7 +115,7 @@ public static class KeySender
             inputs.Add(Unicode(ch, false));
             inputs.Add(Unicode(ch, true));
         }
-        SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf<INPUT>());
+        return SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf<INPUT>()) == inputs.Count;
     }
 
     // arrows, Home/End, Insert/Delete, PageUp/PageDown and the right-hand keys need the "extended" flag
@@ -146,6 +149,8 @@ public static class KeySender
     [StructLayout(LayoutKind.Sequential)] private struct MOUSEINPUT { public int dx, dy; public uint mouseData, dwFlags, time; public nint dwExtraInfo; }
 #else
     public static bool SendCombo(List<string> combo) { Send(combo); return true; }
+
+    public static bool TryTypeText(string text) { TypeText(text); return true; }
 
     private static void Send(List<string> combo)
     {
