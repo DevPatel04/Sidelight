@@ -40,6 +40,7 @@ public class AppRestartTests
 }
 
 /// <summary>#179: no adb while Windows ends the session, and adb again if the shutdown was cancelled.</summary>
+[Collection("adb session")] // not alongside AdbReverseTests: the window is static
 public class SessionEndingTests
 {
     [Fact]
