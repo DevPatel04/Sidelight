@@ -501,6 +501,18 @@ public static class AppRestart
 {
     public static volatile bool Requested;
 
+    /// <summary>Exit code for a restart under a service manager: not 0, so launchd and systemd start the agent again.</summary>
+    public const int ServiceRestartCode = 75;
+
+    /// <summary>
+    /// True when launchd (the setup.sh login item, label net.oxog.phonebox.agent) or systemd started the agent. A copy
+    /// started by the agent itself doesn't survive there: launchd ends the job's whole process group when the agent
+    /// exits, and a clean exit counts as "stopped" (KeepAlive SuccessfulExit=false, Restart=on-failure), so the agent
+    /// stayed down after Restart or a self-update (#182). It exits with <see cref="ServiceRestartCode"/> instead.
+    /// </summary>
+    internal static bool ServiceManaged(Func<string, string?> env) =>
+        env("XPC_SERVICE_NAME") == "net.oxog.phonebox.agent" || !string.IsNullOrEmpty(env("INVOCATION_ID"));
+
     internal static ProcessStartInfo StartInfo(string executable, string[] args)
     {
         var start = new ProcessStartInfo(executable) { UseShellExecute = false, WorkingDirectory = AppContext.BaseDirectory };

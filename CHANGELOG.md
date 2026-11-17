@@ -18,6 +18,15 @@
   version in #48 by [blx10](https://github.com/blx10).
 
 **Agent**
+- Wi-Fi pairing: on a PC whose network goes through a Hyper-V external switch, the pairing link carries the PC's
+  address again instead of an empty host list (#175, #176, [Seyamalam](https://github.com/Seyamalam)).
+- Windows: no "adb.exe - Application Error (0xc0000142)" box at shutdown. The agent no longer starts adb once
+  Windows is ending the session (#179, [bakhus99](https://github.com/bakhus99)).
+- macOS and Linux: Restart and a self-update bring the agent back when it runs as the setup.sh login item (launchd)
+  or a systemd service. It now leaves the restart to the service manager instead of starting a copy that launchd
+  stopped with it (#182, [shobhit-lyzr](https://github.com/shobhit-lyzr)).
+- PRIVACY.md: on macOS the Claude quota reads the token from the login Keychain when
+  `~/.claude/.credentials.json` doesn't exist (#183, [shobhit-lyzr](https://github.com/shobhit-lyzr)).
 - Windows: the CPU temperature also works on older Intel processors that LibreHardwareMonitor reports only per core
   ("CPU Core #1"…): the hottest core of the CPU is shown when there is no package reading (idea and first version in
   #164, [anandyakshit](https://github.com/anandyakshit)).

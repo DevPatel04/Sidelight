@@ -32,9 +32,19 @@ public sealed class AdbReverse(ConfigStore cfg, ILogger<AdbReverse> log, AgentEn
     public string[] AllDevices => _all;
     public event Action? StateChanged;
 
+    /// <summary>
+    /// Set when Windows starts ending the session (shutdown, restart, sign-out). A process started after that point
+    /// can't initialize, and Windows shows "adb.exe - Application Error (0xc0000142)" for it (#179), so no adb is
+    /// started any more.
+    /// </summary>
+    internal static volatile bool SessionEnding;
+
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested)
+#if WINDOWS
+        Microsoft.Win32.SystemEvents.SessionEnding += (_, _) => SessionEnding = true;
+#endif
+        while (!ct.IsCancellationRequested && !SessionEnding)
         {
             try { await Ensure(ct); }
             catch (OperationCanceledException) { return; }
@@ -211,6 +221,7 @@ public sealed class AdbReverse(ConfigStore cfg, ILogger<AdbReverse> log, AgentEn
 
     internal static async Task<string> Adb(string adb, string args, CancellationToken ct, bool anyExit = false)
     {
+        if (SessionEnding) throw new OperationCanceledException("the session is ending");
         var psi = new ProcessStartInfo(adb, args)
         {
             RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true,
