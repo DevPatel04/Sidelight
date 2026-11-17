@@ -173,6 +173,17 @@ public sealed class AppConsoleTests : IDisposable
     }
 
     [Fact]
+    public async Task AnOverlongBindingFromAnOlderFileIsNotSent()
+    {
+        var console = Make();
+        // written by hand (or before the limit): Normalize keeps it, Act refuses it before any key goes out
+        File.WriteAllText(_path, File.ReadAllText(_path).Replace("\"dialLeft\": \"minus\"", $"\"dialLeft\": \"{string.Join(",", Enumerable.Repeat("a", 21))}\""));
+        File.SetLastWriteTimeUtc(_path, DateTime.UtcNow.AddMinutes(1));
+        Assert.Equal(400, (await console.Act(null, "p/c", "ps", "dial-left", 1, default)).Status);
+        Assert.Empty(_sent);
+    }
+
+    [Fact]
     public async Task AFailedKeyPressIsReported()
     {
         var console = Make();

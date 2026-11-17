@@ -114,6 +114,8 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
         List<List<string>> combos;
         try { combos = KeySender.Parse(spec); }
         catch (ArgumentException ex) { return (400, ex.Message); }
+        // also for a binding saved before the limit, or written into the file by hand
+        if (combos.Count > MaxCombos) return (400, $"more than {MaxCombos} key presses; shorten this binding in the app console settings");
         times = slot is "dial-left" or "dial-right" ? Math.Clamp(times, 1, 5) : 1;
 
         if (!await _sending.WaitAsync(TimeSpan.FromSeconds(2), ct)) return (429, "still sending the previous keys");
