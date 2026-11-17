@@ -114,6 +114,8 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
         List<List<string>> combos;
         try { combos = KeySender.Parse(spec); }
         catch (ArgumentException ex) { return (400, ex.Message); }
+        // also for a binding saved before the limit, or written into the file by hand
+        if (combos.Count > MaxCombos) return (400, $"more than {MaxCombos} key presses; shorten this binding in the app console settings");
         times = slot is "dial-left" or "dial-right" ? Math.Clamp(times, 1, 5) : 1;
 
         if (!await _sending.WaitAsync(TimeSpan.FromSeconds(2), ct)) return (429, "still sending the previous keys");
@@ -143,7 +145,8 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
         finally { _sending.Release(); }
     }
 
-    internal const int MaxApps = 300, MaxSpec = 200, MaxProfiles = 30;
+    // MaxCombos: 20 presses x 5 dial clicks x 40 ms plus the 2 s queue wait stay well inside the phone's 20 s deadline
+    internal const int MaxApps = 300, MaxSpec = 200, MaxProfiles = 30, MaxCombos = 20;
 
     /// <summary>Checks a profile's key specs; null when they are all valid.</summary>
     public static string? Validate(ConsoleProfile p)
@@ -156,7 +159,7 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
         {
             if (spec is null) continue;
             if (spec.Length > MaxSpec) return $"App console profile '{p.Label}', {what}: longer than {MaxSpec} characters";
-            try { KeySender.Parse(spec); }
+            try { if (KeySender.Parse(spec).Count > MaxCombos) return $"App console profile '{p.Label}', {what}: more than {MaxCombos} key presses"; }
             catch (ArgumentException ex) { return $"App console profile '{p.Label}', {what}: {ex.Message}"; }
         }
         return null;
