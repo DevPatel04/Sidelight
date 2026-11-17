@@ -287,6 +287,24 @@ test('a Claude Code permission prompt can be answered', async ({ page }) => {
   await expect(prompt).toBeHidden();
 });
 
+test('the page dots and the Allow / Deny buttons can sit at the top (#181)', async ({ page }) => {
+  await page.goto('/panel/');
+  await page.evaluate(() => {
+    const cfg = JSON.parse(localStorage.getItem('pb-demo-config') || '{}');
+    localStorage.setItem('pb-demo-config', JSON.stringify({ ...cfg, night: { enabled: false }, display: { ...(cfg.display || {}), controlsTop: true } }));
+  });
+  await page.reload();
+  await expect(page.locator('body')).toHaveClass(/controls-top/);
+  const dots = await page.locator('#dots').boundingBox();
+  expect(dots.y).toBeLessThan(40);
+  await page.evaluate(() => window.PhoneBoxDemo.ask());
+  const prompt = page.locator('#approval');
+  await expect(prompt).toBeVisible();
+  const allow = await prompt.getByRole('button', { name: 'Allow' }).boundingBox();
+  const tool = await page.locator('#apTool').boundingBox();
+  expect(allow.y).toBeLessThan(tool.y); // the buttons come before the request
+});
+
 test('a question from Claude is shown with its choices and left for the terminal', async ({ page }) => {
   await page.goto('/panel/');
   await expect(page.locator('.w').first()).toBeVisible();
