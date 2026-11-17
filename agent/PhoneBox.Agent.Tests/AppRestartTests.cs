@@ -38,3 +38,27 @@ public class AppRestartTests
     [Fact]
     public void TheRestartCodeIsAFailure() => Assert.NotEqual(0, AppRestart.ServiceRestartCode);
 }
+
+/// <summary>#179: no adb while Windows ends the session, and adb again if the shutdown was cancelled.</summary>
+public class SessionEndingTests
+{
+    [Fact]
+    public void AdbWaitsAMinuteAfterTheSessionStartsEnding()
+    {
+        var now = 1_000_000L;
+        var clock = AdbReverse.Clock;
+        AdbReverse.Clock = () => now;
+        try
+        {
+            Assert.False(AdbReverse.SessionEnding);
+            AdbReverse.MarkSessionEnding();
+            Assert.True(AdbReverse.SessionEnding);
+            now += AdbReverse.EndingWindowMs - 1;
+            Assert.True(AdbReverse.SessionEnding);
+            // still running a minute later: the shutdown was cancelled, adb is allowed again
+            now += 2;
+            Assert.False(AdbReverse.SessionEnding);
+        }
+        finally { AdbReverse.Clock = clock; AdbReverse.ResetSessionEnding(); }
+    }
+}
