@@ -34,6 +34,8 @@ code { font-size: 13px; }
     <p class="muted">“<span id="pc"></span>” at <span id="hosts"></span>. Check that the computer's pairing window shows the code
       <b id="check"></b>, and continue only if you started pairing there.</p>
     <a class="btn primary" id="open" href="#">Open in PhoneBox</a>
+    <p class="muted" id="plainWrap" hidden style="margin-top:10px">Did a store open instead? Some browsers send app links there;
+      <a id="plain" href="#" style="color:var(--accent)">open the pairing link directly</a>.</p>
     <p class="muted" style="margin-top:10px">The pairing code works once, for 5 minutes. If it expired, start pairing again on the computer.</p>
   </div>
 
@@ -76,14 +78,18 @@ code { font-size: 13px; }
   document.getElementById('hosts').textContent = hosts.join(', ') + ' (port ' + port + ')';
   document.getElementById('check').textContent = (p.get('fp').slice(0, 4) + ' ' + p.get('fp').slice(4, 8)).toUpperCase();
   // Chrome on Android opens intent:// links in the app and falls back to the download page when it is not installed;
-  // other browsers get the plain phonebox:// link.
+  // other browsers get the plain phonebox:// link. No package= in the intent: browsers that can't resolve intent://
+  // links send one with a package straight to the Play Store, even with the app installed (#175). On Android the plain
+  // link is offered as well, for those browsers.
   // rebuilt from the checked fields only, so nothing else from the link reaches the intent syntax
   const query = ['v', 'pc', 'fp', 'port', 'h', 'c'].filter((k) => p.has(k)).map((k) => k + '=' + encodeURIComponent(p.get(k))).join('&');
   const android = /Android/i.test(navigator.userAgent);
   const fallback = encodeURIComponent('https://github.com/ersinkoc/phonebox/releases/latest');
   document.getElementById('open').href = android
-    ? `intent://pair?${query}#Intent;scheme=phonebox;package=net.oxog.phonebox.deskpanel;S.browser_fallback_url=${fallback};end`
+    ? `intent://pair?${query}#Intent;scheme=phonebox;S.browser_fallback_url=${fallback};end`
     : `phonebox://pair?${query}`;
+  document.getElementById('plain').href = `phonebox://pair?${query}`;
+  document.getElementById('plainWrap').hidden = !android;
   document.getElementById('ok').hidden = false;
 })();
 </script>

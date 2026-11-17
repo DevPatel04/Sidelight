@@ -25,6 +25,13 @@
   Razer Synapse (#158, [MarsOldboy](https://github.com/MarsOldboy)). Only known Razer products are asked, only for
   the battery and charging state, and the BlackShark V2 Pro headset only while Synapse isn't running.
 
+**Android app**
+- A Quick Settings tile: add PhoneBox in the phone's Edit tiles, and a tap brings the panel to the front (#180,
+  [arrowssuhail-oss](https://github.com/arrowssuhail-oss)).
+- Wi-Fi pairing page: "Open in PhoneBox" no longer names the app's package in its link. Some browsers, common on
+  LineageOS, opened the Play Store for such a link even with the app installed. The page also offers the plain pairing
+  link on Android for those browsers (#175, [hassanxs](https://github.com/hassanxs)).
+
 **Panel**
 - Smart Stack: a rotation interval of 0 turns automatic rotation off, so the stack changes only when you swipe or tap
   a dot; the longest interval is now 10 minutes (#171, [MrKatsuragi](https://github.com/MrKatsuragi)).
