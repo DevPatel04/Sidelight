@@ -28,9 +28,8 @@
 **Android app**
 - A Quick Settings tile: add PhoneBox in the phone's Edit tiles, and a tap brings the panel to the front (#180,
   [arrowssuhail-oss](https://github.com/arrowssuhail-oss)).
-- Wi-Fi pairing page: "Open in PhoneBox" no longer names the app's package in its link. Some browsers, common on
-  LineageOS, opened the Play Store for such a link even with the app installed. The page also offers the plain pairing
-  link on Android for those browsers (#175, [hassanxs](https://github.com/hassanxs)).
+- Wi-Fi pairing page: on Android, when "Open in PhoneBox" opens a store instead of the app (some browsers do that,
+  common on LineageOS), a second link opens the pairing link directly (#175, [hassanxs](https://github.com/hassanxs)).
 
 **Panel**
 - Smart Stack: a rotation interval of 0 turns automatic rotation off, so the stack changes only when you swipe or tap
