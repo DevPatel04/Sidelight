@@ -336,11 +336,12 @@
     ['f5', 'Ten keyboard shortcuts that save an hour a week', 'Tech news', 240],
     ['f6', 'Inside the factory that still makes film cameras', 'Hackaday', 420],
   ].map(([id, title, source, min]) => ({ id, title, source, published: now() - min * 60_000, openable: true }));
-  // "pageId/widgetId", or "pageId/stackId:cardId" for a Smart Stack card (AppConsole.WidgetFor)
-  const consoleWidget = (c, key) => (c.pages || []).filter((p) => p.enabled !== false).flatMap((p) => (p.widgets || []).flatMap((w) =>
+  // "pageId/widgetId", or "pageId/stackId:cardId" for a Smart Stack card (PanelWidgets.Find)
+  const panelWidget = (c, key, type) => (c.pages || []).filter((p) => p.enabled !== false).flatMap((p) => (p.widgets || []).flatMap((w) =>
     [[`${p.id}/${w.id}`, w], ...(w.type === 'stack' ? (w.options?.widgets || []).filter((x) => x.enabled !== false)
       .map((x, i) => [`${p.id}/${w.id}:${x.id || `card-${i}`}`, x]) : [])]))
-    .find(([k, w]) => w.type === 'app-console' && k === key)?.[1];
+    .find(([k, w]) => w.type === type && k === key)?.[1];
+  const consoleWidget = (c, key) => panelWidget(c, key, 'app-console');
   const DEMO_CONSOLE = { id: 'photoshop', label: 'Photoshop', keys: ['Brush', 'Eraser', 'Undo', 'Redo', 'Zoom in', 'Zoom out', 'Fit', 'Save'],
     dial: { left: true, right: true, press: true } };
   const json = (o, status = 200, headers = {}) => new Response(JSON.stringify(o), { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers } });
@@ -576,6 +577,13 @@
     if (path === '/api/apps/open' && method === 'POST') {
       if (!widgets(await config()).some((w) => w.type === 'apps')) return json({ error: 'Add an All apps widget to a page to open apps from the phone' }, 400);
       return DEMO_APPS.some((a) => a.id === q.get('id')) ? json({ ok: true }) : json({ error: 'Unknown app' }, 400);
+    }
+    // Dictation: the demo PC "types" the text if that widget allows it (Dictation.TypeAsync)
+    if (path === '/api/dictate' && method === 'POST') {
+      if (panelWidget(await config(), q.get('widget'), 'dictate')?.options?.control !== true)
+        return json({ error: 'typing is off: turn on "Type the text on the computer" in the dictation widget\'s settings' }, 403);
+      const text = String(q.get('text') || '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').trim();
+      return text ? json({ ok: true }) : json({ error: 'nothing to type' }, 400);
     }
     // App console: the demo PC always has Photoshop in front; like AppConsole, only enabled pages count
     if (path === '/api/console') {

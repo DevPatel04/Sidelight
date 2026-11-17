@@ -3,6 +3,14 @@
 ## Unreleased
 
 **New widget**
+- **Dictation**: tap the microphone and speak, and the text is typed into the app in front on the PC. The phone's own
+  speech recognizer does the listening (on most phones Google's, which may use its servers; the widget's "Recognize on
+  the phone only" option uses Android 12's on-device recognizer, which keeps the audio on the phone, and refuses on
+  older Android instead of falling back). The app asks for the
+  microphone the first time the button is tapped, listens for at most a minute and never while the widget is out of
+  sight. The agent types only for a widget whose "Type the text on the computer" option is on, turns line breaks into
+  spaces so nothing is sent or run by accident, and presses Enter only with the widget's "Press Enter after the text"
+  option. Windows, macOS and Linux (xdotool or wtype). Idea and first version in #51 by [blx10](https://github.com/blx10).
 - **Photo frame**: a slideshow of the photos in a folder on the PC; a synced OneDrive, Dropbox or iCloud folder works too
   (photos only in the cloud are skipped). Choose the folder in Settings › General. On Windows and macOS the agent
   scales large JPEG and PNG photos down before they go to the phone; other photos go as they are up to 6 MB, and
