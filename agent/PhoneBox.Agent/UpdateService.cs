@@ -510,8 +510,30 @@ public static class AppRestart
     /// exits, and a clean exit counts as "stopped" (KeepAlive SuccessfulExit=false, Restart=on-failure), so the agent
     /// stayed down after Restart or a self-update (#182). It exits with <see cref="ServiceRestartCode"/> instead.
     /// </summary>
-    internal static bool ServiceManaged(Func<string, string?> env) =>
-        env("XPC_SERVICE_NAME") == "net.oxog.phonebox.agent" || !string.IsNullOrEmpty(env("INVOCATION_ID"));
+    /// <remarks>
+    /// INVOCATION_ID alone isn't proof: every process of a unit inherits it, a shell or terminal started from one too.
+    /// The agent counts as the service only when systemd started it itself: SYSTEMD_EXEC_PID (systemd 248+) is its own
+    /// pid, or on an older systemd its parent process is systemd.
+    /// </remarks>
+    internal static bool ServiceManaged(Func<string, string?> env, int pid, Func<string?> parentName) =>
+        env("XPC_SERVICE_NAME") == "net.oxog.phonebox.agent"
+        || (!string.IsNullOrEmpty(env("INVOCATION_ID")) && (env("SYSTEMD_EXEC_PID") is { Length: > 0 } exec
+            ? exec == pid.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : parentName() == "systemd"));
+
+    /// <summary>Linux: the parent process's name from /proc; null elsewhere or when it can't be read.</summary>
+    internal static string? ParentName()
+    {
+        if (!OperatingSystem.IsLinux()) return null;
+        try
+        {
+            // /proc/self/stat: "pid (comm) state ppid ..."; comm may hold spaces and parentheses, so read after the last ')'
+            var stat = File.ReadAllText("/proc/self/stat");
+            var fields = stat[(stat.LastIndexOf(')') + 2)..].Split(' ');
+            return File.ReadAllText($"/proc/{int.Parse(fields[1], System.Globalization.CultureInfo.InvariantCulture)}/comm").Trim();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or IndexOutOfRangeException or ArgumentOutOfRangeException) { return null; }
+    }
 
     internal static ProcessStartInfo StartInfo(string executable, string[] args)
     {

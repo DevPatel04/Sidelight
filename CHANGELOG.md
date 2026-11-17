@@ -25,7 +25,7 @@
 - macOS and Linux: Restart and a self-update bring the agent back when it runs as the setup.sh login item (launchd)
   or a systemd service. It now leaves the restart to the service manager instead of starting a copy that launchd
   stopped with it (#182, [shobhit-lyzr](https://github.com/shobhit-lyzr)).
-- PRIVACY.md: on macOS the Claude quota reads the token from the login Keychain when
+- PRIVACY.md: on macOS the Claude quota reads the token from the Keychain (the default search list, normally the login Keychain) when
   `~/.claude/.credentials.json` doesn't exist (#183, [shobhit-lyzr](https://github.com/shobhit-lyzr)).
 - Windows: the CPU temperature also works on older Intel processors that LibreHardwareMonitor reports only per core
   ("CPU Core #1"…): the hottest core of the CPU is shown when there is no package reading (idea and first version in

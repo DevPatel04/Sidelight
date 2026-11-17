@@ -742,7 +742,7 @@ single.ReleaseMutex();
 single.Dispose();
 if (AppRestart.Requested && Environment.ProcessPath is { } exe)
 {
-    if (AppRestart.ServiceManaged(Environment.GetEnvironmentVariable)) Environment.ExitCode = AppRestart.ServiceRestartCode;
+    if (AppRestart.ServiceManaged(Environment.GetEnvironmentVariable, Environment.ProcessId, AppRestart.ParentName)) Environment.ExitCode = AppRestart.ServiceRestartCode;
     else System.Diagnostics.Process.Start(AppRestart.StartInfo(exe, args));
 }
 
