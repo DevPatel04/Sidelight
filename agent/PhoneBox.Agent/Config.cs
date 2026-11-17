@@ -180,7 +180,15 @@ public sealed class UpdateConfig
 {
     /// <summary>Install new GitHub releases automatically (phone app over USB, agent in place).</summary>
     public bool Auto { get; set; } = true;
-    public string Repo { get; set; } = "ersinkoc/phonebox";
+    public string Repo { get; set; } = DefaultRepo;
+    /// <summary>
+    /// "stable" installs releases built from main; "test" also takes the pre-releases that release.yml builds from the
+    /// test branch, so testers get each pushed change while everyone else waits for a release.
+    /// </summary>
+    public string Channel { get; set; } = "stable";
+
+    public const string DefaultRepo = "DevPatel04/phonebox";
+    public static readonly string[] Channels = ["stable", "test"];
 }
 
 public sealed class ClaudeConfig
@@ -513,7 +521,9 @@ public sealed partial class ConfigStore(string path)
         c.Antigravity.TimeoutSec = Math.Clamp(c.Antigravity.TimeoutSec, 10, 3600);
         c.Cursor ??= new();
         c.Cursor.TimeoutSec = Math.Clamp(c.Cursor.TimeoutSec, 10, 3600);
-        if (string.IsNullOrWhiteSpace(c.Updates.Repo)) c.Updates.Repo = "ersinkoc/phonebox";
+        // the repo goes into the GitHub API URL the updater calls, so only "owner/name" is accepted
+        if (c.Updates.Repo is null || !RepoName().IsMatch(c.Updates.Repo)) c.Updates.Repo = UpdateConfig.DefaultRepo;
+        if (!UpdateConfig.Channels.Contains(c.Updates.Channel)) c.Updates.Channel = "stable";
         c.Lan.Port = Math.Clamp(c.Lan.Port, 1024, 65535);
         if (string.IsNullOrWhiteSpace(c.Lan.Token)) c.Lan.Token = NewToken();
         if (string.IsNullOrWhiteSpace(c.Lan.WebhookToken)) c.Lan.WebhookToken = NewToken();
@@ -739,6 +749,9 @@ public sealed partial class ConfigStore(string path)
 
     [GeneratedRegex(@"^([01]\d|2[0-3]):[0-5]\d$")]
     private static partial Regex HhMm();
+
+    [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\.+$)[A-Za-z0-9._-]{1,100}$")]
+    private static partial Regex RepoName();
 }
 
 public sealed class CodexBarConfig

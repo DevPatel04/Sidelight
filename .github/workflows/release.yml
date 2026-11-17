@@ -6,7 +6,14 @@ name: release
 # The APK must be signed with the same key as the app already on the phones, or Android refuses the update. Add the
 # key as repository secrets: PHONEBOX_KEYSTORE_BASE64 (base64 of the .jks / .keystore file), PHONEBOX_STORE_PASSWORD,
 # PHONEBOX_KEY_ALIAS and PHONEBOX_KEY_PASSWORD. Without them the workflow stops before publishing anything.
+#
+# Every push to the test branch also runs it and publishes a pre-release numbered <version>.<run> (0.9.14.57) for
+# agents on the "test" update channel. Those sort after the release they build on and before the next one, keep the
+# APK's versionCode (so adb installs them over the release and the next release over them), and never touch the
+# Scoop/winget manifests.
 on:
+  push:
+    branches: [test]
   workflow_dispatch:
     inputs:
       draft:
@@ -37,6 +44,7 @@ jobs:
         run: |
           v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' agent/PhoneBox.Agent/PhoneBox.Agent.csproj | head -n1)
           grep -q "versionName = \"$v\"" android/app/build.gradle.kts || { echo "::error::android versionName does not match $v"; exit 1; }
+          if [ "$GITHUB_REF" = refs/heads/test ]; then v="$v.$GITHUB_RUN_NUMBER"; fi
           if git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null; then echo "::error::v$v is already released; bump the version first"; exit 1; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: Check release metadata
@@ -67,6 +75,8 @@ jobs:
           PHONEBOX_KEY_PASSWORD: ${{ secrets.PHONEBOX_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
+          # a test build's version (0.9.14.57) only exists here, so the app reports it to the agent's updater
+          sed -i 's/versionName = "[^"]*"/versionName = "${{ needs.version.outputs.version }}"/' app/build.gradle.kts
           ./gradlew assembleRelease --console=plain
           mkdir -p ../dist
           cp app/build/outputs/apk/release/app-release.apk "../dist/PhoneBox-${{ needs.version.outputs.version }}.apk"
@@ -103,7 +113,7 @@ jobs:
       # compressed bundle costs about 90 MB more memory in a process that runs all day); native libraries stay
       # loose next to the exe instead of being extracted to the temp folder at run time.
       - name: Publish (self-contained, single file)
-        run: dotnet publish agent/PhoneBox.Agent -c Release -f ${{ matrix.tfm }} -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true -o out --nologo
+        run: dotnet publish agent/PhoneBox.Agent -c Release -f ${{ matrix.tfm }} -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true -p:Version=${{ needs.version.outputs.version }} -o out --nologo
       - name: Sign macOS apphost ad hoc
         if: startsWith(matrix.rid, 'osx-')
         run: codesign --force --sign - out/PhoneBoxAgent
@@ -175,6 +185,7 @@ jobs:
           section "$v" > notes.md
           [ -s notes.md ] || section Unreleased > notes.md
           [ -s notes.md ] || echo "PhoneBox $v" > notes.md
+          if [ "$GITHUB_REF" = refs/heads/test ]; then printf 'Test build from the test branch (%s). Installed only by agents on the Testing update channel.\n' "${GITHUB_SHA::7}" > notes.md; fi
           cat >> notes.md <<'EOF'
 
           ---
@@ -185,10 +196,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           v="${{ needs.version.outputs.version }}"
-          gh release create "v$v" dist/* --title "PhoneBox $v" --notes-file notes.md --target "${{ github.sha }}" ${{ inputs.draft && '--draft' || '' }}
+          gh release create "v$v" dist/* --title "PhoneBox $v" --notes-file notes.md --target "${{ github.sha }}" ${{ inputs.draft && '--draft' || '' }} ${{ github.ref == 'refs/heads/test' && '--prerelease --latest=false' || '' }}
       # a draft's downloads are not public yet, so the package manifests follow only published releases
       - name: Update the Scoop bucket and the winget manifests
-        if: ${{ !inputs.draft }}
+        if: ${{ !inputs.draft && github.ref != 'refs/heads/test' }}
         run: |
           v="${{ needs.version.outputs.version }}"
           sha=$(sha256sum "dist/PhoneBoxAgent-$v-win-x64.zip" | cut -d' ' -f1)
