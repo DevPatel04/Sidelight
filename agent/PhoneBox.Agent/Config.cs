@@ -95,6 +95,12 @@ public sealed class PingConfig
 {
     /// <summary>Host or IP address pinged every 5 s for the ping metric and the "ping high" rule; empty = off.</summary>
     public string? Host { get; set; } = PingMonitor.DefaultHost;
+    /// <summary>
+    /// Network adapters (their names, as Windows or the OS shows them) whose traffic the network meters add up. Empty =
+    /// automatic: the connected Ethernet and Wi-Fi adapters, without virtual ones. With a VPN that tunnels the same
+    /// traffic, or a driver that reports it twice, picking the one adapter gives the real rate (#190, #169).
+    /// </summary>
+    public List<string> Adapters { get; set; } = [];
 }
 
 public sealed class NightConfig
@@ -511,6 +517,8 @@ public sealed partial class ConfigStore(string path)
         }
         c.Phones = (c.Phones ?? []).Where(p => p is not null && !string.IsNullOrWhiteSpace(p.Id)).GroupBy(p => p.Id).Select(g => g.First()).Take(20).ToList();
         foreach (var ph in c.Phones) { ph.Name = ph.Name?.Trim() ?? ""; if (ph.Pages is { Count: 0 }) ph.Pages = null; }
+        c.Ping ??= new();
+        c.Ping.Adapters = (c.Ping.Adapters ?? []).Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Take(16).ToList();
         c.Obs ??= new();
         c.Discord ??= new();
         c.Discord.ClientId = string.IsNullOrWhiteSpace(c.Discord.ClientId) ? null : c.Discord.ClientId.Trim();
