@@ -3,7 +3,7 @@ const { test, expect } = require('@playwright/test');
 // #239: the line next to "Pair a phone over Wi-Fi" said "Off" right after the switch was turned on, so it looked as if
 // turning it on had not worked; it needs Save and a restart, and the line says so as soon as the switch moves.
 test('the Wi-Fi status line follows the switch before it is saved', async ({ page }) => {
-  await page.goto('/settings/#general');
+  await page.goto('/settings/#connection');
   const status = page.locator('#lanStatus');
   const toggle = page.locator('[data-bind="lan.enabled"]');
   const flip = () => page.locator('label.switch', { has: toggle }).click(); // the input itself is hidden behind the switch
