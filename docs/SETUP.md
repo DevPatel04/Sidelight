@@ -11,16 +11,16 @@
 **Windows 10/11**: open PowerShell (a normal window, not *Run as administrator*) and paste:
 
 ```powershell
-irm https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.ps1 | iex
+irm https://raw.githubusercontent.com/DevPatel04/phonebox/main/setup.ps1 | iex
 ```
 
 **Linux and macOS**: open a terminal and paste (run it as yourself, not with `sudo`):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DevPatel04/phonebox/main/setup.sh | bash
 ```
 
-Setup installs the [latest release](https://github.com/ersinkoc/phonebox/releases/latest) and anything missing:
+Setup installs the [latest release](https://github.com/DevPatel04/phonebox/releases/latest) and anything missing:
 
 1. **Checks the computer**: Windows x64; Linux x64 / ARM64 with glibc; macOS on Apple silicon or Intel.
 2. **Downloads and checks the agent**: the download must match the release's SHA-256 checksums. With the
@@ -65,11 +65,11 @@ and changes nothing.
 To pass options:
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.ps1))) -NoPhone
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/DevPatel04/phonebox/main/setup.ps1))) -NoPhone
 ```
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.sh | bash -s -- --no-phone
+curl -fsSL https://raw.githubusercontent.com/DevPatel04/phonebox/main/setup.sh | bash -s -- --no-phone
 ```
 
 </details>
@@ -78,12 +78,12 @@ curl -fsSL https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.sh | b
 
 - **The Windows agent is not code-signed yet.** The [SignPath Foundation](../README.md#code-signing-policy) application is pending.
   Windows SmartScreen or an antivirus may warn about a new, unsigned program, and some antivirus engines have flagged
-  it ([#69](https://github.com/ersinkoc/phonebox/issues/69)). Setup only installs a file that matches the release
+  it ([#69](https://github.com/DevPatel04/phonebox/issues/69)). Setup only installs a file that matches the release
   checksum. If your antivirus removes `PhoneBoxAgent.exe`, setup says so; restore it from quarantine or report it.
 - **Smart App Control** (Windows 11) blocks programs that are neither signed nor known to Microsoft. The agent is
-  not code-signed yet (signing through SignPath Foundation is pending, [#56](https://github.com/ersinkoc/phonebox/issues/56)),
+  not code-signed yet (signing through SignPath Foundation is pending, [#56](https://github.com/DevPatel04/phonebox/issues/56)),
   so with Smart App Control on, Windows refuses to start it: "An Application Control policy has blocked this file"
-  ([#69](https://github.com/ersinkoc/phonebox/issues/69)). Setup warns you first, still installs it, and explains
+  ([#69](https://github.com/DevPatel04/phonebox/issues/69)). Setup warns you first, still installs it, and explains
   if Windows blocks it. Please keep Smart App Control on: on older Windows builds it cannot be turned back on without
   resetting Windows. In evaluation mode it blocks nothing yet. On a work or school computer, an AppLocker or group
   policy can block the agent too; its administrator can allow it.
@@ -109,7 +109,7 @@ curl -fsSL https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.sh | b
 ### 2. Connect the phone
 
 - **Over USB** (recommended): it wakes the phone on plug-in, updates the app and falls back to USB when Wi-Fi drops.
-  The phone needs Android 7.0 or later with USB debugging turned on:
+  The phone needs Android 5.0 or later (Android 6 or later recommended) with USB debugging turned on:
   1. *Settings › About phone*: tap *Build number* seven times.
   2. *Developer options*: turn on *USB debugging*. On Xiaomi, Redmi and POCO, also turn on *Install via USB*.
   3. Plug the phone in with a data cable and answer *Allow USB debugging?* with *Allow*.
@@ -117,7 +117,7 @@ curl -fsSL https://raw.githubusercontent.com/ersinkoc/phonebox/main/setup.sh | b
   Setup installs the app, or use *Settings › General › Install the phone app* later. Then the phone wakes up and
   opens the panel whenever it is plugged in.
 - **Over Wi-Fi only**, with no developer options or adb: install the APK from the
-  [release page](https://github.com/ersinkoc/phonebox/releases/latest) on the phone. Then on the computer turn on
+  [release page](https://github.com/DevPatel04/phonebox/releases/latest) on the phone. Then on the computer turn on
   *Settings › General › Wi-Fi & Tailscale*, click **Pair a phone over Wi-Fi** and scan the QR code (see
   [Wi-Fi & Tailscale](#wi-fi--tailscale)).
 
@@ -125,40 +125,40 @@ The settings are at <http://127.0.0.1:8765>, on Windows also from the tray icon.
 
 ### Other ways to install
 
-- **Manual download**: the [release](https://github.com/ersinkoc/phonebox/releases/latest) has the signed Android
+- **Manual download**: the [release](https://github.com/DevPatel04/phonebox/releases/latest) has the signed Android
   APK and agents for Windows x64, Linux x64/ARM64 and macOS Apple silicon/Intel, with SHA-256 checksums and build
   provenance. Unzip the agent and run it. It can update itself only from the install folder in the table above.
 - **Scoop** (Windows), which can then put the app on the phone from *Settings › General › Install the phone app*:
 
   ```powershell
-  scoop bucket add phonebox https://github.com/ersinkoc/phonebox
+  scoop bucket add phonebox https://github.com/DevPatel04/phonebox
   scoop install main/adb phonebox/phonebox
   ```
 
-- **winget**: a package (`ersinkoc.PhoneBox`) is prepared in [`packaging/winget`](../packaging/winget) for
-  winget-pkgs. Once it is accepted, `winget install ersinkoc.PhoneBox` will install it.
+- **winget**: a package (`DevPatel04.PhoneBox`) is prepared in [`packaging/winget`](../packaging/winget) for
+  winget-pkgs. Once it is accepted, `winget install DevPatel04.PhoneBox` will install it.
 - **From source** (for development): needs the [.NET 10 SDK](https://dotnet.microsoft.com/download) and `adb`. To build
   the phone app it also needs **JDK 17** and **Android SDK Platform 35** (for example through Android Studio), with
   `JAVA_HOME` set and `ANDROID_HOME` or `android/local.properties` (`sdk.dir`) pointing at the SDK.
 
   ```powershell
-  git clone https://github.com/ersinkoc/phonebox; cd phonebox
+  git clone https://github.com/DevPatel04/phonebox; cd phonebox
   .\scripts\install.ps1 -Apk -Autostart   # add -Serial <id> with several devices; -BuildApk always rebuilds the app
   ```
 
   ```sh
-  git clone https://github.com/ersinkoc/phonebox && cd phonebox
+  git clone https://github.com/DevPatel04/phonebox && cd phonebox
   ./scripts/install.sh --apk --autostart  # systemd user service (Linux) or launchd agent (macOS)
   ```
 
 ### Uninstall
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/ersinkoc/phonebox/main/scripts/uninstall.ps1))) # add -Purge -Apk
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/DevPatel04/phonebox/main/scripts/uninstall.ps1))) # add -Purge -Apk
 ```
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ersinkoc/phonebox/main/scripts/uninstall.sh | bash -s --   # add --purge --apk
+curl -fsSL https://raw.githubusercontent.com/DevPatel04/phonebox/main/scripts/uninstall.sh | bash -s --   # add --purge --apk
 ```
 
 Without options it removes the program and the start-at-login entry and keeps the settings. `-Purge` / `--purge` also
@@ -172,7 +172,7 @@ deletes the settings, and `-Apk` / `--apk` removes the app from the connected ph
 |---|---|---|---|
 | CPU, RAM, network, disks, ping | ✓ | ✓ | ✓ |
 | CPU temperature | LibreHardwareMonitor | ✓ (hwmon) | — |
-| GPU load, VRAM, temperature | Any vendor (Windows GPU counters); NVIDIA adds power, fan and clocks (`nvidia-smi`), AMD / Intel add them with LibreHardwareMonitor | NVIDIA (`nvidia-smi`), AMD (`amdgpu` sysfs), Intel (clock) | Apple silicon (`ioreg`) |
+| GPU load, VRAM, temperature | Any vendor (Windows GPU counters); NVIDIA adds power, fan and clocks (`nvidia-smi`), AMD / Intel add them with LibreHardwareMonitor | NVIDIA (`nvidia-smi`), AMD (`amdgpu` sysfs), Intel (`i915` / `xe`: load and clock) | Apple silicon (`ioreg`) |
 | Now playing + controls | ✓ (any app) | ✓ (MPRIS via `playerctl`) | System media, including browser video, with `nowplaying-cli`; Spotify and Music fallback |
 | Volume | ✓ | ✓ (`wpctl` / `pactl`) | ✓ |
 | Processes, end one / all | ✓ | ✓ (your own) | ✓ (your own) |
@@ -214,8 +214,15 @@ and may differ slightly in older ones.
 
 ## Wi-Fi & Tailscale
 
-Turn on **Settings › General › Wi-Fi & Tailscale** and restart the agent when asked. Then pair the phone in one
-of two ways:
+Wi-Fi is off by default. To turn it on:
+
+1. Open the settings page on the PC: click the tray icon, or go to `http://127.0.0.1:8765` in a browser.
+2. In **General**, scroll down to **Wi-Fi & Tailscale** and turn on **Let the phone connect without the USB cable**.
+3. Click **Save**, then **Restart to apply** at the top of the page. The line next to **Pair a phone over Wi-Fi**
+   says "Listening on port 8766" once it works.
+4. Allow PhoneBox through the firewall when Windows asks.
+
+Then pair the phone in one of two ways:
 
 - **Without a cable:** click **Pair a phone over Wi-Fi**. The window shows a QR code that downloads the app and one
   that pairs. Scan the second with the phone's camera, open the link and tap **Open in PhoneBox**; the phone asks you
@@ -267,8 +274,17 @@ cable, or a port straight on the computer instead of a hub or a front-panel port
 
 <details><summary><b>Some widgets show "—" or "No data".</b></summary>
 
-GPU values come from Windows itself (the temperature, as in Task Manager, needs Windows 10 2004 or later and a WDDM 2.4 driver), `nvidia-smi` for NVIDIA cards, `amdgpu` sysfs on Linux, or IORegistry on Apple silicon. The GPU hot spot and an AMD or Intel card's watts, fan and clocks need LibreHardwareMonitor. CPU temperature needs LibreHardwareMonitor's web server on port 8085,
+GPU values come from Windows itself (the temperature, as in Task Manager, needs Windows 10 2004 or later and a WDDM 2.4 driver), `nvidia-smi` for NVIDIA cards, `amdgpu` sysfs on Linux, an Intel card's DRM usage counters on Linux, or IORegistry on Apple Silicon. An Intel card's load on Linux needs a kernel whose driver exposes busy counters in fdinfo (`i915` from kernel 5.19, `xe`); a card whose programs never report them shows no load. A program that starts using the GPU is picked up within about 30 seconds and counts from the reading after that, and programs of other users are counted only when Linux lets the agent read them (normally as root or with `CAP_SYS_PTRACE`). The GPU hot spot and an AMD or Intel card's watts, fan and clocks need LibreHardwareMonitor. CPU temperature needs LibreHardwareMonitor's web server on port 8085,
 GitHub needs `gh auth login`, quotas and sessions need Claude Code / Codex to have been used on this PC.
+</details>
+
+<details><summary><b>On Android 5 or 6, the weather says "Weather unavailable".</b></summary>
+
+The weather and air quality come straight from Open-Meteo over HTTPS, and Android before 7.1.1 doesn't trust the
+certificate authority its certificate chains to (Let's Encrypt's ISRG Root X1). Download `isrgrootx1.pem` from
+[letsencrypt.org/certificates](https://letsencrypt.org/certificates/), rename it to `isrgrootx1.crt`, and install it
+under **Settings › Security › Install from device storage**. The panel itself talks to the computer and is not
+affected. Thanks to [phongnguyen2277](https://github.com/phongnguyen2277) for finding this (#184).
 </details>
 
 <details><summary><b>I want the volume keys to change the phone's volume.</b></summary>

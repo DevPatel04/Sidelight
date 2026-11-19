@@ -45,6 +45,70 @@ public class ConfigTests
         Assert.Null(c.Pages[0].Template);
     }
 
+    [Theory]
+    [InlineData("Desk / Live", "desk-live")]
+    [InlineData("Desk + Live", "desk-live-2")]
+    [InlineData("kitchen", "kitchen")]
+    public void PageReferencesFollowIdNormalizationOnSaveAndReload(string reference, string expectedId)
+    {
+        var directory = Directory.CreateTempSubdirectory("phonebox-page-references-");
+        try
+        {
+            var path = Path.Combine(directory.FullName, "config.json");
+            var json = JsonSerializer.Serialize(new
+            {
+                pages = new[] { new { id = "Desk / Live" }, new { id = "Desk + Live" }, new { id = "kitchen" } },
+                display = new { homePage = reference },
+                phones = new[] { new { id = "desk", pages = new[] { reference } } },
+                rules = new[] { new { when = "time", then = "goto", page = reference } },
+            });
+            var store = new ConfigStore(path);
+            Assert.Null(store.Save(json));
+
+            foreach (var config in new[] { store.Get(), new ConfigStore(path).Get() })
+            {
+                Assert.Equal(["desk-live", "desk-live-2", "kitchen"], config.Pages.Select(p => p.Id));
+                var actual = (Home: config.Display.HomePage, Phone: string.Join(",", config.PagesFor("desk").Select(p => p.Id)),
+                    Rule: Assert.Single(config.Rules).Page);
+                Assert.Equal((expectedId, expectedId, expectedId), actual);
+            }
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
+    [Fact]
+    public void ANewTemplateCannotTakeAnExistingPagesId()
+    {
+        var config = Load("""
+            {
+              "pages": [
+                { "template": "music" },
+                { "id": "music", "title": "Existing music page" }
+              ]
+            }
+            """);
+
+        Assert.Equal(["music-2", "music"], config.Pages.Select(p => p.Id));
+    }
+
+    [Fact]
+    public void ANewWidgetCannotTakeAnExistingWidgetsPersistenceKey()
+    {
+        var config = Load("""
+            {
+              "pages": [{
+                "id": "desk",
+                "widgets": [
+                  { "type": "timer" },
+                  { "type": "timer", "id": "timer" }
+                ]
+              }]
+            }
+            """);
+
+        Assert.Equal(["timer-2", "timer"], Assert.Single(config.Pages).Widgets!.Select(w => w.Id));
+    }
+
     [Fact]
     public void TurkishCapitalDottedIKeepsItsLetterInIds()
     {
@@ -58,6 +122,62 @@ public class ConfigTests
         Assert.Equal(["izmir", "is-akisi"], c.Pages.Select(p => p.Id));
         Assert.Equal("indir", c.Shortcuts.Single().Id);
         Assert.Equal("ikindi", c.Rules.Single().Id);
+    }
+
+    [Fact]
+    public void ANewShortcutNeverReusesAJustDeletedOnesId()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"phonebox-config-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new ConfigStore(path);
+            Assert.Null(store.Save("""{ "shortcuts": [ { "label": "Terminal", "cmd": "cmd.exe" } ] }"""));
+            Assert.Equal("terminal", store.Get().Shortcuts.Single().Id);
+
+            Assert.Null(store.Save("""{ "shortcuts": [ { "label": "Terminal", "cmd": "wt.exe" } ] }"""));
+            Assert.Equal("terminal-2", store.Get().Shortcuts.Single().Id);
+        }
+        finally { File.Delete(path); File.Delete(path + ".bak"); }
+    }
+
+    [Fact]
+    public void AStaleIdRejectedForANewShortcutDoesNotStealAKeptShortcutsId()
+    {
+        // A new shortcut's rejected (stale) candidate id must not occupy "used", or processing it before a kept
+        // shortcut that still owns that exact id would bump the kept one to an unrelated id instead.
+        var path = Path.Combine(Path.GetTempPath(), $"phonebox-config-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new ConfigStore(path);
+            Assert.Null(store.Save("""{ "shortcuts": [ { "label": "Terminal", "cmd": "a.exe" }, { "label": "Terminal", "cmd": "b.exe" } ] }"""));
+            Assert.Equal(["terminal", "terminal-2"], store.Get().Shortcuts.Select(s => s.Id));
+
+            // "terminal" is deleted; a brand-new "Terminal" (no id, listed first) must not end up claiming
+            // "terminal-2" ahead of the shortcut that explicitly keeps it.
+            Assert.Null(store.Save("""{ "shortcuts": [ { "label": "Terminal", "cmd": "c.exe" }, { "id": "terminal-2", "label": "Terminal", "cmd": "b.exe" } ] }"""));
+            Assert.Equal(["terminal-3", "terminal-2"], store.Get().Shortcuts.Select(s => s.Id));
+        }
+        finally { File.Delete(path); File.Delete(path + ".bak"); }
+    }
+
+    [Fact]
+    public void ABlankIdShortcutListedFirstDoesNotStealAnExplicitIdListedAfterIt()
+    {
+        // Explicit ids are reserved in a first pass before any blank-id shortcut is assigned one, so list order
+        // cannot let a brand-new shortcut take an id another shortcut in the same save explicitly asked to keep.
+        var path = Path.Combine(Path.GetTempPath(), $"phonebox-config-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new ConfigStore(path);
+            Assert.Null(store.Save("""{ "shortcuts": [ { "label": "Terminal", "cmd": "a.exe" } ] }"""));
+            Assert.Equal("terminal", store.Get().Shortcuts.Single().Id);
+
+            Assert.Null(store.Save("""
+                { "shortcuts": [ { "label": "Terminal", "cmd": "new.exe" }, { "id": "terminal-2", "label": "Other", "cmd": "x.exe" } ] }
+                """));
+            Assert.Equal(["terminal-3", "terminal-2"], store.Get().Shortcuts.Select(s => s.Id));
+        }
+        finally { File.Delete(path); File.Delete(path + ".bak"); }
     }
 
     [Fact]
@@ -121,6 +241,21 @@ public class ConfigTests
     }
 
     [Fact]
+    public void ThePhoneLearnsWhichShortcutPicturesAreUploads()
+    {
+        // only an uploaded picture may fill a Big button; a program's own icon (also with an iconRev) may not
+        var c = Load("""{ "shortcuts": [ { "id": "up", "label": "Up", "cmd": "a.exe" }, { "id": "own", "label": "Own", "cmd": "b.exe" } ] }""");
+        var pub = JsonSerializer.SerializeToElement(c.ToPublic(null, s => (7, s.Id == "up")));
+        var byId = pub.GetProperty("shortcuts").EnumerateArray().ToDictionary(s => s.GetProperty("Id").GetString()!);
+        Assert.True(byId["up"].GetProperty("iconUpload").GetBoolean());
+        Assert.False(byId["own"].GetProperty("iconUpload").GetBoolean());
+        Assert.Equal(7, byId["own"].GetProperty("iconRev").GetInt64());
+        // without the lookup (tests, older callers) nothing counts as an upload
+        Assert.All(JsonSerializer.SerializeToElement(c.ToPublic()).GetProperty("shortcuts").EnumerateArray(),
+            s => Assert.False(s.GetProperty("iconUpload").GetBoolean()));
+    }
+
+    [Fact]
     public void RulesAreCleanedUp()
     {
         var c = Load("""{ "rules": [ { "when": "explode", "then": "goto" }, { "name": "Away", "when": "idle", "value": 99999, "then": "notify", "level": "weird" }, { "name": "Away", "when": "idle", "then": "goto" } ] }""");
@@ -151,6 +286,8 @@ public class LanTests
     [InlineData("/api/pair/status", false)]
     [InlineData("/api/pair/claim/x", false)]
     [InlineData("/api/shortcuts/test", false)]
+    [InlineData("/api/shortcuts/icon", true)]
+    [InlineData("/api/settings/shortcut-icon", false)]
     [InlineData("/api/claude/hook", false)]
     [InlineData("/api/obs-test", false)]
     [InlineData("/api/ha/test", false)]
@@ -250,6 +387,23 @@ public class ConfigConcurrencyTests
     }
 
     [Fact]
+    public void TouchAdvancesVersionSoAnotherTabsConflictCheckNoticesIt()
+    {
+        var (s, path) = NewStore();
+        try
+        {
+            var loaded = s.Version;
+            Assert.False(s.VersionConflict(loaded.ToString()));
+            Assert.False(s.VersionConflict(null)); // no header sent: never a conflict
+            Thread.Sleep(20);
+            s.Touch();
+            Assert.True(s.VersionConflict(loaded.ToString()));
+            Assert.False(s.VersionConflict(s.Version.ToString()));
+        }
+        finally { File.Delete(path); File.Delete(path + ".bak"); }
+    }
+
+    [Fact]
     public void GeneratedKeysPersistForANewConfigWithoutReplacingUnreadableFiles()
     {
         var dir = Directory.CreateTempSubdirectory("phonebox-config-");
@@ -324,6 +478,7 @@ public class ConfigConcurrencyTests
     [Theory]
     [InlineData("\"TR\"", "tr")]       // any case
     [InlineData("\" de \"", "de")]     // stray spaces
+    [InlineData("\"vi\"", "vi")]       // added after the list was first written (#177)
     [InlineData("\"xx\"", "auto")]     // a language PhoneBox does not have
     [InlineData("null", "auto")]
     [InlineData("\"\"", "auto")]
@@ -343,6 +498,18 @@ public class ConfigConcurrencyTests
     {
         using var s = AppPaths.Resource("www/i18n.js");
         Assert.NotNull(s);
+    }
+
+    [Fact]
+    public void EveryLanguageThePanelHasCanBeSaved()
+    {
+        // a language added to i18n.js but not to DisplayConfig.Languages is saved as "auto", so picking it does nothing
+        using var s = AppPaths.Resource("www/i18n.js");
+        Assert.NotNull(s);
+        var js = new StreamReader(s!).ReadToEnd();
+        var codes = System.Text.RegularExpressions.Regex.Matches(js, @"\{\s*code:\s*'([a-z]{2,3})'").Select(m => m.Groups[1].Value).ToHashSet();
+        Assert.Contains("en", codes);
+        Assert.Equal(codes.Order(), DisplayConfig.Languages.Where(l => l != "auto").Order());
     }
 }
 

@@ -16,6 +16,10 @@ public sealed partial class ControlDeck : BackgroundService
     private readonly SpotifyControl? _spotify;
     private readonly ControlTasks _tasks;
     private readonly MicrophoneLeases _ptt;
+    // Serializes push-to-talk with panic, so a hold cannot begin between panic dropping the leases and muting.
+    private readonly Lock _pttGate = new();
+    // Microphones panic could not mute; retried until the mute lands or the user sets the device's mute state.
+    private readonly HashSet<string> _panicPending = [];
     private readonly PowerConfirmations _power = new(() => Environment.TickCount64);
     private readonly SemaphoreSlim _profiles = new(1, 1);
     private readonly SemaphoreSlim _listeners = new(2, 2);
@@ -58,7 +62,7 @@ public sealed partial class ControlDeck : BackgroundService
         _native = native;
         _logos = logos ?? new RadioLogoCache();
         _native.SoundStopped += OnNativeSoundStopped;
-        _ptt = new(id => Audio().Devices.FirstOrDefault(d => d.Id == id && d.Direction == "input")?.Muted,
+        _ptt = new(id => _native.Audio().Devices.FirstOrDefault(d => d.Id == id && d.Direction == "input")?.Muted,
             (id, muted) => { try { var ok = _native.Device(id, null, muted); Invalidate(); return ok; } catch { return false; } }, () => Environment.TickCount64);
     }
     private DeckAudio Audio()
@@ -71,6 +75,20 @@ public sealed partial class ControlDeck : BackgroundService
         }
     }
     private void Invalidate() { lock (_state) _audio = null; }
+
+    private bool TryMute(string id)
+    {
+        try { return _native.Device(id, null, true); }
+        catch (Exception ex) { _log.LogDebug(ex, "Muting {Id} failed", id); return false; }
+        finally { Invalidate(); }
+    }
+
+    /// <summary>Retries the mutes panic could not apply (called with <see cref="_pttGate"/> held).</summary>
+    private void RetryPanicMutes()
+    {
+        foreach (var id in _panicPending.ToArray())
+            if (TryMute(id)) _panicPending.Remove(id);
+    }
 
     public async Task<object> Snapshot(CancellationToken ct)
     {
@@ -133,6 +151,17 @@ public sealed partial class ControlDeck : BackgroundService
                 case "device":
                     if (value is null && muted is null) return new(false, "Choose a volume or mute state");
                     if (!Audio().Devices.Any(d => d.Id == id && d.CanControl) || value is < 0 or > 100) return new(false, "Audio device is unavailable");
+                    if (muted is not null)
+                    {
+                        // the user's own mute choice replaces a pending panic mute, but only once it took effect: a
+                        // failed request must leave the panic mute pending (retried, and push-to-talk refused)
+                        lock (_pttGate)
+                        {
+                            ok = _native.Device(id, value, muted, op is "left" ? 0 : op is "right" ? 1 : null);
+                            if (ok) _panicPending.Remove(id);
+                        }
+                        break;
+                    }
                     ok = _native.Device(id, value, muted, op is "left" ? 0 : op is "right" ? 1 : null); break;
                 case "session":
                     if (value is null && muted is null) return new(false, "Choose a volume or mute state");
@@ -155,8 +184,18 @@ public sealed partial class ControlDeck : BackgroundService
                     else ok = await _native.MediaAction(id, op, value ?? 0, ct);
                     break;
                 case "ptt":
-                    if (op == "begin") { var token = _ptt.Begin(id); return new(token is not null, token is null ? "Microphone is unavailable" : null, token); }
-                    ok = lease is not null && (op == "renew" ? _ptt.Renew(lease) : op == "end" && _ptt.End(lease)); break;
+                    lock (_pttGate)
+                    {
+                        RetryPanicMutes();
+                        if (op == "begin")
+                        {
+                            // a microphone panic could not mute stays closed to push-to-talk until the mute lands
+                            var token = _panicPending.Contains(id) ? null : _ptt.Begin(id);
+                            return new(token is not null, token is null ? "Microphone is unavailable" : null, token);
+                        }
+                        ok = lease is not null && (op == "renew" ? _ptt.Renew(lease) : op == "end" && _ptt.End(lease));
+                    }
+                    break;
                 case "profile": return await Profile(id, ct);
                 case "duck":
                     lock (_state) { _duckPercent = op == "off" ? null : Math.Clamp(value ?? 25, 0, 100); }
@@ -166,9 +205,24 @@ public sealed partial class ControlDeck : BackgroundService
                     lock (_state) { RestoreFade(id); if (value is null or <= 0) _sleep.Remove(id); else _sleep[id] = _now() + Math.Clamp(value.Value, 1, 360) * 60_000L; }
                     ok = true; break;
                 case "panic":
-                    if (!Audio().Available || Audio().Devices.Count == 0) return new(false, "Audio is unavailable");
-                    ok = true;
-                    foreach (var d in Audio().Devices) ok &= _native.Device(d.Id, null, true);
+                    var panicAudio = _native.Audio();
+                    var controllable = panicAudio.Devices.Where(d => d.CanControl).ToArray();
+                    if (!panicAudio.Available || controllable.Length == 0) return new(false, "Audio is unavailable");
+                    lock (_pttGate)
+                    {
+                        // Held across the mutes: a hold that began in between would save the still-open state as
+                        // its original and reopen the microphone when it ends.
+                        _ptt.AbandonAll();
+                        ok = true;
+                        foreach (var d in controllable)
+                        {
+                            var mutedNow = TryMute(d.Id);
+                            // the leases no longer restore anything, so a microphone left open keeps a pending mute
+                            if (mutedNow) _panicPending.Remove(d.Id);
+                            else if (d.Direction == "input") _panicPending.Add(d.Id);
+                            ok &= mutedNow;
+                        }
+                    }
                     break;
                 case "sound-stop":
                     if (string.IsNullOrEmpty(id)) { StopAllRadios(clearLast: true); _native.StopSound(null); }
@@ -250,7 +304,8 @@ public sealed partial class ControlDeck : BackgroundService
     {
         foreach (var a in _config.Get().Controls.Actions.Where(a => !a.Enabled))
         {
-            if (a.Kind is "radio" or "sound") _native.StopSound(a.Id);
+            if (a.Kind == "radio") StopRadio(a.Id, clearLast: true);
+            else if (a.Kind == "sound") _native.StopSound(a.Id);
             else if (a.Kind is "task" or "server") _tasks.StopIfRunning(a.Id);
         }
         Invalidate();
@@ -285,7 +340,10 @@ public sealed partial class ControlDeck : BackgroundService
                         StopRadio(action.Id, clearLast: true);
                         return new DeckResult(true);
                     }
-                    var started = await StartRadioAndPauseMediaCoreAsync(action, token);
+                    var current = _config.Get().Controls.Actions.FirstOrDefault(a => a.Kind == "radio" && a.Id == action.Id);
+                    if (current is null) return new DeckResult(false, "Choose a configured control in desktop settings");
+                    if (!current.Enabled) return new DeckResult(false, "Control is disabled");
+                    var started = await StartRadioAndPauseMediaCoreAsync(current, token);
                     return new DeckResult(started, started ? null : "Radio stream is unavailable");
                 }, ct);
             case "midi":
@@ -376,6 +434,7 @@ public sealed partial class ControlDeck : BackgroundService
         {
             while (!stoppingToken.IsCancellationRequested)
             {
+                lock (_pttGate) RetryPanicMutes();
                 _ptt.Sweep();
                 try { await Tick(stoppingToken); }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { throw; }
@@ -395,7 +454,18 @@ public sealed partial class ControlDeck : BackgroundService
         return action is null ? null : await _logos.GetAsync(action, c.AllowOnlineRadioLogos, ct);
     }
 
-    public override void Dispose() { _native.SoundStopped -= OnNativeSoundStopped; base.Dispose(); _logos.Dispose(); }
+    public override void Dispose()
+    {
+        _native.SoundStopped -= OnNativeSoundStopped;
+        base.Dispose();
+        _ptt.Sweep(all: true);
+        RestoreDucking();
+        lock (_state) foreach (var player in _fades.Keys.ToArray()) RestoreFade(player);
+        _tasks.Dispose();
+        DisposeMixer();
+        _native.Dispose();
+        _logos.Dispose();
+    }
     private async Task Tick(CancellationToken ct)
     {
         ReconcileRadios();
@@ -461,16 +531,23 @@ public sealed partial class ControlDeck : BackgroundService
 
     internal void ReconcileRadios(bool waitForGate = false)
     {
-        string[] active;
-        lock (_radioState)
+        if (!waitForGate)
         {
-            if (_activeRadios.Count == 0 && _lastRadioId is null) return;
-            active = [.. _activeRadios];
+            lock (_radioState)
+            {
+                if (_activeRadios.Count == 0 && _lastRadioId is null) return;
+            }
+            if (!_radioGate.TryEnter()) return;
         }
-        if (waitForGate) _radioGate.Enter();
-        else if (!_radioGate.TryEnter()) return;
+        else _radioGate.Enter();
         try
         {
+            string[] active;
+            lock (_radioState)
+            {
+                if (_activeRadios.Count == 0 && _lastRadioId is null) return;
+                active = [.. _activeRadios];
+            }
             var actions = _config.Get().Controls.Actions;
             var removedAny = false;
             foreach (var id in active)
@@ -579,11 +656,20 @@ public sealed partial class ControlDeck : BackgroundService
     {
         lock (_radioGate)
         {
+            if (!_config.Get().Controls.Actions.Any(a => a.Kind == "radio" && a.Id == action.Id && a.Enabled))
+                return false;
             StopAllRadiosCore(action.Id, clearLast: false);
             try { _native.Play(action.Id, action.Target, action.Device, Math.Clamp(action.Value, 0, 100)); }
             catch (Exception ex)
             {
                 _log.LogDebug(ex, "Radio stream {Id} failed to open", action.Id);
+                lock (_radioState) _activeRadios.Remove(action.Id);
+                Invalidate();
+                return false;
+            }
+            if (!_config.Get().Controls.Actions.Any(a => a.Kind == "radio" && a.Id == action.Id && a.Enabled))
+            {
+                _native.StopSound(action.Id);
                 lock (_radioState) _activeRadios.Remove(action.Id);
                 Invalidate();
                 return false;
