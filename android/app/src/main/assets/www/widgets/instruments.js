@@ -6,8 +6,8 @@
 export const cockpit = () => document.documentElement.dataset.theme === 'cockpit';
 
 // seven-segment digits: segment end points in a 60 × 104 cell, and which segments each digit lights
-const SEG = { a: [12, 8, 48, 8], b: [54, 13, 54, 47], c: [54, 57, 54, 91], d: [12, 96, 48, 96], e: [6, 57, 6, 91], f: [6, 13, 6, 47], g: [12, 52, 48, 52] };
-const DIG = ['abcdef', 'bc', 'abged', 'abgcd', 'fgbc', 'afgcd', 'afgedc', 'abc', 'abcdefg', 'abcdfg'];
+export const SEG = { a: [12, 8, 48, 8], b: [54, 13, 54, 47], c: [54, 57, 54, 91], d: [12, 96, 48, 96], e: [6, 57, 6, 91], f: [6, 13, 6, 47], g: [12, 52, 48, 52] };
+export const DIG = ['abcdef', 'bc', 'abged', 'abgcd', 'fgbc', 'afgcd', 'afgedc', 'abc', 'abcdefg', 'abcdfg'];
 const f1 = (v) => v.toFixed(1);
 
 // one segment as a long hexagon between two points

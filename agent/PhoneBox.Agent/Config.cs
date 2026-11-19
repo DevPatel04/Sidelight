@@ -126,15 +126,15 @@ public sealed class DisplayConfig
     public bool VolumeKeys { get; set; } = true;
     /// <summary>landscape, portrait or auto (follow the phone). In portrait the widgets are arranged automatically.</summary>
     public string Orientation { get; set; } = "landscape";
-    /// <summary>default, amoled, midnight, warm, graphite, glass (frosted cards over drifting colour) or cockpit (instruments).</summary>
+    /// <summary>default, amoled, midnight, warm, graphite, glass (frosted cards over drifting colour), cockpit (instruments) or nature (a forest).</summary>
     public string Theme { get; set; } = "default";
     /// <summary>
-    /// What moves behind the widgets: "auto" (the theme's own: drifting colour for glass, the view ahead for cockpit, the accent glow otherwise),
+    /// What moves behind the widgets: "auto" (the theme's own: drifting colour for glass, the view ahead for cockpit, a forest for nature, the accent glow otherwise),
     /// or one of <see cref="Backgrounds"/>. The phone pauses it on the night screen and when the system asks for
     /// reduced motion.
     /// </summary>
     public string Background { get; set; } = "auto";
-    internal static readonly string[] Backgrounds = ["auto", "glow", "blobs", "aurora", "stars", "bubbles", "rain", "horizon", "none"];
+    internal static readonly string[] Backgrounds = ["auto", "glow", "blobs", "aurora", "stars", "bubbles", "rain", "horizon", "forest", "none"];
     /// <summary>
     /// Id of the picture behind the widgets (Settings › Display), stored beside the settings file; empty = none.
     /// It is the start of the picture's hash, so a new picture has a new URL and the phone never shows a stale copy.

@@ -79,3 +79,28 @@ test('cockpit draws the clock on an LCD and gauges as needle dials over the view
   // the needle turns away from zero once a reading arrives
   await expect.poll(() => page.locator('.w-gauge .needle').evaluate((n) => n.style.transform)).not.toBe('rotate(135.0deg)');
 });
+
+test('nature grows the clock from leaves and shows the load as a tree, a campfire and a pond', async ({ page }) => {
+  await page.goto('/panel/');
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem('pb-demo-config', JSON.stringify({
+      night: { enabled: false }, rules: [], shortcuts: [], display: { idleReturnSec: 0, theme: 'nature' },
+      pages: [{ id: 'one', title: 'One', widgets: [
+        { id: 'ck', type: 'clock', x: 0, y: 0, w: 6, h: 3, options: {} },
+        { id: 'cpu', type: 'gauge', x: 6, y: 0, w: 2, h: 3, options: { metric: 'cpu' } },
+        { id: 'gpu', type: 'gauge', x: 8, y: 0, w: 2, h: 3, options: { metric: 'gpu' } },
+        { id: 'ram', type: 'stat', x: 10, y: 0, w: 2, h: 3, options: { metric: 'ram' } },
+      ] }],
+    }));
+  });
+  await page.reload();
+  await expect(page.locator('body')).toHaveAttribute('data-bg', 'forest');
+  await expect(page.locator('.clock.leafy .leaf7')).toHaveCount(4);
+  await expect(page.locator('.clock.leafy .berries')).toHaveCount(1);
+  await expect(page.locator('.clock.leafy')).toHaveAttribute('aria-label', /^\d{1,2}:\d{2}$/);
+  // the canopy fills once a reading arrives, the fire and the pond take theirs
+  await expect.poll(() => page.locator('.w-gauge .g-art .tree .cn:not(.off)').count()).toBeGreaterThan(0);
+  await expect(page.locator('.w-gauge .g-art .fire')).toHaveCount(1);
+  await expect.poll(() => page.locator('.w-stat .t-art .water').evaluate((n) => n.style.transform)).not.toBe('translateY(54px)');
+});
