@@ -1,4 +1,4 @@
-import { $, API, D, LEVEL_COLOR, LOCALE, MEDIA_HTML, METRICS, Q_STYLE, S_ORDER, ago, api, averageColor, buzz, cfg, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, haptic, hasProcessesPage, hist, hour12, keyButton, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxIcon } from '../main.js';
+import { $, API, D, LEVEL_COLOR, LOCALE, mediaHtml, METRICS, PANEL_HEADERS, PREVIEW, Q_STYLE, S_ORDER, ago, api, averageColor, buildLayout, buzz, cfg, cfgVersion, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, en, haptic, hasProcessesPage, hist, hour12, keyButton, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, configMark, configReadSince, localWriteStored, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxIcon } from '../main.js';
 import { W } from '../registry.js';
 import { invalidateDeckState } from './controls.js';
 import { skin } from './skins.js';
@@ -73,7 +73,7 @@ W.forecast = {
   create(box, { o }) {
     const daily = o.mode === 'daily';
     const row = h('div', 'fc');
-    box.append(h('div', 'w-title', daily ? '7-day forecast' : 'Next hours', h('span', 'w-sub', '')), row);
+    box.append(h('div', 'w-title', en(daily ? '7-day forecast' : 'Next hours'), h('span', 'w-sub', '')), row);
     return {
       update() {
         const w = D.weather;
@@ -115,7 +115,7 @@ W.forecast = {
 W.media = {
   needs: ['state', 'fast'],
   create(box) {
-    box.innerHTML = MEDIA_HTML;
+    box.innerHTML = mediaHtml();
     const q = (s) => box.querySelector(s);
     const img = q('.art'), vol = q('.volr');
     const sourceIcon = q('.m-source-icon');
@@ -202,8 +202,8 @@ W.media = {
           box.classList.remove('playing');
           q('.m-app-name').textContent = 'Media';
           sourceIcon.replaceChildren();
-          q('.m-title').textContent = 'Nothing playing';
-          q('.m-artist').textContent = 'Press ▶ to resume';
+          q('.m-title').textContent = t('w.nothingPlaying');
+          q('.m-artist').textContent = t('w.pressToResume');
           q('.fill').style.width = '0';
           q('.m-pos').textContent = q('.m-dur').textContent = '0:00';
           if (artId !== 0) { artId = 0; img.classList.remove('on'); setArtColor(null); }
@@ -357,7 +357,7 @@ W.meters = {
     box.style.setProperty('--c', cssVar('--ram'));
     const up = h('span', 's-name');
     const list = h('div', 'meters');
-    box.append(h('div', 's-head', h('span', 's-label', 'Memory'), up), list);
+    box.append(h('div', 's-head', h('span', 's-label', t('w.memory')), up), list);
     bindProcessLink(box, 'mem');
     const meter = (name, txt, pct, c) => {
       const e = h('div', 'meter', h('div', 'm-row', h('span', null, name), h('span', null, txt)), h('div', 'track', h('i')));
@@ -614,11 +614,11 @@ W.sessions = {
   needs: ['work', 'tick'],
   create(box) {
     const sum = h('span', 'w-sum');
-    const list = h('div', 's-list', h('div', 'empty', 'Waiting for session data…'));
-    box.append(h('div', 'w-head', h('span', 's-label', 'Sessions'), sum), list);
+    const list = h('div', 's-list', h('div', 'empty', t('sess.waitingData')));
+    box.append(h('div', 'w-head', h('span', 's-label', t('w.sessions')), sum), list);
     box.style.setProperty('--c', '#d97757');
     const tokens = (n) => n == null ? '—' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
-    const statusText = (s) => s.status === 'busy' ? 'Working' : s.status === 'waiting' ? 'Waiting' : s.status === 'shell' ? 'Running a command' : s.outcome === 'completed' ? 'Completed' : s.outcome === 'aborted' ? 'Aborted' : 'Idle';
+    const statusText = (s) => s.status === 'busy' ? t('sess.working') : s.status === 'waiting' ? t('sess.waiting') : s.status === 'shell' ? t('sess.shell') : s.outcome === 'completed' ? t('sess.completed') : s.outcome === 'aborted' ? t('sess.aborted') : t('sess.idle');
     const ageText = (since) => Date.now() - since < 60_000 ? 'just now' : shortDur(Date.now() - since) + ' ago';
     const openDetails = (s) => {
       haptic();
@@ -664,7 +664,7 @@ W.sessions = {
           counts.busy + counts.shell ? `${counts.busy + counts.shell} working` : '',
           counts.waiting ? `${counts.waiting} waiting` : '',
           counts.idle ? `${counts.idle} idle` : '',
-        ].filter(Boolean).join(' · ') || 'No open sessions';
+        ].filter(Boolean).join(' · ') || t('w.noOpenSessions');
         const sorted = [...sessions].sort((a, b) => (S_ORDER[a.status] ?? 9) - (S_ORDER[b.status] ?? 9) || b.since - a.since);
         const rows = sorted.length ? sorted.map((s) => {
           const row = h('button', 'sess ' + s.status,
@@ -674,7 +674,7 @@ W.sessions = {
           row.type = 'button';
           row.addEventListener('click', () => openDetails(s));
           return row;
-        }) : [h('div', 'empty', 'No Claude Code / Codex sessions open')];
+        }) : [h('div', 'empty', t('w.noAiSessions'))];
         list.replaceChildren(...rows);
       },
     };
@@ -717,7 +717,7 @@ W.processes = {
     const seg = h('div', 'seg', h('button', sort === 'cpu' ? 'on' : null, 'CPU'), h('button', sort === 'mem' ? 'on' : null, 'RAM'));
     const grid = h('div', 'p-grid', h('div', 'empty', t('w.procsWait')));
     box.style.setProperty('--c', '#f472b6');
-    box.append(h('div', 'p-head', h('span', 's-label', 'Processes'), sum, seg), grid);
+    box.append(h('div', 'p-head', h('span', 's-label', t('w.processes')), sum, seg), grid);
     const els = new Map();
     const rowEl = (g) => {
       let e = els.get(g.name);
@@ -808,7 +808,7 @@ W.button = {
   bare: true, needs: ['state'],
   create(box, { o }) {
     const s = (cfg.shortcuts || []).find((x) => x.id === o.id) || (cfg.shortcuts || [])[0];
-    box.append(s ? keyButton(s) : h('div', 'empty', t('w.pickShortcut')));
+    box.append(s ? keyButton(s, { cover: o.cover === true, label: o.showLabel !== false }) : h('div', 'empty', t('w.pickShortcut')));
     return { update: () => applyToggles(box) };
   },
 };
@@ -1003,6 +1003,10 @@ W.pomodoro = {
     };
     play.addEventListener('click', () => {
       haptic();
+      if (st.endsAt && remaining() <= 0) {
+        render();
+        if (!st.endsAt) return;
+      }
       if (st.endsAt) { st.left = remaining(); st.endsAt = null; } else st.endsAt = Date.now() + st.left;
       save(); render();
     });
@@ -1020,15 +1024,15 @@ W.pomodoro = {
 W.countdown = {
   needs: ['tick'],
   create(box, { o }) {
-    const m = String(o.target || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2})(?::\d{2})?)?$/);
+    const m = String(o.target || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
     let target = NaN;
     if (m) {
-      const [, year, month, day, hour = '0', minute = '0'] = m;
+      const [, year, month, day, hour = '0', minute = '0', second = '0'] = m;
       const date = new Date(0);
       date.setFullYear(+year, +month - 1, +day);
-      date.setHours(+hour, +minute, 0, 0);
+      date.setHours(+hour, +minute, +second, 0);
       if (date.getFullYear() === +year && date.getMonth() === +month - 1 &&
-          date.getDate() === +day && +hour < 24 && +minute < 60) {
+          date.getDate() === +day && +hour < 24 && +minute < 60 && +second < 60) {
         // the time is checked as numbers: one the clocks skip (spring forward) still counts, moved on like before
         target = date.getTime();
       }
@@ -1050,13 +1054,90 @@ W.countdown = {
   },
 };
 
+const NOTE_MAX = 500;
+
 W.note = {
   bare: true, needs: [],
-  create(box, { o }) {
-    const text = String(o.text ?? '');
-    box.style.setProperty('--n', o.color || '#fbbf24');
-    box.style.setProperty('--nf', text.length < 25 ? 15 : text.length < 70 ? 10.5 : text.length < 160 ? 8 : 6.5);
-    box.append(h('div', 'note-t', text));
+  create(box, { o, page, w }) {
+    const paint = () => {
+      const text = String(o.text ?? '');
+      box.style.setProperty('--n', o.color || '#fbbf24');
+      box.style.setProperty('--nf', text.length < 25 ? 15 : text.length < 70 ? 10.5 : text.length < 160 ? 8 : 6.5);
+      box.replaceChildren(h('div', 'note-t', text));
+    };
+    paint();
+    if (PREVIEW || String(w.id).includes(':')) return {};
+    box.addEventListener('click', () => {
+      if (!$('overview').hidden) return;
+      haptic();
+      const wrap = h('div', 'note-edit');
+      wrap.onclick = (e) => { if (e.target === wrap) wrap.remove(); };
+      const card = h('div', 'note-card');
+      const ta = document.createElement('textarea');
+      ta.className = 'note-ta';
+      ta.value = String(o.text ?? '');
+      let opened = cfgVersion;
+      let unsure = null; // the text of a save that timed out: the agent may have stored it anyway
+      ta.maxLength = NOTE_MAX;
+      ta.rows = 6;
+      const row = h('div', 'note-actions');
+      const cancel = h('button', 'btn sm', t('w.note.cancel'));
+      cancel.onclick = () => wrap.remove();
+      const save = h('button', 'btn primary sm', t('w.note.save'));
+      save.onclick = async () => {
+        const submitted = ta.value;
+        save.disabled = true;
+        ta.disabled = true;
+        try {
+          const path = '/widget/' + encodeURIComponent(page.id) + '/' + encodeURIComponent(w.id)
+            + '/note?text=' + encodeURIComponent(submitted) + '&version=' + encodeURIComponent(opened ?? '');
+          const mark = configMark();
+          const result = await api(path, 'POST', 8000);
+          o.text = submitted;
+          // a config read that started after this save already holds it (or something newer): leave it alone.
+          // Otherwise the config the panel holds gets the text first, then the version, so an identical refresh keeps
+          // it and a rebuild doesn't bring the old text back; reads that started before the save can't apply over it
+          if (!configReadSince(mark)) {
+            const saved = (cfg.pages || []).find((p) => p.id === page.id)?.widgets?.find((x) => x.id === w.id);
+            if (saved) { saved.options = { ...(saved.options || {}), text: submitted }; store.set('cfg', cfg); }
+            localWriteStored(result?.version);
+          }
+          paint();
+          // a refresh while the editor was open rebuilt the page under it: draw the new widget from the updated config
+          if (!box.isConnected) buildLayout();
+          wrap.remove();
+        } catch (error) {
+          if (error?.status === 409) {
+            // a save that timed out may have been stored: then this conflict is our own, so save again on top of it
+            if (unsure != null) {
+              const earlier = unsure;
+              unsure = null;
+              // read the agent's config without applying it: a rebuild now would replace this widget under the editor
+              const current = await api('/config').catch(() => null);
+              if (!wrap.isConnected) return; // the editor was closed meanwhile: nothing to save
+              const now = (current?.config?.pages || []).find((p) => p.id === page.id)?.widgets?.find((x) => x.id === w.id)?.options?.text;
+              if (now === earlier && current?.version != null) {
+                opened = current.version;
+                return save.onclick();
+              }
+            }
+            wrap.remove();
+            toast(t('w.note.changed'));
+            return;
+          }
+          // no HTTP answer (a timeout or a dropped connection): the agent may still have stored it
+          if (error?.status == null) unsure = submitted;
+          save.disabled = false;
+          ta.disabled = false;
+          toast(t('w.note.failed'));
+        }
+      };
+      row.append(cancel, save);
+      card.append(ta, row);
+      wrap.append(card);
+      document.body.append(wrap);
+      ta.focus();
+    });
     return {};
   },
 };
@@ -1073,7 +1154,7 @@ W.command = {
   needs: ['tick'],
   create(box, { o, page, w }) {
     const out = h('div', 'cmd-o', '…'), foot = h('div', 'cmd-f', '');
-    box.append(h('div', 'w-title', o.title || 'Command'), out, foot);
+    box.append(h('div', 'w-title', o.title || en('Command')), out, foot);
     let last = 0, busy = false, res = null;
     const load = async (force) => {
       if (busy) return;
@@ -1165,7 +1246,7 @@ W.inbox = {
     const list = h('div', 'inbox');
     const clear = h('button', 'mini-btn', 'Clear');
     clear.addEventListener('click', () => { haptic(); D.notes = []; store.set('notes', []); emit('notes'); });
-    box.append(h('div', 'w-title', 'Notifications', clear), list);
+    box.append(h('div', 'w-title', en('Notifications'), clear), list);
     let shown = '';
     return {
       update(kind) {

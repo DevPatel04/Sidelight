@@ -1,4 +1,4 @@
-import { $, API, D, PANEL_HEADERS, LOCALE, Q_STYLE, api, bridge, cfg, color, cssVar, rulesPaused, toggleRulesPause, fillIcon, fmtDur, fmtHM, fmtMem, gotoPageRef, gpuMem, gpusOf, h, haptic, openSheet, paceInfo, pad, pairedPcs, quotaProviders, r1, shortGpu, store, switchPc, t, tick, toast, transport } from '../main.js';
+import { $, API, D, PANEL_HEADERS, LOCALE, Q_STYLE, api, bridge, cfg, color, cssVar, rulesPaused, toggleRulesPause, fillIcon, fmtDur, fmtHM, fmtMem, gotoPageRef, gpuMem, gpusOf, h, en, haptic, openSheet, paceInfo, pad, pairedPcs, quotaProviders, r1, shortGpu, store, switchPc, t, tick, toast, transport } from '../main.js';
 import { W } from '../registry.js';
 import { canKillAnywhere, dialEl, every } from './helpers.js';
 
@@ -47,7 +47,7 @@ W.batteries = {
     const low = +o.low || 20;
     let data = null, lastKey = '';
     const list = h('div', 'bt-list');
-    box.append(h('div', 'w-title', o.title || 'Batteries'), list);
+    box.append(h('div', 'w-title', o.title || en('Batteries')), list);
     const load = async () => { try { data = await api('/batteries'); } catch (_) {} };
     const render = () => {
       const devices = [...(data?.devices || [])];
@@ -99,8 +99,8 @@ W.obs = {
       if (!force && key === lastKey) return;
       lastKey = key;
       if (!data) { box.replaceChildren(h('div', 'empty', t('w.loading'))); return; }
-      if (!data.enabled) { box.replaceChildren(h('div', 'w-title', 'OBS'), h('div', 'empty', 'Turn on OBS in Settings › General')); return; }
-      if (!s.connected) { box.replaceChildren(h('div', 'w-title', 'OBS'), h('div', 'empty', s.error || t('panel.connecting'))); return; }
+      if (!data.enabled) { box.replaceChildren(h('div', 'w-title', en('OBS')), h('div', 'empty', 'Turn on OBS in Settings › General')); return; }
+      if (!s.connected) { box.replaceChildren(h('div', 'w-title', en('OBS')), h('div', 'empty', s.error || t('panel.connecting'))); return; }
       const ctl = data.control;
       const pill = (on, label, cls, time, action) => {
         const el = h('div', 'obs-pill ' + cls + (on ? ' on' : '') + (ctl ? ' can' : '') + (busy === action ? ' busy' : ''), h('span', 'obs-led'), h('b', null, label), h('span', 'obs-time', on ? dur(time + since) : 'off'));
@@ -160,9 +160,9 @@ W.discord = {
       if (!force && key === lastKey) return;
       lastKey = key;
       if (!data) { box.replaceChildren(h('div', 'empty', t('w.loading'))); return; }
-      if (!data.enabled) { box.replaceChildren(h('div', 'w-title', 'Discord'), h('div', 'empty', t('w.discord.turnOn'))); return; }
+      if (!data.enabled) { box.replaceChildren(h('div', 'w-title', en('Discord')), h('div', 'empty', t('w.discord.turnOn'))); return; }
       const s = data.snapshot;
-      if (!s.connected) { box.replaceChildren(h('div', 'w-title', 'Discord'), h('div', 'empty', s.error || t('panel.connecting'))); return; }
+      if (!s.connected) { box.replaceChildren(h('div', 'w-title', en('Discord')), h('div', 'empty', s.error || t('panel.connecting'))); return; }
       const ctl = data.control;
       const btn = (cls, label, on, action) => {
         const b = h('button', 'dc-btn ' + cls + (on ? ' on' : '') + (busy === action ? ' busy' : ''), label);
@@ -232,6 +232,8 @@ export const HA_CLASS_ICONS = {
 };
 export const HA_SWITCHABLE = new Set(['light', 'switch', 'fan', 'input_boolean', 'automation', 'siren', 'humidifier', 'group', 'cover', 'media_player',
   'scene', 'script', 'button', 'input_button', 'lock', 'vacuum']);
+const HA_MAX_ITEMS = 200; // keep in step with HomeAssistant.MaxItems in the agent
+const HA_BATCH_CHARS = 6000; // encoded ids per /ha/states request, well under the agent's 16 KB request line
 export const HA_ACTIVE = new Set(['on', 'open', 'opening', 'unlocked', 'playing', 'home', 'cleaning', 'heat', 'cool', 'heat_cool', 'auto', 'detected']);
 
 export function haState(e) {
@@ -252,12 +254,39 @@ export function haState(e) {
 W.ha = {
   needs: ['tick'],
   create(box, { o }) {
-    const ids = String(o.entities || '').split(/[\s,;]+/).filter((x) => x.includes('.'));
+    // "items" (the entity editor) wins over the older comma-separated "entities"; an item without its own
+    // "control" follows the widget's. The agent checks the same rule before it switches anything.
+    const items = [];
+    const seenIds = new Set();
+    const listed = Array.isArray(o.items) ? o.items : [];
+    for (const it of listed) {
+      const id = it && typeof it.id === 'string' ? it.id.trim() : '';
+      if (!id.includes('.') || seenIds.has(id)) continue;
+      if (seenIds.size >= HA_MAX_ITEMS) break; // the cap counts usable rows, like the agent's
+      seenIds.add(id);
+      items.push({ id, name: String(it.name || '').trim(), icon: String(it.icon || '').trim(), showName: it.showName !== false, showIcon: it.showIcon !== false,
+        control: typeof it.control === 'boolean' ? it.control : o.control === true });
+    }
+    // like the agent: a non-empty "items" list is final, even when none of its rows is usable
+    if (!listed.length) for (const id of String(o.entities || '').split(/[\s,;]+/).filter((x) => x.includes('.')).slice(0, HA_MAX_ITEMS)) items.push({ id, name: '', icon: '', showName: true, showIcon: true, control: o.control === true });
+    const ids = items.map((i) => i.id);
     let data = null, lastKey = '', busy = null;
     const grid = h('div', 'ha-grid');
     if (o.title) box.append(h('div', 'w-title', o.title));
     box.append(grid);
-    const load = async () => { try { data = await api('/ha/states?ids=' + encodeURIComponent(ids.join(','))); } catch (_) {} };
+    // 200 long ids would outgrow the agent's request line, so ask in batches and merge the answers
+    const batches = [];
+    for (let cur = [], len = 0, i = 0; i <= ids.length; i++) {
+      const n = i < ids.length ? encodeURIComponent(ids[i]).length + 3 : 0;
+      if (cur.length && (i === ids.length || len + n > HA_BATCH_CHARS)) { batches.push(cur); cur = []; len = 0; }
+      if (i < ids.length) { cur.push(ids[i]); len += n; }
+    }
+    const load = async () => {
+      try {
+        const parts = await Promise.all(batches.map((b) => api('/ha/states?ids=' + encodeURIComponent(b.join(',')))));
+        if (parts.length) data = { ...parts[0], entities: parts.flatMap((p) => p.entities || []) };
+      } catch (_) {}
+    };
     const toggle = async (e) => {
       haptic();
       busy = e.id; render(true);
@@ -271,16 +300,18 @@ W.ha = {
       const key = JSON.stringify([data, busy]);
       if (!force && key === lastKey) return;
       lastKey = key;
-      if (!ids.length) { grid.replaceChildren(h('div', 'empty', 'List entity ids in the widget settings, e.g. light.desk')); return; }
+      if (!ids.length) { grid.replaceChildren(h('div', 'empty', t('w.ha.empty'))); return; }
       if (!data) { grid.replaceChildren(h('div', 'empty', t('w.loading'))); return; }
       if (!data.configured) { grid.replaceChildren(h('div', 'empty', data.error)); return; }
-      grid.replaceChildren(...data.entities.map((e) => {
+      const byId = new Map(data.entities.map((e) => [e.id, e]));
+      grid.replaceChildren(...items.map((it) => {
+        const e = byId.get(it.id) || { id: it.id, state: 'unknown', name: it.id };
         const dom = e.id.split('.')[0];
         const active = HA_ACTIVE.has(e.state);
-        const icon = dom === 'lock' ? (e.state === 'unlocked' ? '🔓' : '🔒') : HA_CLASS_ICONS[e.deviceClass] || HA_ICONS[dom] || '◻️';
-        const can = o.control === true && HA_SWITCHABLE.has(dom) && e.state !== 'unavailable';
+        const icon = it.icon || (dom === 'lock' ? (e.state === 'unlocked' ? '🔓' : '🔒') : HA_CLASS_ICONS[e.deviceClass] || HA_ICONS[dom] || '◻️');
+        const can = it.control && HA_SWITCHABLE.has(dom) && e.state !== 'unavailable';
         const tile = h('div', 'ha-tile' + (active ? ' on' : '') + (can ? ' can' : '') + (busy === e.id ? ' busy' : '') + (e.state === 'unavailable' ? ' gone' : ''),
-          h('span', 'ha-ico', icon), h('span', 'ha-name', e.name), h('b', 'ha-state', haState(e)));
+          ...(it.showIcon ? [h('span', 'ha-ico', icon)] : []), ...(it.showName ? [h('span', 'ha-name', it.name || e.name)] : []), h('b', 'ha-state', haState(e)));
         if (can) tile.addEventListener('click', () => toggle(e));
         return tile;
       }), ...(data.error ? [h('div', 'ha-err', '⚠ ' + data.error)] : []));
@@ -296,7 +327,7 @@ W.docker = {
   create(box, { o }) {
     const filter = String(o.filter || '').toLowerCase();
     let data = null, open = null, busy = null, lastKey = '';
-    const list = h('div', 'dk-list'), head = h('div', 'w-title', o.title || 'Docker', h('span', 'dk-count'));
+    const list = h('div', 'dk-list'), head = h('div', 'w-title', o.title || en('Docker'), h('span', 'dk-count'));
     box.append(head, list);
     const act = async (c, action) => {
       haptic();
@@ -363,7 +394,7 @@ W.apps = {
     const confirm = o.confirm !== false; // first tap selects, a second tap within a few seconds opens
     let data = null, q = '', busy = null, armed = null, armTimer = 0, lastKey = '';
     const disarm = () => { clearTimeout(armTimer); if (armed) { armed = null; render(true); } };
-    const head = h('div', 'w-title', o.title || 'Apps', h('span', 'ap-count'));
+    const head = h('div', 'w-title', o.title || en('Apps'), h('span', 'ap-count'));
     const search = h('input', 'ap-search');
     search.type = 'search';
     search.placeholder = 'Search apps';
@@ -471,7 +502,7 @@ W.agenda = {
       lastKey = key;
       box.classList.toggle('small', small);
       if (!cal) { box.replaceChildren(h('div', 'empty', t('w.loading'))); return; }
-      if (!cal.updated && !list.length) { box.replaceChildren(h('div', 'w-title', o.title || 'Agenda'), h('div', 'empty', 'Add a calendar in Settings › General')); return; }
+      if (!cal.updated && !list.length) { box.replaceChildren(h('div', 'w-title', o.title || en('Agenda')), h('div', 'empty', 'Add a calendar in Settings › General')); return; }
       const timed = list.filter((e) => !e.allDay);
       const cur = timed.find((e) => e.start <= now);
       const next = timed.find((e) => e.start > now);
@@ -502,7 +533,7 @@ W.agenda = {
         rows.push(row);
       }
       const body = h('div', 'ag-list', ...(rows.length ? rows : [h('div', 'empty', `Nothing in the next ${days} days`)]));
-      box.replaceChildren(h('div', 'w-title', o.title || 'Agenda', cal.errors?.length ? h('span', 'ag-err', ' ⚠') : null), body);
+      box.replaceChildren(h('div', 'w-title', o.title || en('Agenda'), cal.errors?.length ? h('span', 'ag-err', ' ⚠') : null), body);
       // drop rows that do not fit, keeping the day headers tidy
       while (body.scrollHeight > body.clientHeight + 2 && body.childElementCount > 1) {
         body.lastElementChild.remove();
@@ -517,7 +548,8 @@ W.agenda = {
 W.onair = {
   needs: ['state', 'push'],
   create(box, { o }) {
-    const sign = h('div', 'oa-sign', o.text || 'ON AIR'), sub = h('div', 'oa-sub');
+    box.classList.add('w-onair');
+    const sign = h('div', 'oa-sign', o.text || o.title || 'ON AIR'), sub = h('div', 'oa-sub');
     box.append(sign, sub);
     const src = o.source || 'both';
     return {
@@ -541,6 +573,7 @@ W.onair = {
     };
   },
 };
+W['meeting-status'] = W.onair;
 
 W.battery = {
   needs: ['tick'],
@@ -566,7 +599,7 @@ W.pcswitch = {
   needs: ['state'],
   create(box, { o }) {
     const row = h('div', 'pcs-row'), sub = h('div', 'pcs-sub');
-    box.append(o.title === '' ? '' : h('div', 'w-title', o.title || 'Computers'), row, sub);
+    box.append(o.title === '' ? '' : h('div', 'w-title', o.title || en('Computers')), row, sub);
     let shown = '';
     const render = () => {
       const pcs = pairedPcs(), usb = transport() === 'usb';
@@ -598,7 +631,7 @@ W.topprocs = {
     const byMem = o.sort === 'mem';
     const list = h('div', 'tp-list');
     box.style.setProperty('--c', '#f472b6');
-    const title = h('div', 'w-title', byMem ? 'Top memory' : 'Top CPU');
+    const title = h('div', 'w-title', en(byMem ? 'Top memory' : 'Top CPU'));
     box.append(title, list);
     const rowMap = new Map();
     return {
@@ -606,9 +639,9 @@ W.topprocs = {
         const pc = D.state?.pc;
         if (byMem && pc?.ramTotalGb) {
           const pct = Math.round((pc.ramUsedGb / pc.ramTotalGb) * 100);
-          title.textContent = `Top memory (${pct}% · ${Math.round(pc.ramUsedGb)}/${Math.round(pc.ramTotalGb)} GB)`;
+          title.replaceChildren(en(`Top memory (${pct}% · ${Math.round(pc.ramUsedGb)}/${Math.round(pc.ramTotalGb)} GB)`));
         } else if (!byMem && pc?.cpu != null) {
-          title.textContent = `Top CPU (${Math.round(pc.cpu)}%)`;
+          title.replaceChildren(en(`Top CPU (${Math.round(pc.cpu)}%)`));
         }
         const data = D.procs;
         if (!data?.groups?.length) { rowMap.clear(); list.replaceChildren(h('div', 'empty', t('w.measuring'))); return; }
@@ -665,8 +698,8 @@ W.volume = {
   create(box) {
     const fill = h('i'), bar = h('div', 'vb', fill), pct = h('div', 'vb-v', '--');
     const mute = h('button', 'pb', '🔇'), down = h('button', 'pb', '−'), up = h('button', 'pb', '+');
-    box.append(h('div', 'w-title', 'Volume'), h('div', 'vb-row', bar, pct), h('div', 'pomo-btns', mute, down, up));
-    let dragging = false, timer = 0, level = 0;
+    box.append(h('div', 'w-title', en('Volume')), h('div', 'vb-row', bar, pct), h('div', 'pomo-btns', mute, down, up));
+    let dragging = false, timer = 0, dragEndTimer = 0, level = 0;
     const vertical = () => box.clientHeight > box.clientWidth * 1.15;
     const paint = (v, muted) => {
       level = v;
@@ -685,9 +718,12 @@ W.volume = {
       clearTimeout(timer);
       timer = setTimeout(() => api('/volume?level=' + v, 'POST').catch(() => {}), 80);
     };
-    bar.addEventListener('pointerdown', (e) => { dragging = true; bar.setPointerCapture(e.pointerId); fromPointer(e); });
+    bar.addEventListener('pointerdown', (e) => { clearTimeout(dragEndTimer); dragEndTimer = 0; dragging = true; try { bar.setPointerCapture(e.pointerId); } catch (_) {} fromPointer(e); });
     bar.addEventListener('pointermove', (e) => { if (dragging) fromPointer(e); });
-    bar.addEventListener('pointerup', () => setTimeout(() => (dragging = false), 400));
+    bar.addEventListener('pointerup', () => { clearTimeout(dragEndTimer); dragEndTimer = setTimeout(() => { dragEndTimer = 0; dragging = false; }, 400); });
+    const cancelDrag = () => { clearTimeout(dragEndTimer); dragEndTimer = 0; clearTimeout(timer); dragging = false; };
+    bar.addEventListener('pointercancel', cancelDrag);
+    bar.addEventListener('lostpointercapture', () => { if (dragging && !dragEndTimer) dragging = false; });
     const op = (q) => async () => { haptic(); try { const a = await api('/volume?' + q, 'POST'); paint(a.volume, a.muted); } catch (_) {} };
     mute.addEventListener('click', op('op=mute'));
     down.addEventListener('click', op('op=down'));
@@ -772,7 +808,7 @@ W.nextup = {
   create(box, { o }) {
     const only = String(o.calendars || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
     const when = h('div', 'nu-when'), title = h('div', 'nu-title'), meta = h('div', 'nu-meta'), bar = h('i'), track = h('div', 'track nu-track', bar);
-    box.append(h('div', 'w-title', o.title || 'Next up'), when, title, meta, track);
+    box.append(h('div', 'w-title', o.title || en('Next up')), when, title, meta, track);
     let key = '';
     const hm = (ms) => fmtHM(new Date(ms));
     return {
