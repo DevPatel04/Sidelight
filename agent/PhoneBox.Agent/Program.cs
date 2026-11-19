@@ -348,9 +348,28 @@ app.MapPut("/api/settings", async (HttpRequest req, ConfigStore cfg, ControlDeck
     if (err is not null) return Results.BadRequest(new { error = err });
     deck.StopDisabledControls();
     photos.SettingsSaved();
+    BackgroundImages.Prune(cfg);
     deck.ReconcileRadios(waitForGate: true);
     log.LogInformation("settings saved");
     return Results.Ok(new { version = cfg.Version });
+});
+
+// The picture behind the panel (Settings › Display): the settings page uploads it here and puts the returned id in
+// display.backgroundImage, so it only reaches the phone once the settings are saved. Not reachable over Wi-Fi.
+app.MapPut("/api/settings/background", async (HttpRequest req, ConfigStore cfg) =>
+{
+    if (req.ContentType?.StartsWith("image/") != true) return Results.StatusCode(415);
+    if (req.ContentLength > BackgroundImages.MaxBytes) return Results.BadRequest(new { error = "the picture is larger than 8 MB" });
+    using var buffer = new MemoryStream();
+    var chunk = new byte[81920];
+    int n;
+    while ((n = await req.Body.ReadAsync(chunk, req.HttpContext.RequestAborted)) > 0)
+    {
+        if (buffer.Length + n > BackgroundImages.MaxBytes) return Results.BadRequest(new { error = "the picture is larger than 8 MB" });
+        buffer.Write(chunk, 0, n);
+    }
+    var (id, error) = BackgroundImages.Save(cfg, buffer.ToArray());
+    return id is null ? Results.BadRequest(new { error }) : Results.Json(new { id });
 });
 
 app.MapPost("/api/shortcuts/test", async (HttpRequest req, ConfigStore cfg, ILogger<Program> log) =>
@@ -650,6 +669,15 @@ app.MapPost("/api/approvals/{id}", (string id, string decision, ApprovalStore a)
 // Output of a command widget (the command itself stays here).
 app.MapGet("/api/widget/{page}/{widget}", (string page, string widget, bool? force, CommandRunner runner) =>
     runner.Get(page, widget, force == true) is { } r ? Results.Json(r) : Results.NotFound());
+
+// The phone reads the picture under /api/config, which it may already reach over Wi-Fi. An id names one picture
+// forever (see BackgroundImages), so it may be cached.
+app.MapGet("/api/config/background/{id}", (string id, ConfigStore cfg, HttpResponse res) =>
+{
+    if (BackgroundImages.Get(cfg, id) is not { } img) return Results.NotFound();
+    res.Headers.CacheControl = "private, max-age=31536000, immutable";
+    return Results.File(img.Bytes, img.Mime);
+});
 
 app.MapGet("/api/config", (ConfigStore cfg, HttpRequest req) =>
     Results.Json(new { version = cfg.Version, config = cfg.Get().ToPublic(req.Headers["X-PhoneBox-Device"].ToString()) }));

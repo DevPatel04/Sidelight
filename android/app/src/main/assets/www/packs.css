@@ -1,0 +1,92 @@
+/* ---------- page background (background.js) ---------- */
+#bgImage, #bgFx { position: fixed; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+#bgImage { background: center / cover no-repeat; transition: opacity .6s ease; }
+/* the picture is darkened a little so white text stays readable on a bright photo */
+body.has-bg-image #bgImage::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(4, 6, 12, .38); }
+body:not(.has-bg-image) #bgImage { opacity: 0; }
+/* the accent glow is the "glow" background; with any other one it would tint the animation */
+body:not([data-bg="glow"])::before { display: none; }
+body.night :is(#bgFx, #bgImage) { visibility: hidden; }
+
+/* ================================================================ Glass
+   Frosted cards floating over drifting colour: thin numerals, glowing gradient progress, soft rings. */
+:root[data-theme="glass"] {
+  --cpu: #5ef0ff; --gpu: #ff7ad9; --ram: #ffd36b; --net: #5dffb0; --up: #8fb4ff; --ok: #5dffb0;
+}
+body[data-theme="glass"] {
+  --bg: #120c2a;
+  --card: rgba(255, 255, 255, .1); --card-hi: rgba(255, 255, 255, .2); --line: rgba(255, 255, 255, .2);
+  --text: #ffffff; --muted: rgba(255, 255, 255, .72); --dim: rgba(255, 255, 255, .45);
+  --glass: linear-gradient(145deg, rgba(255, 255, 255, .19), rgba(255, 255, 255, .06));
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .38), 0 12px 30px -14px rgba(10, 0, 40, .6);
+  --glass-grad: linear-gradient(90deg, #5ef0ff, #c49bff, #ff7ad9);
+}
+body[data-theme="glass"] .w.card {
+  background: var(--glass);
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: clamp(14px, 9cqmin, 26px);
+  box-shadow: var(--glass-edge);
+}
+/* Real frosting only where there is something sharp behind the card (a picture, stars, rain or bubbles): over the
+   soft colour of the other backgrounds a blur looks the same, and skipping it saves an old phone a lot of work. */
+body[data-theme="glass"]:is(.has-bg-image, [data-bg="stars"], [data-bg="rain"], [data-bg="bubbles"]) .w.card {
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+}
+
+/* clock: airy numerals, the seconds in a frosted pill */
+body[data-theme="glass"] .clock { text-shadow: 0 6px 30px rgba(20, 0, 60, .35); }
+body[data-theme="glass"] .clock .colon { opacity: .75; }
+body[data-theme="glass"] .clock .sec {
+  color: #fff; font-weight: 500; font-size: .17em; padding: .2em .55em; margin: .7em 0 0 .5em;
+  border-radius: 999px; background: rgba(255, 255, 255, .18); border: 1px solid rgba(255, 255, 255, .3);
+}
+body[data-theme="glass"] .clock .ap { color: rgba(255, 255, 255, .8); }
+body[data-theme="glass"] .date { color: rgba(255, 255, 255, .9); font-weight: 500; }
+body[data-theme="glass"] .status { color: rgba(255, 255, 255, .8); }
+body[data-theme="glass"] .status .sep { color: rgba(255, 255, 255, .35); }
+body[data-theme="glass"] .status .smini { color: #ffb8ea; }
+body[data-theme="glass"] .dot.on { background: #5dffb0; box-shadow: 0 0 8px #5dffb0; }
+
+/* music: glowing cover, gradient progress with a lit knob, frosted round buttons */
+body[data-theme="glass"] .art-wrap { box-shadow: 0 14px 30px -10px rgba(var(--ambient), .7), 0 0 0 1px rgba(255, 255, 255, .18); }
+body[data-theme="glass"] .m-app { color: rgba(255, 255, 255, .78); }
+body[data-theme="glass"] .m-title { font-weight: 700; }
+body[data-theme="glass"] .bar::before { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .18); }
+body[data-theme="glass"] .fill { height: 6px; border-radius: 3px; background: var(--glass-grad); }
+body[data-theme="glass"] .fill::after {
+  width: 14px; height: 14px; right: -7px; top: -4px; background: #fff;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .22), 0 0 12px rgba(255, 255, 255, .8);
+}
+body[data-theme="glass"] .w-media .ic:not(.play) {
+  background: rgba(255, 255, 255, .14); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), inset 0 0 0 1px rgba(255, 255, 255, .18);
+}
+body[data-theme="glass"] .ic.play { background: rgba(255, 255, 255, .94); color: #2a1650; box-shadow: 0 8px 22px -8px rgba(255, 255, 255, .7); }
+body[data-theme="glass"] input[type=range]::-webkit-slider-runnable-track {
+  height: 5px; border-radius: 3px;
+  background: linear-gradient(to right, #fff var(--p, 50%), rgba(255, 255, 255, .2) var(--p, 50%));
+}
+body[data-theme="glass"] input[type=range]::-webkit-slider-thumb { margin-top: -5.5px; box-shadow: 0 0 10px rgba(255, 255, 255, .8); }
+
+/* metrics: rings and charts in each metric's own colour, with a soft glow */
+body[data-theme="glass"] :is(.g-dial, .q-dial) .bg { stroke: rgba(255, 255, 255, .14); }
+body[data-theme="glass"] :is(.g-dial, .q-dial) .fg { filter: drop-shadow(0 0 7px color-mix(in srgb, var(--qc, var(--q)) 75%, transparent)); }
+body[data-theme="glass"] :is(.t-label, .g-label, .s-label) { color: rgba(255, 255, 255, .85); letter-spacing: .1em; }
+body[data-theme="glass"] .t-label::before, body[data-theme="glass"] .s-label::before {
+  content: ""; display: inline-block; width: .6em; height: .6em; margin-right: .45em; border-radius: 50%;
+  background: var(--c); box-shadow: 0 0 8px var(--c); vertical-align: .05em;
+}
+body[data-theme="glass"] .w-stat canvas { opacity: .85; }
+body[data-theme="glass"] .w-stat :is(.t-val, .t-sub) { text-shadow: 0 1px 8px rgba(20, 0, 60, .5); }
+body[data-theme="glass"] :is(.t-val, .s-main) b { font-weight: 600; }
+body[data-theme="glass"] .chip { background: rgba(255, 255, 255, .14); color: #fff; }
+body[data-theme="glass"] :is(.proc, .sess) { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .16); }
+
+/* page dots and the panels that open over the pages */
+body[data-theme="glass"] #dots i { background: rgba(255, 255, 255, .35); }
+body[data-theme="glass"] #dots i.on { width: 20px; background: #fff; box-shadow: 0 0 8px rgba(255, 255, 255, .6); }
+body[data-theme="glass"] :is(.toast, #navCard, .p-sheet, .ap-card) {
+  background: rgba(36, 22, 80, .72); border-color: rgba(255, 255, 255, .24); box-shadow: var(--glass-edge);
+  -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%);
+}
+body[data-theme="glass"] #overview { background: rgba(18, 12, 42, .78); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
