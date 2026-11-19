@@ -66,7 +66,21 @@ On Linux CI, use `npx playwright install --with-deps chromium`. Playwright start
 
 ### Build and run
 
-On Windows, from the repository root:
+For day-to-day work with a phone on USB, use the development loop (rebuilds the agent and/or debug APK and
+reinstalls it). Step-by-step setup: [RUN.md](../RUN.md) (Linux/macOS) or [RUN-WINDOWS.md](../RUN-WINDOWS.md) (Windows).
+
+```sh
+./scripts/dev.sh restart          # Linux / macOS
+```
+
+```powershell
+.\scripts\dev.ps1 restart         # Windows
+```
+
+`phone` rebuilds only the app after `www/` changes; `agent` rebuilds only the agent after `settings.html` or C#
+changes. Also: `start`, `stop`, `status`, `logs`.
+
+On Windows, from the repository root, a full release package is:
 
 ```powershell
 .\scripts\build.ps1 # release APK + five agent archives in dist/
@@ -79,12 +93,11 @@ cd android
 .\gradlew.bat lintDebug assembleDebug
 ```
 
-Run the Windows agent from the repository root:
+Run the Windows agent from the repository root without the script:
 
 ```powershell
 dotnet run --project agent/PhoneBox.Agent -f net10.0-windows10.0.19041.0
 ```
-
 
 On Linux or macOS, run the agent with `dotnet run --project agent/PhoneBox.Agent -f net10.0` and build the APK
 with `cd android && ./gradlew assembleDebug`. On Windows, the explicit `-f` selects one of the project's two
@@ -92,7 +105,7 @@ target frameworks. Set `ANDROID_HOME` or `android/local.properties` (`sdk.dir`) 
 
 ### Demo data and media
 
-The demo server needs only Python. It serves the same demo as the [live one](https://ersinkoc.github.io/phonebox/)
+The demo server needs only Python. It serves the same demo as the [live one](https://devpatel04.github.io/phonebox/)
 (made-up data in [`tools/pages/demo.js`](../tools/pages/demo.js)) straight from the sources, so a reload shows your
 changes. Size the browser window to 780 × 360 (the phone's screen in CSS pixels) and the panel behaves as on the
 phone, including webhooks: `curl -X POST http://127.0.0.1:8790/api/notify -d hello` (also `/api/push/<key>`,

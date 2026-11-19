@@ -39,7 +39,8 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
     private readonly Lock _gate = new();
     private Library? _library;
     private Task? _scan;
-    // bumped when the folder setting is cleared: a conversion that started before must not write its copy back
+    private (string Root, bool Subfolders, int Generation)? _scanKey;
+    // bumped when the folder setting is cleared or changed: a scan or conversion from before must not write back
     private int _generation;
     private readonly SemaphoreSlim _convert = new(1, 1);
     private readonly HashSet<string> _failed = []; // cache keys of photos that couldn't be converted
@@ -48,6 +49,8 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
     internal string CacheDir { get; init; } = System.IO.Path.Combine(AppPaths.LocalDir, "photos-cache");
     /// <summary>Test seam: the clock (Environment.TickCount64).</summary>
     internal Func<long> Now { get; init; } = () => Environment.TickCount64;
+    /// <summary>Test seam: lists a folder (<see cref="Scan"/>).</summary>
+    internal Func<string, bool, Library> Scanner { get; init; } = Scan;
 
     /// <summary>Test seam: scans now and waits for it.</summary>
     internal void ScanNow() { lock (_gate) _library = null; Current(config.Get().Photos, wait: true); }
@@ -76,20 +79,36 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
             var lib = _library;
             var fresh = lib is not null && lib.Root == root && lib.Subfolders == subfolders;
             if (fresh && Now() - lib!.ScannedAt < ScanEvery.TotalMilliseconds) return lib;
-            _scan ??= Task.Run(() =>
+            var gen = _generation;
+            var key = (root, subfolders, gen);
+            if (_scan is null || _scanKey != key)
             {
-                Library next;
-                try { next = Scan(root, subfolders); }
-                catch (Exception ex)
+                _scanKey = key;
+                Task? launched = null;
+                launched = _scan = Task.Run(() =>
                 {
-                    log.LogDebug("photo scan: {Msg}", ex.Message);
-                    next = new(root, subfolders, [], 0, "The photo folder can't be read");
-                }
-                // always cleared, so one failed scan never leaves the widget waiting for good
-                lock (_gate) { _library = next with { ScannedAt = Now() }; _scan = null; }
-                try { CleanCache(next); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-            });
-            scan = _scan;
+                    Library next;
+                    try { next = Scanner(root, subfolders); }
+                    catch (Exception ex)
+                    {
+                        log.LogDebug("photo scan: {Msg}", ex.Message);
+                        next = new(root, subfolders, [], 0, "The photo folder can't be read");
+                    }
+                    // always cleared for the active scan; stale scans from a cleared/switched folder are dropped, and
+                    // so is an older scan for the same selection that no longer owns the slot. The cache is cleaned in
+                    // the same lock, so a copy cached for a folder chosen since can't be deleted by this scan.
+                    lock (_gate)
+                    {
+                        if (_scan == launched && _generation == gen && _scanKey == key)
+                        {
+                            _library = next with { ScannedAt = Now() };
+                            try { CleanCacheLocked(next); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+                        }
+                        if (_scan == launched) { _scan = null; _scanKey = null; }
+                    }
+                });
+            }
+            scan = _scan!;
             if (fresh && !wait) return lib; // the old list until the new scan is done
         }
         if (!wait) return null;
@@ -191,7 +210,15 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
     /// <summary>After the settings are saved: a cleared folder takes its scaled copies with it, widget or not.</summary>
     public void SettingsSaved()
     {
-        if (string.IsNullOrWhiteSpace(config.Get().Photos.Folder)) ForgetCache();
+        var photos = config.Get().Photos;
+        var folder = photos.Folder.Trim();
+        if (string.IsNullOrWhiteSpace(folder)) { ForgetCache(); return; }
+        // Subfolders counts as much as the folder: a recursive scan in flight must not publish after it was turned off
+        lock (_gate)
+        {
+            if (_library is { } lib && (lib.Root != folder || lib.Subfolders != photos.Subfolders)) { _library = null; _generation++; }
+            else if (_scanKey is { } sk && (sk.Root != folder || sk.Subfolders != photos.Subfolders)) _generation++;
+        }
     }
 
     /// <summary>One photo, scaled down when it is large; null with a reason when it can't be served.</summary>
@@ -233,6 +260,7 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
             got = await s.ReadAtLeastAsync(head, head.Length, throwOnEndOfStream: false, ct);
         if (MimeOf(head.AsSpan(0, got)) is not { } mime) return (null, null, "That photo can't be shown");
         var size = SizeOf(head.AsSpan(0, got), mime);
+        if (size is { } invalid && (invalid.W <= 0 || invalid.H <= 0)) return (null, null, "That photo can't be shown");
         // only a known, moderate size goes to the phone as it is: a small file can still be 20000 x 20000 pixels
         var phoneSafe = size is { } d && d.W <= 8192 && d.H <= 8192 && (long)d.W * d.H <= MaxPhonePixels && photo.Length <= OriginalMaxBytes;
 
@@ -286,17 +314,16 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
         }
     }
 
-    /// <summary>After a scan: scaled copies of photos that are gone, changed or in another folder are deleted.</summary>
-    private void CleanCache(Library lib)
+    /// <summary>
+    /// After a scan, under <see cref="_gate"/> (the lock WriteCache publishes with, so a copy being written is never
+    /// pulled away mid-move): scaled copies of photos that are gone, changed or in another folder are deleted.
+    /// </summary>
+    private void CleanCacheLocked(Library lib)
     {
         var keep = lib.Photos.Select(p => CacheKey(p) + ".jpg").ToHashSet(StringComparer.Ordinal);
-        // under the lock WriteCache publishes with: a copy being written (its .tmp file) is never pulled away mid-move
-        lock (_gate)
-        {
-            if (!Directory.Exists(CacheDir)) return;
-            foreach (var f in Directory.EnumerateFiles(CacheDir))
-                if (!keep.Contains(System.IO.Path.GetFileName(f))) try { File.Delete(f); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
-        }
+        if (!Directory.Exists(CacheDir)) return;
+        foreach (var f in Directory.EnumerateFiles(CacheDir))
+            if (!keep.Contains(System.IO.Path.GetFileName(f))) try { File.Delete(f); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>No folder any more: no scaled copies of its photos either.</summary>
@@ -305,6 +332,8 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
         lock (_gate)
         {
             _library = null;
+            _scan = null;
+            _scanKey = null;
             _generation++;
             try { if (Directory.Exists(CacheDir)) Directory.Delete(CacheDir, recursive: true); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
@@ -325,7 +354,11 @@ public sealed class PhotoFrame(ConfigStore config, ILogger<PhotoFrame> log)
         switch (mime)
         {
             case "image/png" when b.Length >= 24:
-                return ((int)BinaryPrimitives.ReadUInt32BigEndian(b[16..]), (int)BinaryPrimitives.ReadUInt32BigEndian(b[20..]));
+            {
+                var w = BinaryPrimitives.ReadUInt32BigEndian(b[16..]);
+                var h = BinaryPrimitives.ReadUInt32BigEndian(b[20..]);
+                return ((int)Math.Min(w, int.MaxValue), (int)Math.Min(h, int.MaxValue));
+            }
             case "image/gif" when b.Length >= 10:
                 return (BinaryPrimitives.ReadUInt16LittleEndian(b[6..]), BinaryPrimitives.ReadUInt16LittleEndian(b[8..]));
             case "image/webp" when b.Length >= 30:
