@@ -1,11 +1,13 @@
 const { test, expect } = require('@playwright/test');
 
 async function editTheme(page) {
-  await page.goto('/settings/#general');
-  const theme = page.locator('[data-bind="display.theme"]');
-  await expect(theme).toBeVisible();
-  const draft = (await theme.inputValue()) === 'graphite' ? 'warm' : 'graphite';
-  await theme.selectOption(draft);
+  await page.goto('/settings/#theme');
+  const current = page.locator('.theme-card[aria-checked="true"]');
+  await expect(current).toBeVisible();
+  const currentId = await current.getAttribute('data-theme');
+  const draft = currentId === 'graphite' ? 'warm' : 'graphite';
+  await page.locator(`.theme-card[data-theme="${draft}"]`).click();
+  await expect(page.locator(`.theme-card[data-theme="${draft}"]`)).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('#save')).toBeEnabled();
   return draft;
 }
@@ -38,7 +40,7 @@ test('a settings transport failure reports the error and keeps the draft', async
   expect(failure, `CONTROL: HTTP conflict displayed. EXPECTED: error toast and false | ACTUAL: ${JSON.stringify(failure)}`)
     .toEqual({ result: false, toast: 'Could not save' });
   await expect(page.locator('#toast')).toHaveClass(/\berr\b/);
-  await expect(page.locator('[data-bind="display.theme"]')).toHaveValue(draft);
+  await expect(page.locator(`.theme-card[data-theme="${draft}"]`)).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('#save')).toBeEnabled();
 });
 
@@ -47,7 +49,7 @@ test('a settings save can be retried after the connection recovers', async ({ pa
   expect((await saveWithFailedRequest(page, null)).result).toBe(false);
   await page.locator('#save').click();
   await expect(page.locator('#save')).toBeDisabled();
-  await expect(page.locator('[data-bind="display.theme"]')).toHaveValue(draft);
+  await expect(page.locator(`.theme-card[data-theme="${draft}"]`)).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('#toast')).toHaveText(/^Saved/);
 });
 
@@ -57,19 +59,19 @@ test('a partial settings load and repeated Revert leave the form clean', async (
     display: { language: 'en', theme: 'default' },
     pages: [],
   })));
-  await page.goto('/settings/#general');
-  await expect(page.locator('#displayLangSel')).toHaveValue('en');
+  await page.goto('/settings/#theme');
+  await expect(page.locator('.theme-card[data-theme="default"]')).toHaveAttribute('aria-checked', 'true');
   const save = page.locator('#save');
   const initialClean = await save.isDisabled();
-  const theme = page.locator('[data-bind="display.theme"]');
-  await theme.selectOption('graphite');
+  await page.locator('.theme-card[data-theme="graphite"]').click();
   await expect(save).toBeEnabled();
   await page.locator('#revert').click();
-  await expect(theme).toHaveValue('default');
+  await expect(page.locator('.theme-card[data-theme="default"]')).toHaveAttribute('aria-checked', 'true');
   const revertedClean = await save.isDisabled();
   expect({ initialClean, revertedClean },
     `CONTROL: theme changed and reverted. EXPECTED: clean on load and revert | ACTUAL: load=${initialClean}, revert=${revertedClean}`)
     .toEqual({ initialClean: true, revertedClean: true });
+  await page.goto('/settings/#general');
   await page.locator('#displayLangSel').selectOption('tr');
   await expect(save).toBeEnabled();
   await page.locator('#revert').click();
