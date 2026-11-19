@@ -39,13 +39,16 @@ Windows, Linux and macOS. No root, PhoneBox account or cloud service required.</
 <sub>Example layouts with demo data.</sub></p>
 
 > **About this repository:** [DevPatel04/phonebox](https://github.com/DevPatel04/phonebox) is a fork of
-> [ersinkoc/phonebox](https://github.com/ersinkoc/phonebox). The install commands and downloads below use this
-> fork's releases. Agents can follow two update channels (**Settings → General → Updates**): **Stable** installs releases
-> built from `main`, and **Testing** also installs the pre-releases built from every push to the `test` branch.
+> [ersinkoc/phonebox](https://github.com/ersinkoc/phonebox), currently based on upstream **0.9.21**. The install
+> commands and downloads below use this fork's releases. Agents can follow two update channels
+> (**Settings → General → Updates**): **Stable** installs releases built from `main`, and **Testing** also installs
+> the pre-releases built from every push to the `test` branch. While developing from source, set the Updates
+> repository to `DevPatel04/phonebox` and turn automatic updates off so a published APK does not replace your debug build.
 
 PhoneBox pairs a full-screen **Android app** with a small **desktop agent**. Build your panel in a browser-based
-visual editor: **123 widgets**, **30 templates**, multiple pages and a live preview. Connect several phones with
-their own layouts, or switch one phone between paired computers.
+visual editor: **123 widgets**, **30 templates**, multiple pages and a live preview. Pick a panel theme (glass,
+cockpit, nature, space and others) under **Settings → Display**. Connect several phones with their own layouts, or
+switch one phone between paired computers.
 
 ## What you can do
 
@@ -125,7 +128,8 @@ Swipe, tap the page dots or use the phone's volume keys to move between pages.
   scoop install main/adb phonebox/phonebox
   ```
 
-- **From source:** see the [installation guide](docs/SETUP.md#other-ways-to-install) and [development guide](docs/DEVELOPMENT.md).
+- **From source:** [RUN.md](RUN.md) (Linux/macOS) or [RUN-WINDOWS.md](RUN-WINDOWS.md) (Windows), plus the
+  [installation](docs/SETUP.md#other-ways-to-install) and [development](docs/DEVELOPMENT.md) guides.
 - **winget:** manifests are prepared in [packaging/winget](packaging/winget); see the installation guide for details.
 
 </details>
@@ -142,7 +146,8 @@ Start with Home, System, AI quotas, Sessions, Music, Planner, Automation or a Co
 | ![CPU, GPU, memory and network charts](docs/screenshots/system.png) | ![Pages and widget settings in the visual editor](docs/screenshots/settings-editor.png) |
 
 Screenshots use demo data. [Browse the template gallery and widgets](docs/GUIDE.md#pages--templates).
-Change fonts, size, spacing, corners and surfaces globally or for one page or widget with the [appearance guide](docs/APPEARANCE.md).
+Change the panel theme, fonts, size, spacing, corners and surfaces globally or for one page or widget with the
+[appearance guide](docs/APPEARANCE.md).
 
 ## Platform support
 
@@ -168,6 +173,8 @@ release builds. See the [full compatibility table](docs/SETUP.md#what-works-wher
 | [Appearance](docs/APPEARANCE.md) | Fonts, surfaces, presets, inheritance and live preview |
 | [Control Deck](docs/CONTROL-DECK.md) | Audio, media, OBS, shortcuts, tasks, protocols, dependencies and platform limits |
 | [Discord widget](docs/DISCORD.md) | Creating the Discord application, connecting it, controls and troubleshooting |
+| [Run locally (Linux)](RUN.md) | One-time SDK setup and the `scripts/dev.sh` loop (agent + phone over USB) |
+| [Run locally (Windows)](RUN-WINDOWS.md) | Same on Windows with `scripts/dev.ps1` |
 | [Development](docs/DEVELOPMENT.md) | Architecture, local demo, builds, tests, widget sources and isolated agent runs |
 | [Contributing](CONTRIBUTING.md) | Contribution scope, review expectations, privacy and required checks |
 | [Changelog](CHANGELOG.md) | Release history and unreleased changes |
@@ -192,14 +199,27 @@ Read the [security details](docs/GUIDE.md#security--privacy). To report a vulner
 The agent uses **.NET 10**; the Android app uses **Kotlin and a WebView** with plain JavaScript widgets.
 For Android builds, install **JDK 17** and **Android SDK Platform 35** (the SDK the app is built with; the app itself
 runs on Android 5.0, API 21, and later).
-Preview the panel and editor from source with Python 3, using simulated data:
+
+### Run from this checkout
+
+| | Linux / macOS | Windows |
+|---|---|---|
+| Setup + loop | [RUN.md](RUN.md) | [RUN-WINDOWS.md](RUN-WINDOWS.md) |
+| Rebuild agent + phone | `./scripts/dev.sh restart` | `.\scripts\dev.ps1 restart` |
+| Panel (`www/`) only | `./scripts/dev.sh phone` | `.\scripts\dev.ps1 phone` |
+| Agent / settings only | `./scripts/dev.sh agent` | `.\scripts\dev.ps1 agent` |
+
+That starts the agent from source, builds a debug APK, installs it over USB and opens the settings at
+<http://127.0.0.1:8765>. Use `status`, `logs`, `stop` and `start` the same way on both scripts.
+
+### Browser preview (no phone)
 
 ```sh
 python tools/demo-server.py
 ```
 
-Open <http://127.0.0.1:8790/panel/> or <http://127.0.0.1:8790/settings/>.
-See [development commands](docs/DEVELOPMENT.md#development) for running the agent, building the APK and testing changes.
+Open <http://127.0.0.1:8790/panel/> or <http://127.0.0.1:8790/settings/> for the panel and editor with simulated data.
+See [development commands](docs/DEVELOPMENT.md#development) for tests, isolated agent runs and release builds.
 Contributions are welcome; start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Code signing policy
