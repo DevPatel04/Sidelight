@@ -662,8 +662,14 @@ dd { margin: 0; word-break: break-all; }
       <div class="card">
         <h3 data-i18n="s.updates.title">Updates</h3>
         <div class="row" style="margin-bottom:8px"><label class="switch"><input type="checkbox" data-bind="updates.auto"><span></span></label> <span data-i18n="s.updates.auto">Install new releases automatically</span></div>
-        <p class="hint" style="margin:0 0 12px">Checks <span id="updRepo"></span> on GitHub every 6 hours. The phone app is installed over USB without a prompt
-          on the phone; the agent replaces its own files and restarts.</p>
+        <div class="grid2">
+          <div class="field"><label data-i18n="s.updates.channel">Update channel</label>
+            <select data-bind="updates.channel"><option value="stable" data-i18n="s.updates.channel.stable">Stable (main branch releases)</option><option value="test" data-i18n="s.updates.channel.test">Testing (builds from the test branch)</option></select></div>
+          <div class="field"><label data-i18n="s.updates.repo">GitHub repository</label><input type="text" data-bind="updates.repo" placeholder="owner/name" spellcheck="false"></div>
+        </div>
+        <p class="hint" style="margin:0 0 12px">Checks <span id="updRepo"></span> on GitHub every 6 hours, and right after you save a new channel. The phone app is installed over USB without a prompt
+          on the phone; the agent replaces its own files and restarts. Testing gets every push to the test branch; switching back to Stable
+          keeps the test build until the next stable release is newer.</p>
         <dl id="updInfo"></dl>
         <div class="row" style="margin-top:12px"><button class="btn" id="updCheck" data-i18n="s.updates.check">Check now</button><button class="btn primary" id="updApply" hidden data-i18n="s.updates.apply">Update now</button><span class="hint" id="updState"></span></div>
       </div>
@@ -2632,7 +2638,7 @@ async function loadInfo() {
 // The form reads every section it binds and renders, so a config without one — an older export, or a
 // hand-trimmed paste in Apply JSON — gets the same defaults a fresh load does before anything renders.
 function fillDefaults() {
-  cfg.pages = fitPages(cfg.pages); cfg.shortcuts ??= []; cfg.rules ??= []; cfg.display ??= {}; cfg.night = { enabled: true, start: '00:30', end: '07:30', brightness: 0.02, ...cfg.night }; cfg.weather ??= {}; cfg.photos ??= { folder: '', subfolders: true }; cfg.lan ??= { enabled: false, port: 8766 }; cfg.updates ??= { auto: true, repo: 'ersinkoc/phonebox' }; cfg.claude ??= { phoneApprovals: true, timeoutSec: 90, onlyWhenAway: false }; cfg.antigravity ??= { phoneApprovals: true, timeoutSec: 30, onlyWhenAway: false }; cfg.cursor ??= { phoneApprovals: true, timeoutSec: 60, onlyWhenAway: false };
+  cfg.pages = fitPages(cfg.pages); cfg.shortcuts ??= []; cfg.rules ??= []; cfg.display ??= {}; cfg.night = { enabled: true, start: '00:30', end: '07:30', brightness: 0.02, ...cfg.night }; cfg.weather ??= {}; cfg.photos ??= { folder: '', subfolders: true }; cfg.lan ??= { enabled: false, port: 8766 }; cfg.updates = { auto: true, repo: 'DevPatel04/phonebox', channel: 'stable', ...cfg.updates }; cfg.claude ??= { phoneApprovals: true, timeoutSec: 90, onlyWhenAway: false }; cfg.antigravity ??= { phoneApprovals: true, timeoutSec: 30, onlyWhenAway: false }; cfg.cursor ??= { phoneApprovals: true, timeoutSec: 60, onlyWhenAway: false };
   cfg.codexBar ??= { providers: ['claude', 'codex', 'antigravity'], rotate: true, pageSize: 2, rotateInterval: 8 };
   for (const [k, v] of Object.entries({ language: 'auto', hour12: false, idleReturnSec: 90, switchCountdownSec: 3, touchGraceSec: 20, minDwellSec: 15, holdMaxMin: 30, keepAwake: true,
     showSeconds: true, vibrate: true, volumeKeys: true, artTint: true, proximityWake: true, orientation: 'landscape', theme: 'default', accent: '#2dd4bf' })) cfg.display[k] ??= v;
@@ -2685,7 +2691,7 @@ $('openPhone').onclick = async () => {
 $('cityBtn').onclick = searchCity;
 function renderUpdate(u) {
   const s = u.status;
-  $('updRepo').textContent = cfg.updates?.repo || 'ersinkoc/phonebox';
+  $('updRepo').textContent = (cfg.updates?.repo || 'DevPatel04/phonebox') + (cfg.updates?.channel === 'test' ? ' (testing channel)' : '');
   const line = (k, v) => [h('dt', {}, k), h('dd', {}, v)];
   $('updInfo').replaceChildren(
     ...line('Agent', s.agentVersion + (s.agentUpdate ? ` → ${s.latest}` : ' (up to date)') + (u.installed ? '' : ' · not the installed copy, updates itself only from %LOCALAPPDATA%\\PhoneBox\\app')),
