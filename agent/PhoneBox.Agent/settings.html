@@ -3164,7 +3164,7 @@ async function loadInfo() {
     for (const [api, id] of [['antigravity', 'agyHook'], ['cursor', 'cursorHook']]) {
       try {
         const st = await (await fetch(`/api/${api}/hook`)).json();
-        $(id + 'State').textContent = st.installed ? 'Installed in ' + st.path : 'Not installed';
+        $(id + 'State').textContent = st.installed ? t('s.claude.installedIn', { path: st.path }) : t('s.claude.notInstalled');
         $(id + 'Btn').dataset.i18n = st.installed ? 's.claude.removeHook' : 's.claude.installHook';
         $(id + 'Btn').textContent = t($(id + 'Btn').dataset.i18n);
         $(id + 'Btn').dataset.installed = st.installed ? '1' : '';

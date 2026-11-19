@@ -102,6 +102,33 @@ status() {
   if phone_connected; then echo "phone: $("$adb" get-serialno)"; else echo "phone: none on adb"; fi
 }
 
+# Debian/Ubuntu often ship /usr/bin/node without npm. Prefer PATH, then a Node install that includes npm/npx.
+ensure_npm() {
+  if command -v npm >/dev/null 2>&1 && command -v npx >/dev/null 2>&1; then return 0; fi
+  local d pick="" bins=()
+  if command -v node >/dev/null 2>&1; then
+    d="$(dirname "$(command -v node)")"
+    [ -x "$d/npm" ] && [ -x "$d/npx" ] && bins+=("$d")
+  fi
+  for d in \
+    "${NVM_DIR:-$HOME/.nvm}/versions/node"/*/bin \
+    "$HOME/.local/share/fnm/node-versions"/*/installation/bin \
+    "$HOME/.volta/bin" \
+    "$HOME/.cache/JetBrains"/*/acp-agents/.runtimes/node/*/bin
+  do
+    [ -x "$d/npm" ] && [ -x "$d/npx" ] && bins+=("$d")
+  done
+  for d in "${bins[@]}"; do pick="$d"; done
+  if [ -n "$pick" ]; then
+    export PATH="$pick:$PATH"
+    echo "tests: using npm from $pick"
+    return 0
+  fi
+  echo "tests: npm/npx not found (need Node.js 22 with npm)." >&2
+  echo "       Install from https://nodejs.org , or: sudo apt install npm" >&2
+  exit 1
+}
+
 # Same checks CI runs for metadata, agent and the browser panel/settings (including Vietnamese leftover scans).
 # Extra args after "test" go to Playwright (e.g. ./scripts/dev.sh test i18n-coverage.spec.js).
 run_tests() {
@@ -111,6 +138,7 @@ run_tests() {
   echo "tests: agent"
   dotnet test "$root/agent/PhoneBox.Agent.Tests" --nologo
   echo "tests: UI (Playwright)"
+  ensure_npm
   (
     cd "$root/tools/ui-tests"
     if [ ! -d node_modules/@playwright/test ]; then npm ci; fi
