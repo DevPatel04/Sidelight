@@ -267,7 +267,7 @@ test('clock times follow display.hour12 ("auto") via Android.is24Hour bridge and
 test('settings Display Time format select saves false, true and auto', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
   await layout(page, [widget('clock')], { display: { idleReturnSec: 0, hour12: 'auto' } });
-  await page.goto('/settings/#general');
+  await page.goto('/settings/#display');
   const sel = page.locator('[data-bind="display.hour12"]');
   await expect(sel).toBeVisible();
   await expect(sel).toHaveValue('auto');
@@ -296,7 +296,7 @@ test('settings Display Time format select saves false, true and auto', async ({ 
 // offered Save, and Revert could never get back to a clean state.
 test('a freshly loaded settings page has nothing to save, and Revert gets back to that', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
-  await page.goto('/settings/#general');
+  await page.goto('/settings/#display');
   // the Advanced JSON box is empty in the markup and filled by the changed() at the end of load(): from here on the
   // config is rendered, the form handlers are bound and the baseline is taken (both buttons start disabled anyway)
   await expect(page.locator('#json')).toHaveValue(/"pages"/);
@@ -331,7 +331,7 @@ test('multi option preserves saved unlisted quota provider IDs when toggling cho
 // (pages, display, night…) threw inside renderPages and left cfg broken until a reload.
 test('Apply JSON fills defaults for a partial config instead of breaking the editor', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
-  await page.goto('/settings/#general');
+  await page.goto('/settings/#display');
   // move away from the defaults first, so the checks below prove Apply JSON put them back
   await page.locator('input[data-bind="night.brightness"]').fill('0.1');
   await expect(page.locator('#nbv')).toHaveText('10%');
@@ -344,7 +344,7 @@ test('Apply JSON fills defaults for a partial config instead of breaking the edi
   await page.locator('a[href="#pages"]').click();
   await expect(page.locator('#pageTabs button', { hasText: 'New page' })).toBeVisible();
   // and the form keeps answering: the night screen slider read its (defaulted) section without throwing
-  await page.locator('a[href="#general"]').click();
+  await page.locator('a[href="#display"]').click();
   await expect(page.locator('#nbv')).toHaveText('2%'); // the agent's NightConfig default, not NaN%
   await expect(page.locator('input[data-bind="display.showSeconds"]')).toBeChecked(); // DisplayConfig.ShowSeconds
 });

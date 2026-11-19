@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test');
 
 test('settings general tab stays quiet for modern WebView and warns when outdated', async ({ page }) => {
-  await page.goto('/settings/#general');
+  await page.goto('/settings/#connection');
   await expect(page.locator('#webviewProblem')).toBeHidden();
   await expect(page.locator('#phoneList')).toContainText('WebView 134');
   await expect(page.locator('#phoneList')).not.toContainText('⚠');

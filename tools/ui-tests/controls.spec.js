@@ -121,7 +121,7 @@ test('meeting timer keeps elapsed time after reloading',async({page})=>{
 });
 
 test('desktop control bindings and captured profiles survive Save without leaking to public config',async({page})=>{
-  await page.setViewportSize({width:1280,height:860});await page.goto('/settings/#general');
+  await page.setViewportSize({width:1280,height:860});await page.goto('/settings/#integrations');
   const root=page.locator('#controlSettings');
   await root.getByRole('button',{name:'Add control',exact:true}).click();
   await root.getByRole('textbox',{name:'Control label',exact:true}).fill('Private sound');
@@ -350,8 +350,8 @@ test('meeting-status renders live on-air state and out-of-order work/push polls 
 
 test('Control Deck settings update on input without blur and Smart Stack canvas drop enforces defaults and 12-item cap', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
-  await page.goto('/settings/#general');
-  await expect(page.locator('[data-bind="ping.host"]')).toBeVisible();
+  await page.goto('/settings/#integrations');
+  await expect(page.locator('#controlSettings')).toBeVisible();
 
   await page.evaluate(() => {
     const cfgObj = JSON.parse(localStorage.getItem('pb-demo-config'));
