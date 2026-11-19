@@ -9,10 +9,10 @@
   font-size: calc(1rem * var(--widget-font-scale, 1));
 }
 .w[data-widget-border="false"] { border: 0 !important; }
-.w[data-widget-border="true"] { border: 1px solid var(--line) !important; }
+.w[data-widget-border="true"] { border: var(--card-border) !important; }
 .w[data-widget-shadow="false"] { box-shadow: none !important; }
 .w[data-widget-shadow="true"] { box-shadow: 0 5px 16px rgba(0,0,0,.28) !important; }
-.w:is([data-widget-surface="cards"],[data-widget-surface="seamless"]) { background: var(--card); }
+.w:is([data-widget-surface="cards"],[data-widget-surface="seamless"]) { background: var(--card-bg); }
 .w[data-widget-surface="flat"] {
   background: #15191f;
   background: color-mix(in srgb, var(--bg) 94%, var(--text));

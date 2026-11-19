@@ -1,0 +1,157 @@
+/* ================================================================ Glass
+   Frosted cards floating over drifting colour: thin numerals, glowing gradient progress, soft rings. The tokens below
+   restyle every page; the rules after them only add what a token cannot say (glow, frosting, pill shapes). */
+:root[data-theme="glass"] {
+  --cpu: #5ef0ff; --gpu: #ff7ad9; --ram: #ffd36b; --net: #5dffb0; --up: #8fb4ff; --ok: #5dffb0;
+}
+body[data-theme="glass"] {
+  --bg: #120c2a;
+  --card: rgba(255, 255, 255, .1); --card-hi: rgba(255, 255, 255, .2); --line: rgba(255, 255, 255, .2);
+  --text: #ffffff; --muted: rgba(255, 255, 255, .72); --dim: rgba(255, 255, 255, .45);
+  --card-bg: linear-gradient(145deg, rgba(255, 255, 255, .19), rgba(255, 255, 255, .06));
+  --card-border: 1px solid rgba(255, 255, 255, .24);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, .38), 0 12px 30px -14px rgba(10, 0, 40, .6);
+  --radius: clamp(14px, 9cqmin, 26px);
+  --radius-sm: 14px;
+  --surface: rgba(255, 255, 255, .11); --surface-hi: rgba(255, 255, 255, .24); --surface-line: rgba(255, 255, 255, .24);
+  --track: rgba(255, 255, 255, .2);
+  --overlay: rgba(36, 22, 80, .8);
+  --on-accent: #2a1650;
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .38), 0 12px 30px -14px rgba(10, 0, 40, .6);
+  --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .3);
+  --glass-grad: linear-gradient(90deg, #5ef0ff, #c49bff, #ff7ad9);
+}
+/* Real frosting only where there is something sharp behind the card (a picture, stars, rain or bubbles): over the
+   soft colour of the other backgrounds a blur looks the same, and skipping it saves an old phone a lot of work. */
+body[data-theme="glass"]:is(.has-bg-image, [data-bg="stars"], [data-bg="rain"], [data-bg="bubbles"]) :is(.w.card, .q-card, .proc, .key) {
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+}
+
+/* clock: airy numerals, the seconds in a frosted pill */
+body[data-theme="glass"] .clock { text-shadow: 0 6px 30px rgba(20, 0, 60, .35); }
+body[data-theme="glass"] .clock .colon { opacity: .75; }
+body[data-theme="glass"] .clock .sec {
+  color: #fff; font-weight: 500; font-size: .17em; padding: .2em .55em; margin: .7em 0 0 .5em;
+  border-radius: 999px; background: rgba(255, 255, 255, .18); border: 1px solid rgba(255, 255, 255, .3);
+}
+body[data-theme="glass"] .clock .ap { color: rgba(255, 255, 255, .8); }
+body[data-theme="glass"] .date { color: rgba(255, 255, 255, .9); font-weight: 500; }
+body[data-theme="glass"] .status { color: rgba(255, 255, 255, .8); }
+body[data-theme="glass"] .status .sep { color: rgba(255, 255, 255, .35); }
+body[data-theme="glass"] .status .smini { color: #ffb8ea; }
+body[data-theme="glass"] .dot.on { background: #5dffb0; box-shadow: 0 0 8px #5dffb0; }
+
+/* music: glowing cover, gradient progress with a lit knob, frosted round buttons */
+body[data-theme="glass"] .art-wrap { box-shadow: 0 14px 30px -10px rgba(var(--ambient), .7), 0 0 0 1px rgba(255, 255, 255, .18); }
+body[data-theme="glass"] .m-app { color: rgba(255, 255, 255, .78); }
+body[data-theme="glass"] .m-title { font-weight: 700; }
+body[data-theme="glass"] .bar::before { height: 6px; border-radius: 3px; }
+body[data-theme="glass"] .fill { height: 6px; border-radius: 3px; background: var(--glass-grad); }
+body[data-theme="glass"] .fill::after {
+  width: 14px; height: 14px; right: -7px; top: -4px; background: #fff;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .22), 0 0 12px rgba(255, 255, 255, .8);
+}
+body[data-theme="glass"] .w-media .ic:not(.play) {
+  background: rgba(255, 255, 255, .14); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), inset 0 0 0 1px rgba(255, 255, 255, .18);
+}
+body[data-theme="glass"] .ic.play { background: rgba(255, 255, 255, .94); box-shadow: 0 8px 22px -8px rgba(255, 255, 255, .7); }
+body[data-theme="glass"] input[type=range]::-webkit-slider-runnable-track { height: 5px; border-radius: 3px; }
+body[data-theme="glass"] input[type=range]::-webkit-slider-thumb { margin-top: -5.5px; box-shadow: 0 0 10px rgba(255, 255, 255, .8); }
+
+/* metrics: rings and charts in each metric's own colour, with a soft glow */
+body[data-theme="glass"] :is(.g-dial, .q-dial) .fg { filter: drop-shadow(0 0 7px color-mix(in srgb, var(--qc, var(--q)) 75%, transparent)); }
+body[data-theme="glass"] :is(.t-label, .g-label, .s-label) { color: rgba(255, 255, 255, .85); letter-spacing: .1em; }
+body[data-theme="glass"] .t-label::before, body[data-theme="glass"] .s-label::before {
+  content: ""; display: inline-block; width: .6em; height: .6em; margin-right: .45em; border-radius: 50%;
+  background: var(--c); box-shadow: 0 0 8px var(--c); vertical-align: .05em;
+}
+body[data-theme="glass"] .w-stat canvas { opacity: .85; }
+body[data-theme="glass"] .w-stat :is(.t-val, .t-sub) { text-shadow: 0 1px 8px rgba(20, 0, 60, .5); }
+body[data-theme="glass"] :is(.t-val, .s-main) b { font-weight: 600; }
+body[data-theme="glass"] .chip { background: rgba(255, 255, 255, .14); color: #fff; border-radius: 999px; }
+/* thin bars glow in their own colour, like the music progress */
+body[data-theme="glass"] :is(.track, .bt-bar, .p-bar) i { box-shadow: 0 0 8px color-mix(in srgb, var(--c, #fff) 70%, transparent); }
+
+/* ---------- the other pages ---------- */
+/* small frosted panes inside a page: AI quota cards, processes, shortcut keys */
+body[data-theme="glass"] .q-card {
+  border: var(--card-border); border-radius: var(--radius); box-shadow: var(--glass-edge);
+  background: radial-gradient(90% 70% at 50% 0%, color-mix(in srgb, var(--q) 26%, transparent), transparent 70%), var(--card-bg);
+}
+body[data-theme="glass"] .q-plan { background: rgba(255, 255, 255, .16); color: #fff; border-radius: 999px; }
+body[data-theme="glass"] .q-dial .pace { stroke: #fff; filter: drop-shadow(0 0 3px #fff); }
+body[data-theme="glass"] .proc { background: var(--card-bg); border: var(--card-border); border-radius: 16px; box-shadow: var(--glass-hi); }
+body[data-theme="glass"] .p-bar i { background: var(--glass-grad); }
+body[data-theme="glass"] .seg { border-radius: 999px; }
+body[data-theme="glass"] .seg button { border-radius: 999px; }
+body[data-theme="glass"] .seg button.on { background: rgba(255, 255, 255, .9); color: var(--on-accent); }
+body[data-theme="glass"] .key {
+  border-radius: 22px; box-shadow: var(--glass-hi), 0 10px 24px -14px rgba(10, 0, 40, .7);
+  background: linear-gradient(150deg, color-mix(in srgb, var(--k) 34%, rgba(255, 255, 255, .16)), rgba(255, 255, 255, .05));
+  border: 1px solid rgba(255, 255, 255, .26);
+}
+body[data-theme="glass"] .key .k-label { color: #fff; font-weight: 600; }
+body[data-theme="glass"] .key .k-icon { filter: drop-shadow(0 2px 6px rgba(20, 0, 60, .45)); }
+
+/* rows in lists: sessions, GitHub, checklist, feeds, rules, docker, agenda */
+body[data-theme="glass"] :is(.sess, .cl-i, .pl-i, .ib-i, .ru-row, .pi) { box-shadow: var(--glass-hi); }
+body[data-theme="glass"] .sess.waiting { background: rgba(255, 90, 120, .22); border-color: rgba(255, 140, 170, .55); }
+body[data-theme="glass"] :is(.gh-bell, .ap-count, .mini-btn, .ru-pause, .q-plan) { border-radius: 999px; }
+body[data-theme="glass"] .gh-pr .rv { border-radius: 999px; padding: 1px 7px; }
+body[data-theme="glass"] .cl-box { border-color: rgba(255, 255, 255, .6); border-radius: 50%; }
+body[data-theme="glass"] .cl-i.done .cl-box { background: #5dffb0; border-color: #5dffb0; box-shadow: 0 0 8px #5dffb0; }
+body[data-theme="glass"] .dk-row.open, body[data-theme="glass"] .ag-row.now { box-shadow: var(--glass-hi); }
+
+/* calendar, world clocks, forecast, timers */
+body[data-theme="glass"] .cal-d.today { background: #fff; color: var(--on-accent); box-shadow: 0 0 12px rgba(255, 255, 255, .7); border-radius: 50%; }
+body[data-theme="glass"] .cal .we { color: #ffb8ea; }
+body[data-theme="glass"] .wc { border-color: rgba(255, 255, 255, .16); }
+body[data-theme="glass"] :is(.wc-t, .cd-v, .sw-t, .ct-n, .pv, .wc-main) { text-shadow: 0 4px 20px rgba(20, 0, 60, .35); }
+body[data-theme="glass"] .fc-r { color: #8fe9ff; }
+body[data-theme="glass"] :is(.pb, .chip-btn) { box-shadow: var(--glass-hi), inset 0 0 0 1px rgba(255, 255, 255, .16); }
+body[data-theme="glass"] .chip-btn { border-radius: 999px; }
+body[data-theme="glass"] .pb.main { box-shadow: 0 0 14px color-mix(in srgb, var(--q) 70%, transparent); }
+body[data-theme="glass"] .vb i { background: var(--glass-grad); box-shadow: 0 0 10px rgba(196, 155, 255, .6); }
+body[data-theme="glass"] .analog .face { fill: rgba(255, 255, 255, .1); stroke: rgba(255, 255, 255, .3); }
+body[data-theme="glass"] .analog .tk.b { stroke: #fff; }
+body[data-theme="glass"] .w-note { box-shadow: var(--glass-edge); border-radius: var(--radius); }
+/* coloured labels and values can sit on a bright patch of the background: a soft dark halo keeps them readable */
+body[data-theme="glass"] :is(.w-title, .pl-v, .pv, .q-alert, .q-pace, .q-left, .ag-when, .ag-big-s, .nu-when, .gh-pr .ci, .chg, .aq-v, .cd-v, .hn-r) {
+  text-shadow: 0 1px 2px rgba(20, 0, 60, .55), 0 0 10px rgba(20, 0, 60, .35);
+}
+body[data-theme="glass"] .chg.up { color: #5dffb0; }
+body[data-theme="glass"] .chg.down { color: #ff8fb1; }
+
+/* Control Deck: frosted pill buttons and panes */
+body[data-theme="glass"] :is(.deck-button, .deck-hold, .obs-sc, .dc-btn, .dk-btn, .ac-key, .radio-card, .ap-tile) {
+  box-shadow: var(--glass-hi); border-color: rgba(255, 255, 255, .22);
+}
+body[data-theme="glass"] :is(.deck-button, .deck-hold, .obs-sc, .dk-btn) { border-radius: 16px; }
+body[data-theme="glass"] .deck-channel { background: rgba(255, 255, 255, .07); border-color: rgba(255, 255, 255, .16); border-radius: 18px; }
+body[data-theme="glass"] .deck-button:active, body[data-theme="glass"] .deck-hold.held { background: #fff; color: var(--on-accent); }
+body[data-theme="glass"] .deck-button.selected, body[data-theme="glass"] .deck-button[aria-pressed=true],
+body[data-theme="glass"] .obs-sc.cur { background: rgba(255, 255, 255, .26); border-color: #fff; box-shadow: 0 0 14px rgba(255, 255, 255, .35); }
+body[data-theme="glass"] .deck-slider { accent-color: #fff; }
+body[data-theme="glass"] .obs-pill { border-radius: 999px; box-shadow: var(--glass-hi); }
+body[data-theme="glass"] .radio-carousel .radio-card { background: var(--card-bg); border: var(--card-border); }
+body[data-theme="glass"] .sq-now { box-shadow: var(--glass-hi); }
+
+/* page dots and the panels that open over the pages */
+body[data-theme="glass"] #dots i { background: rgba(255, 255, 255, .35); }
+body[data-theme="glass"] #dots i.on { width: 20px; background: #fff; box-shadow: 0 0 8px rgba(255, 255, 255, .6); }
+body[data-theme="glass"] :is(.toast, #navCard, #navChip, #ptitle, .p-sheet, .ap-card, .session-panel) {
+  background: var(--overlay); border-color: rgba(255, 255, 255, .24); box-shadow: var(--glass-edge);
+  -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%);
+}
+body[data-theme="glass"] :is(.p-sheet, .ap-card, .session-panel) { border-radius: 26px; }
+body[data-theme="glass"] .session-panel-head { background: transparent; }
+body[data-theme="glass"] .ap-detail { background: rgba(10, 4, 30, .45); border-color: rgba(255, 255, 255, .16); }
+body[data-theme="glass"] :is(.ps-btn, .nv-btn, .ap-btn) { border-radius: 999px; }
+body[data-theme="glass"] .ap-btn.allow { background: #5dffb0; color: #06281a; box-shadow: 0 0 18px rgba(93, 255, 176, .45); }
+body[data-theme="glass"] #overview { background: rgba(18, 12, 42, .78); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+body[data-theme="glass"] .ov-tile { background: var(--card-bg); border-color: rgba(255, 255, 255, .24); box-shadow: var(--glass-hi); border-radius: 20px; }
+body[data-theme="glass"] .ov-map span { background: rgba(255, 255, 255, .16); border-radius: 6px; }
+/* night: the clock as a faint violet glow on black */
+body[data-theme="glass"] #night { background: radial-gradient(60% 70% at 50% 45%, #1a0f3a, #000); color: rgba(196, 155, 255, .55); }
+body[data-theme="glass"] #nClock { font-weight: 100; text-shadow: 0 0 30px rgba(196, 155, 255, .35); }
