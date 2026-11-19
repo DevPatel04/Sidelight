@@ -126,8 +126,20 @@ public sealed class DisplayConfig
     public bool VolumeKeys { get; set; } = true;
     /// <summary>landscape, portrait or auto (follow the phone). In portrait the widgets are arranged automatically.</summary>
     public string Orientation { get; set; } = "landscape";
-    /// <summary>default, amoled, midnight, warm or graphite.</summary>
+    /// <summary>default, amoled, midnight, warm, graphite or glass (frosted cards over drifting colour).</summary>
     public string Theme { get; set; } = "default";
+    /// <summary>
+    /// What moves behind the widgets: "auto" (the theme's own: drifting colour for glass, the accent glow otherwise),
+    /// or one of <see cref="Backgrounds"/>. The phone pauses it on the night screen and when the system asks for
+    /// reduced motion.
+    /// </summary>
+    public string Background { get; set; } = "auto";
+    internal static readonly string[] Backgrounds = ["auto", "glow", "blobs", "aurora", "stars", "bubbles", "rain", "none"];
+    /// <summary>
+    /// Id of the picture behind the widgets (Settings › Display), stored beside the settings file; empty = none.
+    /// It is the start of the picture's hash, so a new picture has a new URL and the phone never shows a stale copy.
+    /// </summary>
+    public string BackgroundImage { get; set; } = "";
     /// <summary>Accent colour (background glow, page dots), e.g. "#2dd4bf".</summary>
     public string Accent { get; set; } = "#2dd4bf";
     /// <summary>Tint the background with the album art's colour while music plays.</summary>
@@ -505,6 +517,9 @@ public sealed partial class ConfigStore(string path)
         // a language the panel does not have falls back to following the phone / browser
         var lang = (c.Display.Language ?? "").Trim().ToLowerInvariant();
         c.Display.Language = DisplayConfig.Languages.Contains(lang) ? lang : "auto";
+        var bg = (c.Display.Background ?? "").Trim().ToLowerInvariant();
+        c.Display.Background = DisplayConfig.Backgrounds.Contains(bg) ? bg : "auto";
+        c.Display.BackgroundImage = BackgroundImages.IsId(c.Display.BackgroundImage) ? c.Display.BackgroundImage : "";
         c.Display.SwitchCountdownSec = Math.Clamp(c.Display.SwitchCountdownSec, 0, 30);
         c.Display.TouchGraceSec = Math.Clamp(c.Display.TouchGraceSec, 0, 600);
         c.Display.MinDwellSec = Math.Clamp(c.Display.MinDwellSec, 0, 600);

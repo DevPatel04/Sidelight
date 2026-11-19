@@ -3,6 +3,7 @@
 // (the start section at the end runs after every module has loaded).
 import { W } from './registry.js';
 import './appearance.js';
+import { applyBackground } from './background.js';
 import { cached } from './widgets/helpers.js';
 import './widgets/basic.js';
 import './widgets/stack.js';
@@ -986,13 +987,23 @@ export function portraitLayout(widgets) {
   return { pos, rows: Math.max(12, occ.length) };
 }
 
+// Set before any widget is built: a theme brings its own widget colours (--cpu, --gpu, …), which widgets read from
+// the root once, when they are created; the theme is part of the layout key, so a new one builds the pages again.
+function applyTheme() {
+  const d = cfg.display || {};
+  const theme = ['amoled', 'midnight', 'warm', 'graphite', 'glass'].includes(d.theme) ? d.theme : 'default';
+  document.body.dataset.theme = document.documentElement.dataset.theme = theme;
+  return theme;
+}
+
 export function buildLayout() {
+  applyTheme();
   const enabled = (cfg.pages || []).filter((p) => p.enabled !== false && Array.isArray(p.widgets));
   const next = enabled.length ? enabled : FALLBACK_PAGES;
   const portrait = isPortrait();
   const h12 = hour12();
-  // the active language belongs in the key: the widgets render their texts once, when they are created
-  const key = JSON.stringify([next, cfg.shortcuts, cfg.display?.showSeconds, cfg.display?.hour12, h12, cfg.display?.appearance, portrait, I18n?.getLang()]);
+  // the active language and theme belong in the key: widgets take their texts and colours once, when they are created
+  const key = JSON.stringify([next, cfg.shortcuts, cfg.display?.showSeconds, cfg.display?.hour12, h12, cfg.display?.appearance, portrait, I18n?.getLang(), document.documentElement.dataset.theme]);
   if (key === layoutKey) return;
   layoutKey = key;
   lastHour12 = h12;
@@ -1755,13 +1766,14 @@ export function applyDisplay() {
   LOCALE = I18n ? I18n.getLocale() : 'en-GB';
   I18n?.applyDom();
   // theme and accent apply in the preview and the browser too
-  document.body.dataset.theme = ['amoled', 'midnight', 'warm', 'graphite'].includes(d.theme) ? d.theme : 'default';
+  const theme = applyTheme();
   const accent = hexToRgb(d.accent);
   const before = DEFAULT_AMBIENT;
   DEFAULT_AMBIENT = accent || '45, 212, 191';
   document.documentElement.style.setProperty('--accent', `rgb(${DEFAULT_AMBIENT})`);
   artTint = d.artTint !== false;
   if (before !== DEFAULT_AMBIENT || !artTint) setAmbient(artTint ? currentArtColor : null);
+  applyBackground(d, theme, DEFAULT_AMBIENT);
   if (langChanged) { buildLayout(); renderApproval(); }
   renderRulesBtn();
   if (PREVIEW || !bridge) return;
