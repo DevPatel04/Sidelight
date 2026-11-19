@@ -5,12 +5,12 @@ import { API, PANEL_HEADERS } from './main.js';
 // Old phones run this for hours, so the canvas is drawn at a fraction of the screen's pixels (the soft shapes do not
 // need more), at a capped frame rate, and not at all on the night screen, in a hidden WebView, or when the system
 // asks for reduced motion (then one still frame is drawn).
-const MODES = ['glow', 'blobs', 'aurora', 'stars', 'bubbles', 'rain', 'horizon', 'none'];
+const MODES = ['glow', 'blobs', 'aurora', 'stars', 'bubbles', 'rain', 'horizon', 'forest', 'none'];
 // the drawing scale against CSS pixels and frames per second: blurred shapes are fine small and slow
 const SPEC = {
   blobs: { scale: 0.2, fps: 20 }, aurora: { scale: 0.25, fps: 20 },
   stars: { scale: 1, fps: 24 }, bubbles: { scale: 0.75, fps: 30 }, rain: { scale: 0.75, fps: 30 },
-  horizon: { scale: 0.5, fps: 20 },
+  horizon: { scale: 0.5, fps: 20 }, forest: { scale: 0.5, fps: 20 },
 };
 // the colour sets the animations draw in; glass brings its own, the other themes follow the accent colour
 const GLASS = ['255,95,162', '124,92,255', '36,212,255', '255,179,71', '46,230,166'];
@@ -191,6 +191,70 @@ DRAW.horizon = (t) => {
   ctx.beginPath(); ctx.moveTo(w, 0); ctx.lineTo(w * 0.95, 0); ctx.lineTo(w * 0.985, hgt); ctx.lineTo(w, hgt); ctx.fill();
 };
 
+// a pine tree of three stacked triangles, standing at x, y
+function pine(x, y, size, col) {
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  for (let i = 0; i < 3; i++) {
+    const half = size * (0.42 - i * 0.1), base = y - size * i * 0.28;
+    ctx.moveTo(x - half, base); ctx.lineTo(x, base - size * 0.5); ctx.lineTo(x + half, base);
+  }
+  ctx.fill();
+  ctx.fillRect(x - 1, y, 2, 4);
+}
+// layers of hills from far to near: height, roughness, colour, drift speed, and pine trees on the nearer ones
+const HILLS = [
+  { base: 0.5, amp: 46, col: '#2c4d40', speed: 0.004, f: [0.011, 0.023, 0.005] },
+  { base: 0.6, amp: 38, col: '#21403a', speed: 0.008, f: [0.014, 0.031, 0.007] },
+  { base: 0.73, amp: 30, col: '#17322b', speed: 0.014, f: [0.018, 0.04, 0.009], every: 30, tall: 16 },
+  { base: 0.9, amp: 22, col: '#0c1f1a', speed: 0.026, f: [0.022, 0.05, 0.012], every: 22, tall: 26 },
+];
+// mountains and pine forest drifting past at their own depths, mist in the valley, a low sun, leaves and fireflies;
+// drawn in a 780 × 360 frame scaled to the canvas
+DRAW.forest = (t) => {
+  const W = 780, H = 360;
+  ctx.save();
+  ctx.scale(w / W, hgt / H);
+  const sky = ctx.createLinearGradient(0, 0, 0, H);
+  sky.addColorStop(0, '#0a1614'); sky.addColorStop(0.42, '#183428'); sky.addColorStop(0.66, '#9c6a3c'); sky.addColorStop(1, '#2a2a1e');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+  const sx = W * 0.64, sy = H * 0.5, glow = ctx.createRadialGradient(sx, sy, 6, sx, sy, 140);
+  glow.addColorStop(0, 'rgba(255,214,120,.85)'); glow.addColorStop(0.22, 'rgba(242,193,78,.3)'); glow.addColorStop(1, 'rgba(242,193,78,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#ffdf8a'; ctx.beginPath(); ctx.arc(sx, sy, 22, 0, 7); ctx.fill();
+  HILLS.forEach((l, li) => {
+    const off = t * l.speed;
+    const y = (x) => H * l.base - l.amp * (0.55 * Math.sin((x + off) * l.f[0] + li) + 0.3 * Math.sin((x + off) * l.f[1] + li * 2) + 0.25 * Math.sin((x + off) * l.f[2]));
+    ctx.fillStyle = l.col;
+    ctx.beginPath(); ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 8) ctx.lineTo(x, y(x));
+    ctx.lineTo(W, H); ctx.fill();
+    if (l.every) {
+      const k0 = Math.floor(off / l.every) - 1;
+      for (let k = k0; k < k0 + W / l.every + 3; k++) {
+        const x = k * l.every + (((k * 37) % 13) + 13) % 13 - off;
+        pine(x, y(x) + 3, l.tall * (0.7 + ((((k * 53) % 7) + 7) % 7) / 14), l.col);
+      }
+    }
+    if (li === 1) { ctx.fillStyle = `rgba(214,226,206,${(0.06 + 0.03 * Math.sin(t * 0.0004)).toFixed(3)})`; ctx.fillRect(0, H * 0.56, W, H * 0.12); }
+  });
+  for (let i = 0; i < 14; i++) {
+    const x = ((i * 131.7 + t * 0.018 * (1 + (i % 3))) % (W + 40)) - 20, y = ((i * 77.3 + t * 0.026 * (1 + (i % 2))) % (H + 30)) - 15;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(t * 0.001 + i);
+    ctx.globalAlpha = 0.75; ctx.fillStyle = ['#e9a23b', '#c8642f', '#9ccf63'][i % 3];
+    ctx.beginPath(); ctx.ellipse(0, 0, 5, 2.3, 0, 0, 7); ctx.fill(); ctx.restore();
+  }
+  ctx.fillStyle = '#ffe48a';
+  for (let i = 0; i < 18; i++) {
+    const x = ((i * 97) % W) + Math.sin(t * 0.0006 + i) * 22, y = H * 0.55 + ((i * 41) % 140) + Math.cos(t * 0.0005 + i * 2) * 12;
+    ctx.globalAlpha = 0.25 + 0.75 * Math.abs(Math.sin(t * 0.0025 + i * 3));
+    ctx.beginPath(); ctx.arc(x, y, 1.6, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = 'rgba(4,10,8,.3)'; ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+};
+
 function frame(now) {
   raf = 0;
   const s = SPEC[mode];
@@ -245,7 +309,7 @@ export function applyBackground(display, theme, accent) {
   layers();
   const id = typeof display.backgroundImage === 'string' && /^[0-9a-f]{16}$/.test(display.backgroundImage) ? display.backgroundImage : '';
   // with a picture of their own, "the theme's own" background is that picture, untinted; a chosen animation plays over it
-  const own = { glass: 'blobs', cockpit: 'horizon' }[theme] || 'glow';
+  const own = { glass: 'blobs', cockpit: 'horizon', nature: 'forest' }[theme] || 'glow';
   const want = MODES.includes(display.background) ? display.background : id ? 'none' : own;
   palette = theme === 'glass' ? GLASS : accentPalette(accent);
   if (want !== mode) seeds = null;

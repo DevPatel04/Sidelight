@@ -195,3 +195,96 @@ body[data-theme="cockpit"] :is(.toast, #navCard, .p-sheet, .ap-card) {
   background: linear-gradient(180deg, #23282e, #14171a); border: 1px solid #ffb23f88; border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .7);
 }
 body[data-theme="cockpit"] #overview { background: rgba(8, 9, 11, .94); }
+
+/* ================================================================ Nature
+   A forest at golden hour: leaf-shaped mossy cards, the clock grown from leaves (widgets/nature.js), and gauges as a
+   tree, a campfire and a pond. */
+:root[data-theme="nature"] {
+  --cpu: #8fd16a; --gpu: #f2a541; --ram: #6cc3d1; --net: #e8cf8a; --up: #c9a6e8; --ok: #8fd16a;
+}
+body[data-theme="nature"] {
+  --bg: #0a1614;
+  --card: rgba(12, 30, 24, .62); --card-hi: rgba(30, 60, 46, .7); --line: rgba(243, 234, 215, .14);
+  --text: #f3ead7; --muted: rgba(243, 234, 215, .66); --dim: rgba(243, 234, 215, .42);
+  --leaf: #8fd16a; --amber: #f2c14e; --bark: #6b4a2f;
+  --serif: Georgia, "Noto Serif", "Times New Roman", serif;
+}
+body[data-theme="nature"] .w.card {
+  background: linear-gradient(160deg, rgba(30, 58, 44, .72), rgba(10, 24, 19, .72));
+  border: 1px solid rgba(243, 234, 215, .14);
+  border-radius: clamp(14px, 10cqmin, 26px) clamp(6px, 3cqmin, 10px);
+  box-shadow: 0 10px 24px -14px rgba(0, 0, 0, .7);
+}
+body[data-theme="nature"]:is(.has-bg-image, [data-bg="stars"], [data-bg="rain"], [data-bg="bubbles"], [data-bg="forest"]) .w.card {
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+
+/* the clock: digits of swaying leaves, berries for the colon, amber italic seconds */
+.leaf7 { height: .8em; width: auto; aspect-ratio: 66 / 104; display: block; overflow: visible; }
+.leaf7 .lf .b { fill: var(--c); }
+.leaf7 .lf.on { transform-box: fill-box; transform-origin: center; animation: pb-sway 5s ease-in-out infinite; animation-delay: var(--dl); }
+.leaf7 .lf.on .r { stroke: rgba(18, 48, 28, .55); stroke-width: .9; fill: none; }
+.leaf7 .lf.off .b { fill: rgba(243, 234, 215, .045); stroke: rgba(243, 234, 215, .09); stroke-width: .6; }
+.berries { height: .8em; width: auto; aspect-ratio: 16 / 104; display: block; }
+.berries circle { fill: #e2683c; animation: blink 2s infinite; }
+body[data-theme="nature"] .clock.leafy { align-items: center; gap: .05em; letter-spacing: 0; filter: drop-shadow(0 4px 10px rgba(0, 0, 0, .35)); }
+body[data-theme="nature"] .clock.leafy :is(.hh, .mm) { display: flex; gap: .06em; }
+body[data-theme="nature"] .clock.leafy .colon { opacity: 1; animation: none; margin: 0; }
+body[data-theme="nature"] .clock.leafy :is(.sec, .ap) { align-self: flex-start; margin: .1em 0 0 .25em; font: italic 400 .24em/1 var(--serif); color: var(--amber); }
+body[data-theme="nature"] .date { font-family: var(--serif); color: var(--text); }
+body[data-theme="nature"] .wx-temp { font-family: var(--serif); }
+body[data-theme="nature"] .status .smini { color: #ffe1a0; }
+body[data-theme="nature"] .status .smini::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 8px var(--amber); animation: blink 1.6s infinite; vertical-align: 1px; }
+body[data-theme="nature"] .dot.on { background: var(--leaf); box-shadow: 0 0 8px rgba(143, 209, 106, .7); }
+
+/* tree, campfire and pond */
+.tree .trunk { fill: #6b4a2f; }
+.tree .branch { stroke: #6b4a2f; stroke-width: 2.4; stroke-linecap: round; fill: none; }
+.tree .cn { transform-box: fill-box; transform-origin: center; animation: pb-sway 4s ease-in-out infinite; animation-delay: var(--dl); }
+.tree .cn.off { fill: rgba(243, 234, 215, .07); animation: none; }
+.tree .ground { stroke: rgba(243, 234, 215, .25); stroke-width: 1.2; }
+.fire .flame-size { transition: transform 1.2s ease; }
+.fire .flk { transform-box: fill-box; transform-origin: 50% 100%; animation: pb-flick .7s ease-in-out infinite; }
+.fire .em { animation: pb-ember 1.8s linear infinite; }
+.fire .em.e2 { animation-delay: .6s; } .fire .em.e3 { animation-delay: 1.2s; }
+.pond .bed { fill: rgba(0, 0, 0, .3); }
+.pond .water { transition: transform 1.2s ease; }
+.pond .wv { animation: pb-wave 2.4s linear infinite; }
+:is(.g-art, .t-art) svg { width: 100%; height: 100%; display: block; }
+/* the ring is turned to start at the top; the drawings stand upright */
+body[data-theme="nature"] .g-dial.grow-dial svg { transform: none; }
+body[data-theme="nature"] .g-dial.grow-dial .g-art { position: absolute; top: 0; right: 0; bottom: 18%; left: 0; }
+body[data-theme="nature"] .g-dial.grow-dial .g-val { top: auto; bottom: 0; height: auto; font: 400 min(13cqh, 18cqw)/1 var(--serif); }
+body[data-theme="nature"] .w-stat .t-art { position: absolute; right: 4%; bottom: 4%; height: 82cqh; max-width: 40cqw; aspect-ratio: 80 / 92; }
+body[data-theme="nature"] .w-stat canvas { width: 58%; opacity: .55; }
+
+/* readouts */
+body[data-theme="nature"] :is(.t-label, .g-label, .s-label) { color: var(--leaf); letter-spacing: .16em; }
+body[data-theme="nature"] :is(.t-val, .s-main, .g-val) b, body[data-theme="nature"] .t-val b { font-family: var(--serif); font-weight: 400; }
+body[data-theme="nature"] .w-stat :is(.t-val, .t-sub) { text-shadow: 0 1px 6px rgba(0, 0, 0, .7); }
+body[data-theme="nature"] .chip { background: rgba(107, 74, 47, .6); color: var(--text); border-radius: 3px 10px; }
+body[data-theme="nature"] :is(.proc, .sess) { background: rgba(12, 30, 24, .55); border-color: rgba(243, 234, 215, .12); border-radius: 12px 4px; }
+
+/* music: the cover in a wooden frame, progress as a vine with a leaf, pebble buttons */
+body[data-theme="nature"] .art-wrap { border-radius: 50% 12px; box-shadow: 0 0 0 3px #6b4a2f, 0 10px 22px -8px rgba(0, 0, 0, .7); }
+body[data-theme="nature"] .m-app { color: var(--leaf); }
+body[data-theme="nature"] .m-title { font-family: var(--serif); }
+body[data-theme="nature"] .bar::before { height: 3px; background: rgba(243, 234, 215, .18); }
+body[data-theme="nature"] .fill { height: 3px; background: linear-gradient(90deg, #5fae55, var(--leaf)); }
+body[data-theme="nature"] .fill::after { width: 14px; height: 9px; right: -9px; top: -3px; border-radius: 0 100%; background: var(--amber); transform: rotate(-30deg); }
+body[data-theme="nature"] .w-media .ic { border-radius: 50%; width: 42px; height: 34px; color: var(--text); background: #34433a; box-shadow: inset 0 2px 0 rgba(255, 255, 255, .12), 0 3px 0 rgba(0, 0, 0, .35); }
+body[data-theme="nature"] .w-media .ic.play { width: 56px; height: 44px; background: var(--text); color: #173126; }
+body[data-theme="nature"] input[type=range]::-webkit-slider-runnable-track { height: 4px; background: linear-gradient(to right, var(--leaf) var(--p, 50%), rgba(243, 234, 215, .16) var(--p, 50%)); }
+body[data-theme="nature"] input[type=range]::-webkit-slider-thumb { border-radius: 0 100%; transform: rotate(45deg); background: var(--leaf); }
+
+/* leaf page dots, and the panels that open over the pages */
+body[data-theme="nature"] #dots i { width: 7px; height: 7px; border-radius: 0 60%; transform: rotate(45deg); background: rgba(243, 234, 215, .25); }
+body[data-theme="nature"] #dots i.on { width: 10px; height: 10px; background: var(--leaf); }
+body[data-theme="nature"] :is(.toast, #navCard, .p-sheet, .ap-card) { background: rgba(14, 32, 26, .94); border-color: rgba(143, 209, 106, .4); border-radius: 22px 8px; }
+body[data-theme="nature"] #overview { background: rgba(6, 14, 11, .92); }
+
+@keyframes pb-sway { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+@keyframes pb-flick { 0%, 100% { transform: scale(1, 1); } 30% { transform: scale(.94, 1.06); } 60% { transform: scale(1.04, .93); } }
+@keyframes pb-ember { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(-26px); opacity: 0; } }
+@keyframes pb-wave { to { transform: translateX(-22px); } }
+@media (prefers-reduced-motion: reduce) { :is(.leaf7 .lf.on, .tree .cn, .fire .flk, .fire .em, .pond .wv) { animation: none; } }

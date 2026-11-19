@@ -2,6 +2,7 @@ import { $, API, D, LEVEL_COLOR, LOCALE, MEDIA_HTML, METRICS, Q_STYLE, S_ORDER, 
 import { W } from '../registry.js';
 import { invalidateDeckState } from './controls.js';
 import { cockpit, dialSvg, lcdDigits, needle } from './instruments.js';
+import { BERRIES, leafDigits, nature, natureArt } from './nature.js';
 
 function bindProcessLink(box, sortTarget) {
   if (!hasProcessesPage()) return;
@@ -24,17 +25,20 @@ W.clock = {
     const hh = h('span', 'hh', '--'), mm = h('span', 'mm', '--'), ss = h('span', 'sec'), ap = h('span', 'ap');
     const date = o.date !== false ? h('div', 'date') : null;
     const wx = o.weather !== false ? wxBlock() : null;
-    const clock = h('div', 'clock', hh, h('span', 'colon', ':'), mm, ss, ap);
+    const colon = h('span', 'colon', ':');
+    const clock = h('div', 'clock', hh, colon, mm, ss, ap);
     box.append(status || '', clock, date || '', wx || '');
     box.style.setProperty('--tf', (0.84 - (status ? 0.1 : 0) - (date ? 0.11 : 0) - (wx ? 0.2 : 0)).toFixed(2));
-    // Cockpit: hours and minutes on a seven-segment LCD (numbers only), redrawn when they change
-    const lcd = cockpit();
-    if (lcd) clock.classList.add('lcd');
+    // Cockpit draws hours and minutes on a seven-segment LCD, Nature grows them from leaves with two berries for the
+    // colon; both from numbers only, redrawn when they change
+    const draw = cockpit() ? lcdDigits : nature() ? leafDigits : null;
+    if (draw === lcdDigits) clock.classList.add('lcd');
+    if (draw === leafDigits) { clock.classList.add('leafy'); colon.innerHTML = BERRIES; }
     const digits = (el, text) => {
-      if (!lcd) { el.textContent = text; return; }
+      if (!draw) { el.textContent = text; return; }
       if (el.dataset.v === text) return;
       el.dataset.v = text;
-      el.innerHTML = lcdDigits(text);
+      el.innerHTML = draw(text);
     };
     return {
       // without the weather line the clock must not make the panel fetch the weather
@@ -46,7 +50,7 @@ W.clock = {
           digits(hh, h12 ? String(H % 12 || 12) : pad(H));
           ap.textContent = h12 ? (H < 12 ? 'AM' : 'PM') : '';
           digits(mm, pad(now.getMinutes()));
-          if (lcd) clock.setAttribute('aria-label', hh.dataset.v + ':' + mm.dataset.v);
+          if (draw) clock.setAttribute('aria-label', hh.dataset.v + ':' + mm.dataset.v);
           ss.textContent = cfg.display?.showSeconds === false ? '' : pad(now.getSeconds());
           if (date) date.textContent = now.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' });
           if (status && now.getSeconds() % 30 === 0) renderStatus(status); // battery
@@ -248,6 +252,13 @@ W.stat = {
       mini = corner.firstElementChild;
       box.append(corner);
     }
+    const art = nature() && (m.pct || !m.rate) ? natureArt(o.metric) : null;
+    let artBox = null;
+    if (art) {
+      artBox = h('div', 't-art');
+      artBox.innerHTML = art.html; // numbers only
+      box.append(artBox);
+    }
     if (o.metric === 'cpu' || o.metric === 'ram') bindProcessLink(box, o.metric === 'cpu' ? 'cpu' : 'mem');
     return {
       update() {
@@ -259,7 +270,12 @@ W.stat = {
         const pctVal = m.pct?.(s);
         lbl.textContent = pctVal != null && m.label === 'RAM' ? `RAM (${Math.round(pctVal)}%)` : m.label;
         sub.textContent = m.sub?.(s) || ' ';
-        if (mini) { const raw = m.pct ? pctVal : m.val(s); needle(mini, raw == null ? 0 : m.pct ? raw / 100 : raw / m.max(s)); }
+        if (mini || art) {
+          const raw = m.pct ? pctVal : m.val(s), v = raw == null ? 0 : m.pct ? raw / 100 : raw / m.max(s);
+          if (mini) needle(mini, v);
+          // autumn leaves when it runs hot, like the gauge's amber
+          if (art) art.set(artBox, v, m.hot ? m.val(s) > m.hot[0] : v >= 0.85);
+        }
         chart(canvas, [{ data: hist[m.hist || o.metric] || hist.cpu, color: c, max: m.max(s) }]);
       },
     };
@@ -282,6 +298,15 @@ W.gauge = {
       dial.insertAdjacentHTML('afterbegin', dialSvg(0.7, 0.85));
       svg = dial.firstElementChild;
     }
+    // Nature: the reading grows a tree, burns a campfire or fills a pond instead of a ring
+    const art = nature() ? natureArt(o.metric) : null;
+    let artBox = null;
+    if (art) {
+      dial.classList.add('grow-dial');
+      artBox = h('div', 'g-art');
+      artBox.innerHTML = art.html; // numbers only
+      dial.prepend(artBox);
+    }
     return {
       update() {
         const s = D.state;
@@ -291,6 +316,7 @@ W.gauge = {
         const warn = m.hot ? (raw > m.hot[1] ? '#ef4444' : raw > m.hot[0] ? '#f59e0b' : '') : (p >= 95 ? '#ef4444' : p >= 85 ? '#f59e0b' : '');
         dial.style.setProperty('--qc', warn || 'var(--q)');
         if (dial.classList.contains('needle-dial')) needle(svg, p / 100);
+        else if (art) art.set(artBox, p / 100, !!warn);
         else {
           if (svg) svg.remove();
           dial.insertAdjacentHTML('afterbegin', ringSvg(p));
