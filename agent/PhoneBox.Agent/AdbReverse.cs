@@ -127,12 +127,22 @@ public sealed class AdbReverse(ConfigStore cfg, ILogger<AdbReverse> log, AgentEn
             if (problem is not null) log.LogWarning("USB: {Problem}", problem);
             if (problem is null && devices.Length > 0) log.LogInformation("USB: the phone is back on USB");
         }
+        _missingApp = _missingApp.Where(devices.Contains).ToArray();
         if (devices.Length == 0) { Report("no phone connected, waiting..."); return; }
 
-        _missingApp = _missingApp.Where(devices.Contains).ToArray();
+        // A phone that did not answer "reverse --list" sits out the rest of this round (home screen, keep awake): one
+        // more failure there would end the round before the phones after it. The next round tries it again.
+        var unreachable = new HashSet<string>();
         foreach (var d in devices)
         {
-            var list = await Adb(adb, $"-s {d} reverse --list", ct);
+            string list;
+            try { list = await Adb(adb, $"-s {d} reverse --list", ct); }
+            catch (Exception ex) when (ex is IOException or TimeoutException)
+            {
+                log.LogWarning("{Device}: could not list adb reverse rules ({Message})", d, ex.Message);
+                unreachable.Add(d);
+                continue;
+            }
             var ruled = HasOwnRule(list);
             if (ruled && !_missingApp.Contains(d)) continue;
             // is the app there at all? (the agent may have been installed on its own, with winget or Scoop)
@@ -156,7 +166,7 @@ public sealed class AdbReverse(ConfigStore cfg, ILogger<AdbReverse> log, AgentEn
         // Settings › Display › home screen: the app offers itself as a home app; make it the default one (no root needed).
         if (cfg.Get().Display.HomeScreen)
         {
-            foreach (var d in devices.Where(d => !_homeSet.Contains(d)))
+            foreach (var d in devices.Where(d => !_homeSet.Contains(d) && !unreachable.Contains(d)))
             {
                 // Android answers a refusal with exit code 1; that must not end the round for the other phones and keep-awake.
                 var r = await Adb(adb, $"-s {d} shell cmd package set-home-activity {HomeAlias}", ct, anyExit: true);
@@ -170,7 +180,7 @@ public sealed class AdbReverse(ConfigStore cfg, ILogger<AdbReverse> log, AgentEn
         // panel; turn it off and keep the screen on while plugged in (plain adb settings, no root).
         if (cfg.Get().Display.KeepAwake)
         {
-            foreach (var d in devices.Where(d => !_awakeSet.Contains(d) && !_missingApp.Contains(d)))
+            foreach (var d in devices.Where(d => !_awakeSet.Contains(d) && !_missingApp.Contains(d) && !unreachable.Contains(d)))
             {
                 await Adb(adb, $"-s {d} shell settings put secure screensaver_enabled 0", ct);
                 await Adb(adb, $"-s {d} shell settings put secure screensaver_activate_on_dock 0", ct);
@@ -181,7 +191,6 @@ public sealed class AdbReverse(ConfigStore cfg, ILogger<AdbReverse> log, AgentEn
             }
         }
         else _awakeSet.Clear();
-        _awakeSet.IntersectWith(devices);
         Report($"phone connected: {Devices}");
     }
 
@@ -195,6 +204,7 @@ public sealed class AdbReverse(ConfigStore cfg, ILogger<AdbReverse> log, AgentEn
 
     private void SetDevices(string[] devices)
     {
+        _awakeSet.IntersectWith(devices);
         var changed = string.Join(",", devices) != string.Join(",", _devices);
         _devices = devices;
         if (changed) StateChanged?.Invoke();

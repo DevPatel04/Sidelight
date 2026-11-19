@@ -32,7 +32,7 @@ import javax.net.ssl.X509TrustManager
  * The phone remembers every computer it was paired with; one is active over Wi-Fi (the one last plugged in, or the one
  * picked in the panel's page overview). A USB cable always wins: the plugged-in computer is used and becomes active.
  */
-class AgentLink(context: Context) {
+class AgentLink(private val context: Context) {
 
     class Reply(val code: Int, val contentType: String?, val body: InputStream)
 
@@ -182,6 +182,7 @@ class AgentLink(context: Context) {
     private fun send(c: HttpURLConnection, method: String, readTimeout: Int = 4000): Reply {
         // every POST acts on the computer (a container restart, a Home Assistant switch, a macro): none may run twice
         val controlPost = method == "POST"
+        c.instanceFollowRedirects = false
         c.requestMethod = method
         c.setRequestProperty("X-PhoneBox-App", appVersion) // lets the agent offer updates
         c.setRequestProperty("X-PhoneBox-Device", deviceId)
@@ -201,6 +202,11 @@ class AgentLink(context: Context) {
             c.disconnect()
             return Reply(504, "application/json", ByteArrayInputStream("""{"ok":false,"error":"The command result is unknown; check the computer before retrying"}""".toByteArray()))
         }
+        if (code !in 100..599 || code in 300..399) {
+            try { (if (code >= 400) c.errorStream else c.inputStream)?.close() } catch (_: Exception) {}
+            c.disconnect()
+            return Reply(502, "application/json", ByteArrayInputStream("""{"error":"unexpected response"}""".toByteArray()))
+        }
         val body = (if (code >= 400) c.errorStream else c.inputStream) ?: ByteArrayInputStream(ByteArray(0))
         return Reply(code, c.contentType, body)
     }
@@ -210,31 +216,82 @@ class AgentLink(context: Context) {
         val now = System.currentTimeMillis()
         if (now - lastPair < 60_000) return
         lastPair = now
-        background.execute {
-            try {
-                val c = URL("$USB_BASE/api/pair").openConnection() as HttpURLConnection
-                c.connectTimeout = 800
-                c.readTimeout = 3000
-                val j = JSONObject(c.inputStream.bufferedReader().readText())
-                val name = j.optString("pc")
-                if (j.optBoolean("enabled")) {
-                    // add or refresh this computer and make it the active one
-                    val hosts = j.getJSONArray("hosts")
-                    val pc = Pc(j.getString("fingerprint"), name, (0 until hosts.length()).map { hosts.getString(it) }, j.getInt("port"), j.getString("token"))
-                    synchronized(pcsLock) { savePcs(pcs.filter { it.id != pc.id && !(name.isNotEmpty() && it.name == name) } + pc, pc.id) }
-                } else if (name.isNotEmpty()) {
-                    // Wi-Fi was turned off on this computer: forget its pairing, keep the others
-                    synchronized(pcsLock) {
-                        val rest = pcs.filter { it.name != name }
-                        if (rest.size != pcs.size) savePcs(rest, rest.firstOrNull { it.id == activeId }?.id ?: rest.firstOrNull()?.id)
-                    }
+        try {
+            background.execute {
+                try {
+                    refreshPairing(URL("$USB_BASE/api/pair").openConnection() as HttpURLConnection)
+                } catch (_: Exception) {
                 }
-            } catch (_: Exception) {
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+        }
+    }
+
+    private fun refreshPairing(c: HttpURLConnection) {
+        // released on every way out, a header read that throws included
+        try { readPairing(c) } finally { c.disconnect() }
+    }
+
+    private fun readPairing(c: HttpURLConnection) {
+        c.instanceFollowRedirects = false
+        c.connectTimeout = 800
+        c.readTimeout = 3000
+        val code = c.responseCode
+        if (code != 200) {
+            // a redirect or error body is not the agent's pairing answer: it must not add or forget a computer
+            try { (if (code >= 400) c.errorStream else c.inputStream)?.close() } catch (_: Exception) {}
+            return
+        }
+        val j = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
+        val name = j.optString("pc")
+        if (j.optBoolean("enabled")) {
+            // add or refresh this computer and make it the active one
+            val hosts = j.getJSONArray("hosts")
+            val pc = Pc(j.getString("fingerprint"), name, (0 until hosts.length()).map { hosts.getString(it) }, j.getInt("port"), j.getString("token"))
+            synchronized(pcsLock) { if (!closed) savePcs(pcs.filter { it.id != pc.id && !(name.isNotEmpty() && it.name == name) } + pc, pc.id) }
+        } else if (name.isNotEmpty()) {
+            // Wi-Fi was turned off on this computer: forget its pairing, keep the others
+            synchronized(pcsLock) {
+                val rest = pcs.filter { it.name != name }
+                if (!closed && rest.size != pcs.size) savePcs(rest, rest.firstOrNull { it.id == activeId }?.id ?: rest.firstOrNull()?.id)
             }
         }
     }
 
+    /**
+     * Set by [close] under [pcsLock]. shutdownNow() does not wait for a refresh already running; one that reaches the
+     * lock after close() must not save this instance's list over a newer instance's change (e.g. a forgotten computer).
+     */
+    private var closed = false
+
+    fun close() {
+        synchronized(pcsLock) { closed = true }
+        background.shutdownNow()
+    }
+
     fun pairedPc(): String? = activePc()?.name
+
+    /** Why a pairing failed, so the shell can say it in the phone's language instead of English inside a dialog. */
+    sealed class PairFailure {
+        /** No address answered: not the same network, or the firewall blocked PhoneBox. */
+        data class Unreachable(val pc: String, val hosts: List<String>) : PairFailure()
+
+        /** The agent refused the one-time code (it works once, for five minutes). */
+        data class CodeRejected(val pc: String) : PairFailure()
+
+        /** The agent answered, but with an HTTP status the pairing flow does not know. */
+        data class BadAnswer(val pc: String, val code: Int) : PairFailure()
+
+        /** The certificate is not the one in the QR code, so this is not the computer the user confirmed. */
+        data class WrongCertificate(val pc: String) : PairFailure()
+
+        fun message(context: Context): String = when (this) {
+            is Unreachable -> context.getString(R.string.pair_failed_unreachable, pc, hosts.joinToString())
+            is CodeRejected -> context.getString(R.string.pair_failed_code, pc)
+            is BadAnswer -> context.getString(R.string.pair_failed_answer, pc, code)
+            is WrongCertificate -> context.getString(R.string.pair_failed_certificate)
+        }
+    }
 
     /**
      * Pairing without USB: the computer's settings page shows a QR code with this link, and the phone trades the
@@ -293,15 +350,16 @@ class AgentLink(context: Context) {
 
     /**
      * Trades the link's one-time code for the Wi-Fi key and makes that computer the active one. Blocks (network):
-     * call it off the main thread. Returns null when paired, otherwise a message for the user.
+     * call it off the main thread. Returns null when paired, otherwise why it failed, which the shell shows in the
+     * phone's language.
      */
-    fun claim(link: PairLink): String? {
+    fun claim(link: PairLink): PairFailure? {
         val pinned = pinnedFactory(link.fingerprint)
-        var problem = "Could not reach ${link.pc} at ${link.hosts.joinToString()}. The phone and the computer must be " +
-            "on the same network (or both on Tailscale), and the computer's firewall must allow PhoneBox."
+        var problem: PairFailure = PairFailure.Unreachable(link.pc, link.hosts)
         for (host in link.hosts) {
             try {
                 val c = URL("https://$host:${link.port}/api/pair/claim").openConnection() as HttpsURLConnection
+                c.instanceFollowRedirects = false
                 c.sslSocketFactory = pinned
                 c.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true } // identity is the pinned certificate
                 c.connectTimeout = 3000
@@ -313,11 +371,11 @@ class AgentLink(context: Context) {
                 c.outputStream.use { it.write(JSONObject().put("code", link.code).toString().toByteArray()) }
                 when (c.responseCode) {
                     200 -> {}
-                    403 -> return "${link.pc} did not accept the code: it works once and for 5 minutes. Start pairing again on the computer."
-                    else -> { problem = "${link.pc} answered ${c.responseCode}."; continue }
+                    403 -> return PairFailure.CodeRejected(link.pc)
+                    else -> { problem = PairFailure.BadAnswer(link.pc, c.responseCode); continue }
                 }
                 val j = JSONObject(c.inputStream.bufferedReader().readText())
-                if (!j.optString("fingerprint").equals(link.fingerprint, ignoreCase = true)) return "${link.pc} sent a different certificate. Start pairing again."
+                if (!j.optString("fingerprint").equals(link.fingerprint, ignoreCase = true)) return PairFailure.WrongCertificate(link.pc)
                 val hosts = j.optJSONArray("hosts")?.let { a -> (0 until a.length()).map { a.getString(it) } }
                     ?.filter { PairLink.isLocalAddress(it) }?.takeIf { it.isNotEmpty() } ?: link.hosts
                 // the name the user confirmed; only an entry for this very certificate is replaced, never one that
@@ -330,7 +388,7 @@ class AgentLink(context: Context) {
                 }
                 return null
             } catch (e: javax.net.ssl.SSLException) {
-                problem = "The computer at $host has a different certificate than the QR code. Start pairing again."
+                problem = PairFailure.WrongCertificate(link.pc)
             } catch (e: Exception) {
                 // try the next address
             }

@@ -15,6 +15,9 @@ import './widgets/web.js';
 import './widgets/photos.js';
 import './widgets/controls.js';
 import './widgets/console.js';
+import './widgets/dictate.js';
+import './widgets/camera.js';
+import './widgets/spectrum.js';
 
 // PhoneBox desk panel. Pages are 12 × 6 grids of widgets, designed in the agent's settings page.
 // The panel talks to the PhoneBox agent through "/agent/*", which the Android shell proxies over USB
@@ -34,7 +37,7 @@ export const $ = (id) => document.getElementById(id);
 // The native bridge (window.Android) is in every frame, sandboxed widgets included, so each call carries a key that only
 // the panel's own frames receive (MainActivity.bridgeKey). This wrapper adds it.
 const BRIDGE = ['battery', 'buzz', 'haptic', 'is24Hour', 'pcs', 'selectPc', 'forgetPc', 'setBrightness', 'setHomeScreen', 'setOrientation',
-  'setPinned', 'setVolumeKeys', 'transport', 'sensors', 'version'];
+  'setPinned', 'setVolumeKeys', 'transport', 'sensors', 'version', 'canListen', 'listen', 'stopListening', 'cancelListening'];
 export const bridge = typeof Android === 'undefined' ? null : Object.fromEntries(BRIDGE.filter((m) => typeof Android[m] === 'function')
   .map((m) => [m, (...args) => Android[m](window.__phoneboxKey || '', ...args)]));
 // Live preview inside the agent's layout editor: the layout comes from the editor (unsaved), not from the agent.
@@ -67,6 +70,10 @@ export const store = {
 
 export let cfg = PREVIEW ? { ...DEFAULT_CFG, pages: [] } : { ...DEFAULT_CFG, ...store.get('cfg', {}) };
 export let cfgVersion = null;
+export function setCfgVersion(v) { if (v != null) cfgVersion = v; }
+let configRequest = 0;
+let appliedConfigRequest = 0;
+let writeBarrier = 0; // config reads numbered below this started before the panel's own last write
 export let online = null;
 export let lastTouch = Date.now();
 export let lastUserTouch = 0;     // last real touch or key (rules wait a while after it)
@@ -129,7 +136,7 @@ export async function api(path, method = 'GET', timeout = 2500) {
   try {
     const work = (async () => {
       const r = await fetch(API + path, { method, signal: ctl.signal, cache: 'no-store', headers: PANEL_HEADERS });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (!r.ok) throw Object.assign(new Error('HTTP ' + r.status), { status: r.status });
       const ct = r.headers.get('content-type') || '';
       // Awaited on purpose: the timer is cleared in finally, so returning the promise unawaited let a response that
       // sent its headers and then stalled hold the caller for good, past its own deadline.
@@ -152,6 +159,16 @@ export function h(tag, cls, ...kids) {
   return e;
 }
 
+/** Built-in English text (a default widget title) marked lang="en": the panel's <html lang> follows the chosen
+ *  language, and text-transform: uppercase would otherwise apply that language's case rules to English words
+ *  (in Turkish "Notifications" becomes "NOTİFİCATİONS"). Titles the user typed are left as they are. */
+export function en(text) {
+  const e = document.createElement('span');
+  e.lang = 'en';
+  e.textContent = text;
+  return e;
+}
+
 /* Interface icons: Lucide (https://lucide.dev), ISC license — a small inline set keeps the
    panel's chrome consistent across platforms and works fully offline. Icons are decorative
    (aria-hidden); the controls they sit in carry the accessible names.
@@ -169,6 +186,7 @@ const ICONS = {
   info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01',
   pause: 'M6 4h4v16H6zM14 4h4v16h-4z',
   play: 'M6 3l14 9-14 9V3z',
+  mic: 'M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v1a7 7 0 0 1-14 0v-1M12 18v4M8 22h8',
 };
 export function icon(name, cls = '') {
   const t = document.createElement('template');
@@ -375,16 +393,20 @@ export function metricText(m, s) {
 }
 
 // ---------------------------------------------------------------- weather (Open-Meteo, straight from the phone)
+// The condition names are i18n keys: they are translated when the line is drawn, not when this table is built, so a
+// language change applies without reloading the panel.
 export const WX = {
-  0: ['Clear', '☀️', '🌙'], 1: ['Mostly clear', '🌤️', '🌙'], 2: ['Partly cloudy', '⛅', '☁️'], 3: ['Overcast', '☁️', '☁️'],
-  45: ['Fog', '🌫️'], 48: ['Rime fog', '🌫️'],
-  51: ['Light drizzle', '🌦️'], 53: ['Drizzle', '🌦️'], 55: ['Heavy drizzle', '🌧️'], 56: ['Freezing drizzle', '🌧️'], 57: ['Freezing drizzle', '🌧️'],
-  61: ['Light rain', '🌦️'], 63: ['Rain', '🌧️'], 65: ['Heavy rain', '🌧️'], 66: ['Freezing rain', '🌧️'], 67: ['Freezing rain', '🌧️'],
-  71: ['Light snow', '🌨️'], 73: ['Snow', '🌨️'], 75: ['Heavy snow', '❄️'], 77: ['Snow grains', '🌨️'],
-  80: ['Light showers', '🌦️'], 81: ['Showers', '🌧️'], 82: ['Heavy showers', '⛈️'], 85: ['Snow showers', '🌨️'], 86: ['Heavy snow showers', '❄️'],
-  95: ['Thunderstorm', '⛈️'], 96: ['Thunderstorm, hail', '⛈️'], 99: ['Severe hail', '⛈️'],
+  0: ['wx.clear', '☀️', '🌙'], 1: ['wx.mostlyClear', '🌤️', '🌙'], 2: ['wx.partlyCloudy', '⛅', '☁️'], 3: ['wx.overcast', '☁️', '☁️'],
+  45: ['wx.fog', '🌫️'], 48: ['wx.rimeFog', '🌫️'],
+  51: ['wx.lightDrizzle', '🌦️'], 53: ['wx.drizzle', '🌦️'], 55: ['wx.heavyDrizzle', '🌧️'], 56: ['wx.freezingDrizzle', '🌧️'], 57: ['wx.freezingDrizzle', '🌧️'],
+  61: ['wx.lightRain', '🌦️'], 63: ['wx.rain', '🌧️'], 65: ['wx.heavyRain', '🌧️'], 66: ['wx.freezingRain', '🌧️'], 67: ['wx.freezingRain', '🌧️'],
+  71: ['wx.lightSnow', '🌨️'], 73: ['wx.snow', '🌨️'], 75: ['wx.heavySnow', '❄️'], 77: ['wx.snowGrains', '🌨️'],
+  80: ['wx.lightShowers', '🌦️'], 81: ['wx.showers', '🌧️'], 82: ['wx.heavyShowers', '⛈️'], 85: ['wx.snowShowers', '🌨️'], 86: ['wx.heavySnowShowers', '❄️'],
+  95: ['wx.thunderstorm', '⛈️'], 96: ['wx.thunderstormHail', '⛈️'], 99: ['wx.severeHail', '⛈️'],
 };
-export const wxIcon = (code, day = 1) => { const x = WX[code] || ['—', '🌡️']; return day === 0 && x[2] ? x[2] : x[1]; };
+export const wxIcon = (code, day = 1) => { const x = WX[code] || [null, '🌡️']; return day === 0 && x[2] ? x[2] : x[1]; };
+/** The condition in the panel's language, or an em dash for a code Open-Meteo does not list. */
+export const wxText = (code) => { const x = WX[code]; return x ? t(x[0]) : '—'; };
 
 let weatherRetry = 0;
 let weatherFor = ''; // the location the forecast in D.weather belongs to
@@ -397,8 +419,9 @@ export async function loadWeather(force = false) {
   if (D.weather && weatherFor !== key) { D.weather = null; emit('weather'); }
   if (cached && cached.key === key && !D.weather) { D.weather = cached.data; weatherFor = key; emit('weather'); }
   if (!force && cached && cached.key === key && Date.now() - cached.at < 14 * 60_000) return;
-  // only while a page shows the weather (PRIVACY.md): no widget, no request with the location
-  if (!anyNeeds('weather')) return;
+  // only while a page shows the weather (PRIVACY.md): no widget, no request with the location;
+  // also wait for the first agent config when no cached config exists, so FALLBACK_PAGES never leaks default coordinates
+  if (!anyNeeds('weather') || (!PREVIEW && cfgVersion === null && !store.get('cfg', null))) return;
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
       '&current=temperature_2m,apparent_temperature,weather_code,is_day' +
@@ -428,14 +451,14 @@ export function wxLines() {
   const w = D.weather;
   if (!w || !w.current) return null;
   const c = w.current, d = w.daily || {};
-  const desc = (WX[c.weather_code] || ['—'])[0];
+  const desc = wxText(c.weather_code);
   const hi = d.temperature_2m_max ? Math.round(d.temperature_2m_max[0]) : null;
   const lo = d.temperature_2m_min ? Math.round(d.temperature_2m_min[0]) : null;
   return {
     icon: wxIcon(c.weather_code, c.is_day),
     temp: Math.round(c.temperature_2m) + '°',
     desc: `${desc} · ${cfg.weather?.city || ''}`,
-    range: (hi != null ? `↑${hi}° ↓${lo}° · ` : '') + `Feels like ${Math.round(c.apparent_temperature)}°`,
+    range: (hi != null ? `↑${hi}° ↓${lo}° · ` : '') + t('wx.feelsLike', { deg: Math.round(c.apparent_temperature) }),
   };
 }
 
@@ -470,7 +493,7 @@ export function quotaProviders() { return D.quotas?.providers || []; }
 
 export function renderStatus(el) {
   const via = transport();
-  const name = online ? (D.state?.host || 'PC') + (via === 'wifi' ? ' · Wi-Fi' : via === 'usb' ? ' · USB' : '') : online === false ? t('panel.pcNotConnected') : t('panel.connecting');
+  const name = online ? (D.state?.host || 'PC') + (via === 'wifi' ? ' · ' + t('status.wiFi') : via === 'usb' ? ' · ' + t('status.usb') : '') : online === false ? t('panel.pcNotConnected') : t('panel.connecting');
   const kids = [h('span', 'dot ' + (online ? 'on' : online === false ? 'off' : '')), h('span', null, name)];
   const bat = phoneBattery();
   if (bat) kids.push(h('span', 'sep', '·'), h('span', null, bat));
@@ -482,9 +505,9 @@ export function renderStatus(el) {
     kids.push(s);
   }
   const waiting = (D.work?.sessions || []).filter((s) => s.status === 'waiting').length;
-  if (waiting) kids.push(h('span', 'sep', '·'), h('span', 'smini', `${waiting} waiting`));
+  if (waiting) kids.push(h('span', 'sep', '·'), h('span', 'smini', t('status.waitingCount', { n: waiting })));
   const u = D.state?.update;
-  if (u) kids.push(h('span', 'sep', '·'), h('span', 'upd', u.app && via !== 'usb' ? `⬆ ${u.latest}: plug in USB to update` : `⬆ ${u.latest} available`));
+  if (u) kids.push(h('span', 'sep', '·'), h('span', 'upd', u.app && via !== 'usb' ? t('status.updateUsb', { version: u.latest }) : t('status.updateAvailable', { version: u.latest })));
   el.replaceChildren(...kids);
   // Too long for the widget: drop the quota summaries, the most dispensable part.
   while (el.scrollWidth > el.clientWidth + 1 && el.querySelector('.qm')) [...el.querySelectorAll('.qm')].pop().remove();
@@ -502,12 +525,43 @@ export async function runShortcut(btn, id) {
   setTimeout(() => btn.classList.remove('ok', 'err'), 900);
 }
 
-export function keyButton(s) {
-  const b = h('button', 'key' + (s.toggle ? ' toggle' : ''), h('span', 'k-icon', s.icon || '•'), h('span', 'k-label', s.label));
+/** A shortcut key. The Big button's options: with `cover`, a picture the user uploaded becomes the key's background
+ *  instead of the centred icon; without `label`, the key shows no name (screen readers still get it). */
+export function keyButton(s, { cover = false, label = true } = {}) {
+  const icon = h('span', 'k-icon', s.icon || '•');
+  const b = h('button', 'key' + (s.toggle ? ' toggle' : '') + (label ? '' : ' k-nolabel'), icon, h('span', 'k-label', s.label));
+  // The agent accepts a blank label, and a filled key hides its icon, so the id keeps the button named when no text
+  // is shown; visible text names it otherwise.
+  const name = String(s.label || '').trim();
+  if (!label || !name) b.setAttribute('aria-label', name || s.id);
   b.style.setProperty('--k', s.color || '#6b7280');
   b.dataset.id = s.id;
   b.addEventListener('click', () => runShortcut(b, s.id));
+  // Only an upload fills the key: a program's own icon is 32 px on Windows, 64 px on macOS, and on Linux whatever logo
+  // the icon theme has, none of them a picture the user chose for the button. The agent says which is which, since the
+  // picture's size cannot tell (an SVG reports a default size, often 24 px from an icon set).
+  if (s.iconRev != null) applyShortcutIcon(b, icon, s.id, cover && s.iconUpload === true);
   return b;
+}
+
+function applyShortcutIcon(b, icon, id, cover) {
+  const url = `${API}/shortcuts/icon?id=${encodeURIComponent(id)}`;
+  const img = new Image();
+  if (cover) {
+    // the upload only: if it was removed since the config was read, the key falls back to the centred icon (the
+    // program's own, or the emoji) instead of the agent's next choice stretched across it
+    img.onload = () => {
+      img.className = 'k-bg';
+      img.alt = '';
+      b.prepend(img, h('span', 'k-shade'));
+      b.classList.add('k-cover');
+    };
+    img.onerror = () => applyShortcutIcon(b, icon, id, false);
+    img.src = url + '&upload=true'; // "true", not "1": the agent binds it as a bool and answers 400 to "1"
+    return;
+  }
+  img.onload = () => { icon.replaceChildren(img); icon.classList.add('k-icon-img'); };
+  img.src = url;
 }
 
 // ---------------------------------------------------------------- media (shared state, any number of widgets)
@@ -550,10 +604,11 @@ export function averageColor(img) {
 }
 export const setAmbient = (rgb) => document.documentElement.style.setProperty('--ambient', (artTint && rgb) || DEFAULT_AMBIENT);
 
-export const MEDIA_HTML = `
+/** The empty media card. A function, not a constant: its texts are translated when the widget is built. */
+export const mediaHtml = () => `
   <div class="m-top">
     <div class="art-wrap"><img class="art" alt=""><div class="art-ph">♪</div></div>
-    <div class="m-text"><div class="m-app"><span class="m-source-icon" aria-hidden="true"></span><span class="m-app-name">Media</span></div><div class="m-title">Nothing playing</div><div class="m-artist">Start something on the PC</div></div>
+    <div class="m-text"><div class="m-app"><span class="m-source-icon" aria-hidden="true"></span><span class="m-app-name">Media</span></div><div class="m-title">${t('w.nothingPlaying')}</div><div class="m-artist">${t('w.startOnPc')}</div></div>
   </div>
   <div class="m-progress"><div class="bar"><div class="fill"></div></div><div class="times"><span class="m-pos">0:00</span><span class="m-dur">0:00</span></div></div>
   <div class="m-controls">
@@ -960,7 +1015,7 @@ export function handleEvent(e) {
   else if (e.kind === 'reload') location.reload();
 }
 
-export const WIDGET_ICONS = { 'app-console': '🎛️', discord: '💬', rules: '⚡', chargecare: '🔋', nextup: '⏭️', moon: '🌙', wordclock: '🔤', clock: '🕒', weather: '⛅', forecast: '🌦️', media: '🎵', stat: '📈', gauge: '⏲️', chart: '📊', meters: '💾', gpu: '🎮', quotas: '✳️', sessions: '🤖',
+export const WIDGET_ICONS = { camera: '📹', dictate: '🎙️', spectrum: '📶', 'app-console': '🎛️',discord: '💬', rules: '⚡', chargecare: '🔋', nextup: '⏭️', moon: '🌙', wordclock: '🔤', clock: '🕒', weather: '⛅', forecast: '🌦️', media: '🎵', stat: '📈', gauge: '⏲️', chart: '📊', meters: '💾', gpu: '🎮', quotas: '✳️', sessions: '🤖',
   github: '🐙', processes: '⚙️', shortcuts: '🎛️', button: '🔘', worldclock: '🌍', calendar: '📅', pomodoro: '🍅', countdown: '⏳', note: '📝', command: '💻',
   push: '📡', inbox: '📬', label: '🔤', analog: '🕰️', progress: '📆', stopwatch: '⏱️', timer: '⏲️', counter: '🔢', breathe: '🫁', quote: '💬',
   checklist: '✅', battery: '🔋', topprocs: '🔥', quotaring: '🎯', volume: '🔊', sun: '🌅', air: '🍃', hackernews: '📰', feeds: '🗞️', photos: '🖼️', exchange: '💱', crypto: '🪙', image: '🖼️', pcswitch: '🖥️' };
@@ -1426,7 +1481,7 @@ export async function toggleRulesPause() {
   try {
     const r = await api(`/rules/pause?minutes=${paused ? 0 : 60}`, 'POST', 4000);
     rulesPaused = r.pausedUntil || null;
-    if (!rulesPaused) navQueue = navQueue.filter((x) => x.kind === 'home');
+    if (rulesPaused) navQueue = navQueue.filter((x) => x.kind !== 'goto' || !x.rule);
     toast(rulesPaused ? t('panel.rulesPausedToast') : t('panel.rulesResumedToast'), 'ok');
   } catch (_) { toast(t('panel.pcNoAnswer'), 'warn'); }
   renderRulesBtn();
@@ -1607,12 +1662,24 @@ window.onAndroidKey = (k) => {
   else if (k === 'prev') goPage(curPage - 1 < 0 ? pages.length - 1 : curPage - 1, true);
 };
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const noteEdit = document.querySelector('.note-edit');
+    if (noteEdit) { e.preventDefault(); noteEdit.remove(); return; }
+    if (closeSessionDetails()) { e.preventDefault(); return; }
+    if (sheet) { e.preventDefault(); closeSheet(); return; }
+    $('overview').hidden ? openOverview() : closeOverview();
+    return;
+  }
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.target?.closest?.('input, textarea, select, [contenteditable=""], [contenteditable="true"]') || document.querySelector('.note-edit')) return;
   if (e.key === 'ArrowRight') window.onAndroidKey('next');
   else if (e.key === 'ArrowLeft') window.onAndroidKey('prev');
-  else if (e.key === 'Escape' || e.key === 'o') ($('overview').hidden ? openOverview() : closeOverview());
+  else if (e.key === 'o') ($('overview').hidden ? openOverview() : closeOverview());
 });
 window.onAndroidBack = () => {
   if (!$('approval').hidden) return; // answer it (or let it time out); Back must not dismiss a permission prompt
+  const noteEdit = document.querySelector('.note-edit');
+  if (noteEdit) { noteEdit.remove(); return; }
   if (closeSessionDetails()) return;
   if (!$('overview').hidden) closeOverview();
   else if (sheet) closeSheet();
@@ -1785,17 +1852,33 @@ export function applyDisplay() {
   applyBrightness(true);
 }
 
+/** A mark taken before the panel writes the config itself (a note save). */
+export function configMark() { return configRequest; }
+/** Whether a config read that started after `mark` has been applied: it already shows the write, or a later one. */
+export function configReadSince(mark) { return appliedConfigRequest > mark; }
+/** The panel's own write was stored as version `v`: a config read that started before it must not apply over it. */
+export function localWriteStored(v) {
+  if (v != null) cfgVersion = v;
+  writeBarrier = configRequest + 1;
+}
+
 export async function loadConfig() {
   if (PREVIEW) return;
+  const request = ++configRequest;
   try {
     const r = await api('/config');
+    if (request < appliedConfigRequest || request < writeBarrier) return;
     const before = JSON.stringify(cfg);
+    const first = cfgVersion === null;
     cfg = { ...DEFAULT_CFG, ...r.config };
     cfgVersion = r.version;
-    if (JSON.stringify(cfg) !== before) {
+    appliedConfigRequest = request;
+    if (first || JSON.stringify(cfg) !== before) {
       store.set('cfg', cfg);
-      buildLayout();
-      applyDisplay();
+      if (JSON.stringify(cfg) !== before) {
+        buildLayout();
+        applyDisplay();
+      }
       loadWeather();
     }
   } catch (_) {}
@@ -1817,23 +1900,36 @@ export async function loadQuotas() {
   try { D.quotas = await api('/quotas'); emit('quotas'); } catch (_) {}
 }
 
+let workEpoch = 0;
 export function applyWork(w) {
+  workEpoch++;
   D.work = w;
   notifyTransitions(w.sessions || []);
   emit('work');
 }
 
 export async function loadWork() {
-  try { applyWork(await api('/work')); } catch (_) {}
+  const stamp = ++workEpoch;
+  try {
+    const w = await api('/work');
+    if (stamp !== workEpoch) return;
+    D.work = w;
+    notifyTransitions(w.sessions || []);
+    emit('work');
+  } catch (_) {}
 }
 
 export async function loadProcs() {
   try { D.procs = await api('/procs?top=150'); emit('procs'); } catch (_) {}
 }
 
+let pushRequest = 0, appliedPushRequest = 0;
 export async function loadPush() {
+  const req = ++pushRequest;
   try {
     const r = await api('/push');
+    if (req < appliedPushRequest) return;
+    appliedPushRequest = req;
     D.push = r.items || {};
     pushVersion = r.version;
     emit('push');
@@ -1850,17 +1946,19 @@ export function setOnline(on) {
 
 export function applyState(s, replayGen = null) {
   lastStateAt = Date.now();
+  // compares the agent's wall clock across responses: if the PC's clock steps back (NTP), polled events are
+  // ignored until it catches up — the stream still delivers them meanwhile
+  // a late answer is at most a few seconds old (the request deadline), so a bigger step back is the clock itself
+  const fresh = s.ts == null || s.ts >= stateTs || stateTs - s.ts > 10_000;
+  // the answer to a ?ev=0 replay can be overtaken by streamed states on the way; its events are still the backlog.
+  // they go through evOffer like live ones: while a replay is armed the queue merges them before dispatch
+  if (fresh || replayGen === evGen) for (const e of s.events || []) evOffer(e);
+  if (!fresh) return replayGen === evGen;
   D.state = s;
   media = s.media ? { ...s.media, at: performance.now() } : null;
   setOnline(true);
   if (s.cfgVersion !== undefined && cfgVersion !== null && s.cfgVersion !== cfgVersion) loadConfig();
   if (s.pushVersion !== undefined && s.pushVersion !== pushVersion) loadPush();
-  // compares the agent's wall clock across responses: if the PC's clock steps back (NTP), polled events are
-  // ignored until it catches up — the stream still delivers them meanwhile
-  const fresh = s.ts == null || s.ts >= stateTs;
-  // the answer to a ?ev=0 replay can be overtaken by streamed states on the way; its events are still the backlog.
-  // they go through evOffer like live ones: while a replay is armed the queue merges them before dispatch
-  if (fresh || replayGen === evGen) for (const e of s.events || []) evOffer(e);
   if (fresh) {
     stateTs = s.ts ?? stateTs;
     // the agent restarted: it counts events from 0 again — forget what was handled and replay its backlog once
@@ -1905,6 +2003,7 @@ window.onAgentStream = (event, data) => {
   try { d = JSON.parse(data); } catch (_) { return; }
   if (event === 'state') { applyState(d); for (const e of evPre || []) evOffer(e); evPre = null; }
   else if (event === 'work') applyWork(d);
+  else if (event === 'spectrum') window.dispatchEvent(new CustomEvent('phonebox-spectrum', { detail: d }));
   else if (event === 'event') { if (evPre) { evPre.push(d); if (evPre.length > 100) evPre.shift(); } else evOffer(d); }
 };
 export const streaming = () => streamOn && Date.now() - lastStateAt < 3000;

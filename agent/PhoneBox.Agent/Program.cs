@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using PhoneBox.Agent;
@@ -26,11 +27,12 @@ if (!args.Contains("--config")) AppPaths.EnsureConfig();
 // absolute from here on: a bare file name ("--config profile.json") has no folder, and the files kept next to the
 // config (the Spotify login, backups) need one
 var configPath = Path.GetFullPath(args.SkipWhile(a => a != "--config").Skip(1).FirstOrDefault() ?? AppPaths.ConfigPath);
+var configDir = Path.GetDirectoryName(configPath) ?? AppPaths.ConfigDir;
 AppPaths.RestrictConfig(configPath);
 var configStore = new ConfigStore(configPath);
 configStore.PersistGenerated(); // keep the Wi-Fi token stable across restarts
 var lanCfg = configStore.Get().Lan;
-var lanCert = lanCfg.Enabled ? Lan.Certificate() : null;
+var lanCert = lanCfg.Enabled && lanCfg.Port != Port ? Lan.Certificate(configDir) : null;
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
@@ -39,6 +41,9 @@ var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 });
 builder.WebHost.ConfigureKestrel(k =>
 {
+    // a dictation travels in the query (the phone's transport sends no request bodies): 1000 characters of any script,
+    // percent-encoded, fit in 16 KB
+    k.Limits.MaxRequestLineSize = 16 * 1024;
     k.Listen(IPAddress.Loopback, Port);
     // Wi-Fi / Tailscale: HTTPS with a pinned self-signed certificate, token required (see Lan.cs).
     if (lanCert is not null) k.Listen(IPAddress.Any, lanCfg.Port, l => l.UseHttps(lanCert));
@@ -53,6 +58,7 @@ builder.Services.AddSingleton(configStore);
 builder.Services.AddSingleton(endpoint);
 builder.Services.AddSingleton<AudioControl>();
 builder.Services.AddSingleton<AppCatalog>();
+builder.Services.AddSingleton(_ => new ShortcutIconUploads(Path.Combine(configDir, "icons")));
 builder.Services.AddSingleton<PairingCodes>();
 builder.Services.AddSingleton<SpotifyControl>();
 builder.Services.AddSingleton<ControlDeck>();
@@ -62,6 +68,8 @@ builder.Services.AddSingleton<CommandRunner>();
 builder.Services.AddSingleton<ApprovalStore>();
 builder.Services.AddSingleton<HomeAssistant>();
 builder.Services.AddSingleton<AppConsole>();
+builder.Services.AddSingleton<Dictation>();
+builder.Services.AddSingleton<SpectrumAnalyzer>();
 AddMonitor<SystemMonitor>(builder.Services);
 AddMonitor<MediaMonitor>(builder.Services);
 AddMonitor<QuotaMonitor>(builder.Services);
@@ -69,6 +77,7 @@ AddMonitor<ProcessMonitor>(builder.Services);
 AddMonitor<SessionMonitor>(builder.Services);
 AddMonitor<FeedMonitor>(builder.Services);
 builder.Services.AddSingleton<PhotoFrame>();
+builder.Services.AddSingleton<CameraFeeds>();
 AddMonitor<GitHubMonitor>(builder.Services);
 AddMonitor<PingMonitor>(builder.Services);
 AddMonitor<AdbReverse>(builder.Services);
@@ -164,26 +173,23 @@ app.UseRouting();
 app.Use(async (ctx, next) =>
 {
     var origin = ctx.Request.Headers.Origin.ToString();
-    var keyless = false; // a Wi-Fi request let in without a key (pairing claim): it must not touch any phone state
-    if (lanCert is not null && ctx.Connection.LocalPort == lanCfg.Port)
+    if (lanCert is not null && ctx.Connection.LocalPort == lanCfg.Port && ctx.Request.IsHttps)
     {
         // The phone's key opens the panel API; the separate webhook key opens only the webhook endpoints, in a header
         // or, for senders that cannot set headers, in ?token= (URLs end up in logs, so it must not be the phone's key).
         var lan = configStore.Get().Lan;
-        var keyed = Lan.Matches(ctx.Request.Headers.Authorization, lan.Token!)
-            || (Lan.IsWebhook(ctx.Request.Path) && (Lan.Matches(ctx.Request.Headers.Authorization, lan.WebhookToken!)
-                || Lan.MatchesQuery(ctx.Request.Query["token"], lan.WebhookToken!)));
-        // Pairing without USB: the phone has no key yet and trades a one-time code for it (checked by the endpoint).
-        keyless = !keyed && Lan.IsPairingClaim(ctx.Request.Method, ctx.Request.Path);
-        if (origin != "" || !Lan.AllowedOverLan(ctx.Request.Path) || !(keyed || keyless))
+        var access = Lan.AuthorizeRequest(lan, ctx.Request.Method, ctx.Request.Path, origin,
+            ctx.Request.Headers.Authorization, ctx.Request.Query["token"]);
+        if (access == Lan.LanAccess.Denied)
         {
             ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
         }
-        if (keyless)
+        if (access is Lan.LanAccess.PairingClaim or Lan.LanAccess.Webhook)
         {
-            // the code is all it may send: no phone registry, app version or "phone connected" updates
-            ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()!.MaxRequestBodySize = 1024;
+            // pairing claims and webhooks must not touch phone registry, app version or "phone connected" updates
+            if (access == Lan.LanAccess.PairingClaim)
+                ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()!.MaxRequestBodySize = 1024;
             ctx.Response.Headers.CacheControl = "no-store";
             await next();
             return;
@@ -243,7 +249,9 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
     var hosts = Lan.Addresses();
     var fingerprint = Lan.Fingerprint(lanCert);
     var link = PairingCodes.Link(Environment.MachineName, fingerprint, lanCfg.Port, hosts, code);
-    var apk = $"https://github.com/ersinkoc/phonebox/releases/download/v{AppPaths.Version}/PhoneBox-{AppPaths.Version}.apk";
+    // Same repo the updater checks — a hard-coded upstream URL would hand out a differently signed APK.
+    var repo = cfg.Get().Updates.Repo;
+    var apk = $"https://github.com/{repo}/releases/download/v{AppPaths.Version}/PhoneBox-{AppPaths.Version}.apk";
     return Results.Json(new
     {
         enabled = true,
@@ -262,24 +270,8 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
 });
 app.MapPost("/api/pair/cancel", (long attempt, PairingCodes codes) => { codes.Cancel(attempt); return Results.Ok(); });
 app.MapGet("/api/pair/status", (PairingCodes codes) => Results.Json(new { claims = codes.Claims }));
-app.MapPost("/api/pair/claim", async (HttpRequest req, ConfigStore cfg, PairingCodes codes) =>
-{
-    if (lanCert is null || req.ContentLength is > 1024) return Results.StatusCode(StatusCodes.Status403Forbidden);
-    var code = await PairingCodes.ReadClaimCodeAsync(req);
-    if (code is null || !codes.Claim(code, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))
-        return Results.StatusCode(StatusCodes.Status403Forbidden);
-    var lan = cfg.Get().Lan;
-    app.Logger.LogInformation("phone paired over Wi-Fi ({Model})", req.Headers["X-PhoneBox-Model"].ToString());
-    return Results.Json(new
-    {
-        enabled = true,
-        pc = Environment.MachineName,
-        port = lanCfg.Port,
-        token = lan.Token,
-        fingerprint = Lan.Fingerprint(lanCert),
-        hosts = Lan.Addresses(),
-    });
-});
+app.MapPost("/api/pair/claim", (HttpRequest req, ConfigStore cfg, PairingCodes codes) =>
+    ClaimPairingAsync(req, cfg, codes, lanCert, lanCfg.Port, app.Logger));
 
 app.MapGet("/api/lan", (ConfigStore cfg) => Results.Json(new
 {
@@ -338,20 +330,30 @@ app.MapGet("/api/settings", (ConfigStore cfg, HttpResponse res) =>
     return Results.Text(json, "application/json; charset=utf-8");
 });
 
-app.MapPut("/api/settings", async (HttpRequest req, ConfigStore cfg, ControlDeck deck, PhotoFrame photos, ILogger<Program> log) =>
+app.MapPut("/api/settings", async (HttpRequest req, ConfigStore cfg, ControlDeck deck, PhotoFrame photos, CameraFeeds cameras, ShortcutIconUploads icons, ILogger<Program> log) =>
 {
     if (req.ContentType?.StartsWith("application/json") != true) return Results.StatusCode(415);
     using var r = new StreamReader(req.Body);
     long? expected = long.TryParse(req.Headers["X-Config-Version"], out var v) ? v : null; // scripts may leave it out
-    var err = cfg.Save(await r.ReadToEndAsync(), expected);
+    var body = await r.ReadToEndAsync();
+    if (LanPortCollidesWithLocal(body, Port))
+        return Results.BadRequest(new { error = $"Wi-Fi port cannot be the same as the local port ({Port})" });
+    if (LanKeysShared(body))
+        return Results.BadRequest(new { error = "The Wi-Fi key and the webhook key must be different: make a new key for one of them" });
+    string? err;
+    long savedVersion;
+    lock (IconCommit) err = cfg.Save(body, expected, out savedVersion);
     if (err == ConfigStore.Conflict) return Results.Json(new { error = err }, statusCode: StatusCodes.Status409Conflict);
     if (err is not null) return Results.BadRequest(new { error = err });
     deck.StopDisabledControls();
     photos.SettingsSaved();
     BackgroundImages.Prune(cfg);
+    cameras.SettingsSaved();
     deck.ReconcileRadios(waitForGate: true);
+    icons.Cleanup(() => cfg.Get().Shortcuts.Select(s => s.Id)); // drop uploads for shortcuts that got deleted
+    ShortcutIcons.ClearHasIconCache();
     log.LogInformation("settings saved");
-    return Results.Ok(new { version = cfg.Version });
+    return Results.Ok(new { version = savedVersion.ToString(CultureInfo.InvariantCulture) });
 });
 
 // The picture behind the panel (Settings › Display): the settings page uploads it here and puts the returned id in
@@ -372,12 +374,31 @@ app.MapPut("/api/settings/background", async (HttpRequest req, ConfigStore cfg) 
     return id is null ? Results.BadRequest(new { error }) : Results.Json(new { id });
 });
 
-app.MapPost("/api/shortcuts/test", async (HttpRequest req, ConfigStore cfg, ILogger<Program> log) =>
+// Narrow write path for the phone: only the text of a Note widget may be changed.
+// The text travels in the query string: the Android proxy forwards no request body.
+app.MapPost("/api/widget/{pageId}/{widgetId}/note", (string pageId, string widgetId, string? text, string? version, ConfigStore cfg) =>
+{
+    long? expected = long.TryParse(version, out var v) ? v : null;
+    // the same lock as the settings save and the icon commits, so an icon upload can't report a version that
+    // already holds a Note edit it never checked
+    NoteEdit.Result r;
+    lock (IconCommit) r = NoteEdit.Apply(cfg, pageId, widgetId, text, expected);
+    return r.Status switch
+    {
+        200 => Results.Ok(new { version = r.Version }),
+        404 => Results.NotFound(new { error = r.Error }),
+        409 => Results.Json(new { error = r.Error }, statusCode: StatusCodes.Status409Conflict),
+        _ => Results.BadRequest(new { error = r.Error }),
+    };
+});
+
+app.MapPost("/api/shortcuts/test", async (HttpRequest req, ConfigStore cfg, PushStore push, AudioControl audio, ILogger<Program> log) =>
 {
     if (req.ContentType?.StartsWith("application/json") != true) return Results.StatusCode(415);
     var sc = await req.ReadFromJsonAsync<PhoneBox.Agent.Shortcut>(new JsonSerializerOptions(JsonSerializerDefaults.Web));
     if (sc is null || string.IsNullOrWhiteSpace(sc.Cmd)) return Results.BadRequest(new { error = "command is empty" });
-    var err = Shortcuts.Execute(sc, log, cfg.Get());
+    // the same pushed values and audio state as a phone run, so a macro's nested toggles pick the same command
+    var err = Shortcuts.Execute(sc, log, cfg.Get(), push: push, audio: audio);
     return err is null ? Results.Ok() : Results.BadRequest(new { error = err });
 });
 
@@ -451,7 +472,7 @@ object State(IServiceProvider sp, long? ev)
         update = upd.Status() is { } u && (u.AppUpdate || u.AgentUpdate) ? new { latest = u.Latest, app = u.AppUpdate, agent = u.AgentUpdate } : null,
         ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         host = Environment.MachineName,
-        cfgVersion = sp.GetRequiredService<ConfigStore>().Version,
+        cfgVersion = sp.GetRequiredService<ConfigStore>().Version.ToString(),
         pushVersion = push.Version,
         evSeq = push.Seq,
         events = ev is { } since ? push.Since(since) : [],
@@ -489,6 +510,17 @@ app.MapGet("/api/photos/{id}", async (string id, PhotoFrame photos, HttpResponse
     res.Headers.CacheControl = "private, max-age=86400";
     return Results.File(bytes, type!);
 });
+// Camera widget: the latest picture of the camera a widget shows, as a JPEG. Pulling a camera starts with these requests
+// and stops a few seconds after the last one; without a fresh picture the answer is a state, never an older picture.
+// "fresh" is read as text, not bound as a bool: a value the bool binder can't parse ("1") would answer 400 instead
+app.MapGet("/api/camera", (string? widget, string? fresh, HttpRequest req, HttpResponse res, CameraFeeds cameras) =>
+{
+    var (status, jpeg, state) = cameras.Frame(req.Headers["X-PhoneBox-Device"].ToString(), widget, fresh is "true" or "1");
+    res.Headers.CacheControl = "no-store";
+    res.Headers["X-Content-Type-Options"] = "nosniff";
+    if (status == 204) return Results.NoContent(); // no newer picture than the one this widget has
+    return jpeg is null ? Results.Json(new { state }, statusCode: status) : Results.Bytes(jpeg, "image/jpeg");
+});
 app.MapPost("/api/feeds/open", (string? id, FeedMonitor feeds) =>
     feeds.Open(id) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true }));
 
@@ -503,9 +535,23 @@ app.MapGet("/api/ha/states", async (string? ids, HomeAssistant ha) =>
     Results.Json(await ha.StatesAsync((ids ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))));
 app.MapPost("/api/ha/toggle/{id}", async (string id, HomeAssistant ha) =>
     await ha.ToggleAsync(id) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true }));
+// Settings › General › Ping & network: the connected adapters to pick from (local only, not on the Wi-Fi list)
+app.MapGet("/api/network/adapters", (ConfigStore cfg) => Results.Json(SystemMonitor.Adapters(cfg.Get().Ping.Adapters)));
+
+// Settings › widget › Home Assistant entities: the picker's list (local only, not on the Wi-Fi allow-list)
+app.MapGet("/api/ha/entities", async (HomeAssistant ha) => Results.Json(await ha.ListEntitiesAsync()));
 // Settings › General › Home Assistant › Test (local only)
 app.MapPost("/api/ha/test", async (HomeAssistantConfig body) =>
     Results.Json(new { result = await HomeAssistant.TestAsync(body.Url ?? "", body.Token ?? "") }));
+
+// Dictation (widget): text the phone recognized, typed into the app in front (only if that widget allows it).
+// The text is in the query: the phone's WebView sees no request bodies, so its transport (USB and Wi-Fi) sends POSTs
+// without one, like every other panel request. Kestrel's request line (16 KB) bounds it; request URLs aren't logged.
+app.MapPost("/api/dictate", async (string? widget, string? text, HttpRequest req, Dictation dictation, CancellationToken ct) =>
+{
+    var (status, error) = await dictation.TypeAsync(req.Headers["X-PhoneBox-Device"].ToString(), widget, text, ct);
+    return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
+});
 
 // App console (widget): the focused app's profile (labels only) and its keys, by profile id and slot.
 app.MapGet("/api/console", (string? widget, HttpRequest req, AppConsole console) =>
@@ -524,7 +570,7 @@ app.MapGet("/api/obs", (ObsMonitor obs, ConfigStore cfg) => Results.Json(new
 {
     enabled = cfg.Get().Obs.Enabled,
     snapshot = obs.Snapshot(),
-    control = cfg.Get().Widgets().Any(w => w.Type == "obs" && w.Bool("control") == true),
+    control = cfg.Get().Widgets(enabledPagesOnly: true).Any(w => (w.Type == "obs" || w.Type.StartsWith("obs-")) && w.Bool("control") == true),
 }));
 app.MapPost("/api/obs/{action}", async (string action, string? scene, ObsMonitor obs) =>
     await obs.ActAsync(action, scene) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true }));
@@ -561,7 +607,10 @@ app.MapPost("/api/rules/test", (RuleConfig rule, RuleEngine rules) =>
 app.MapPost("/api/phone/battery", (int level, bool plugged, double? temp, string? source, string? usb) => { ChargeGuard.Report(level, plugged, temp, source, usb); return Results.Ok(); });
 app.MapGet("/api/charge", (ChargeGuard guard) => Results.Json(guard.Status()));
 app.MapPost("/api/charge/test", async (string action, ChargeGuard guard, ConfigStore cfg) =>
-    action is "on" or "off" && await guard.Switch(cfg.Get().Charge, action) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true }));
+{
+    if (action is not ("on" or "off")) return Results.BadRequest(new { error = "unknown action" });
+    return await guard.Switch(cfg.Get().Charge, action) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true });
+});
 
 // Pause all rules for a while (the phone's overview, the settings); minutes=0 resumes.
 app.MapPost("/api/rules/pause", (int? minutes, RuleEngine rules) =>
@@ -574,7 +623,7 @@ app.MapGet("/api/state", (long? ev, HttpContext ctx) => Results.Json(State(ctx.R
 
 // Live stream (server-sent events) for the phone: "state" every second, "event" as soon as one happens, "work" when it
 // changes. The Android shell keeps one connection open instead of polling; the panel falls back to polling without it.
-app.MapGet("/api/stream", async (HttpContext ctx, PushStore push, SessionMonitor sessions, GitHubMonitor gh, ILogger<Program> log) =>
+app.MapGet("/api/stream", async (HttpContext ctx, PushStore push, SessionMonitor sessions, GitHubMonitor gh, SpectrumAnalyzer spectrum, ILogger<Program> log) =>
 {
     var ct = ctx.RequestAborted;
     var isPhone = ctx.Request.Headers.ContainsKey("X-PhoneBox-App");
@@ -596,6 +645,7 @@ app.MapGet("/api/stream", async (HttpContext ctx, PushStore push, SessionMonitor
         var seq = push.Seq;
         var lastWork = "";
         var next = 0L;
+        var lastSpec = 0L;
         var tick = 0;
         while (!ct.IsCancellationRequested)
         {
@@ -613,7 +663,19 @@ app.MapGet("/api/stream", async (HttpContext ctx, PushStore push, SessionMonitor
                 }
                 next = now + 1000;
             }
-            await wake.WaitAsync(TimeSpan.FromMilliseconds(Math.Max(5, next - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())), ct);
+            // spectrum frames for a visualizer on screen (SpectrumAnalyzer runs only while a panel asks for it). While
+            // capture runs, every open stream gets them, also a second phone without a visualizer: the stream is opened
+            // by the app shell and /api/spectrum by the panel, and nothing ties the two together (over USB both phones
+            // are 127.0.0.1). The frames are small (48 numbers) and capture stops ~5 s after the last visible widget.
+            var specActive = spectrum.Active;
+            if (specActive && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - lastSpec >= 1000 / SpectrumAnalyzer.Fps - 3)
+            {
+                lastSpec = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                if (spectrum.Frame() is { } bands) await Send("spectrum", new { b = bands });
+            }
+            var waitMs = next - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (specActive) waitMs = Math.Min(waitMs, lastSpec + 1000 / SpectrumAnalyzer.Fps - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            await wake.WaitAsync(TimeSpan.FromMilliseconds(Math.Max(5, waitMs)), ct);
         }
     }
     catch (OperationCanceledException) { }
@@ -666,6 +728,15 @@ app.MapDelete("/api/cursor/hook", (ConfigStore cfg) => CursorHook.Configure(fals
 app.MapGet("/api/approvals", (ApprovalStore a) => Results.Json(new { items = a.Snapshot() }));
 app.MapPost("/api/approvals/{id}", (string id, string decision, ApprovalStore a) => a.Decide(id, decision) ? Results.Ok() : Results.NotFound());
 
+// Spectrum bars widget: each call keeps audio capture running for a few seconds and returns the latest bands
+// (the live stream also sends them as "spectrum" events; panels without the stream poll this instead).
+// Only band levels leave the agent, never audio; nothing is captured unless an enabled page has the widget.
+app.MapGet("/api/spectrum", (SpectrumAnalyzer spectrum) =>
+{
+    var shown = spectrum.Want();
+    return Results.Json(new { shown, active = spectrum.Active, fps = SpectrumAnalyzer.Fps, b = shown ? spectrum.Frame() : null });
+});
+
 // Output of a command widget (the command itself stays here).
 app.MapGet("/api/widget/{page}/{widget}", (string page, string widget, bool? force, CommandRunner runner) =>
     runner.Get(page, widget, force == true) is { } r ? Results.Json(r) : Results.NotFound());
@@ -679,8 +750,9 @@ app.MapGet("/api/config/background/{id}", (string id, ConfigStore cfg, HttpRespo
     return Results.File(img.Bytes, img.Mime);
 });
 
-app.MapGet("/api/config", (ConfigStore cfg, HttpRequest req) =>
-    Results.Json(new { version = cfg.Version, config = cfg.Get().ToPublic(req.Headers["X-PhoneBox-Device"].ToString()) }));
+app.MapGet("/api/config", (ConfigStore cfg, HttpRequest req, ShortcutIconUploads icons) =>
+    Results.Json(new { version = cfg.Version.ToString(), config = cfg.Get().ToPublic(req.Headers["X-PhoneBox-Device"].ToString(),
+        s => icons.Revision(s.Id) is { } up ? (up, true) : (ShortcutIcons.Revision(s), false)) }));
 
 // Phones that have talked to this agent, with their settings (Settings › Phones).
 app.MapGet("/api/phones", (ConfigStore cfg) =>
@@ -779,9 +851,38 @@ app.MapPost("/api/procs/kill", (string? name, int? pid, ProcessMonitor procs, Co
 });
 
 app.MapPost("/api/run/{id}", (string id, ConfigStore cfg, PushStore push, AudioControl audio, ILogger<Program> log) =>
+    RunShortcutForPhone(cfg.Get(), id, log, push, audio));
+
+// Real icon for a shortcut: an image the user uploaded (settings page) takes priority; otherwise its program's own
+// icon, when its command is an actual file on disk. 404 when neither exists (shell addresses, protocol handlers,
+// URLs, builtin: commands, and App Execution Alias stubs with no icon of their own), so the phone shows the emoji.
+// upload=true: the upload only (see ShortcutIcons.Picture).
+app.MapGet("/api/shortcuts/icon", (string id, bool? upload, ConfigStore cfg, ShortcutIconUploads icons, HttpResponse res) =>
 {
-    var result = Shortcuts.Run(cfg.Get(), id, log, push, audio);
-    return result is null ? Results.Ok() : Results.Problem(result);
+    if (cfg.Get().Shortcuts.FirstOrDefault(s => s.Id == id) is not { } sc) return Results.NotFound();
+    if (ShortcutIcons.Picture(sc, icons, upload == true) is not { } found) return Results.NotFound();
+    res.Headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+    res.Headers["X-Content-Type-Options"] = "nosniff";
+    return Results.File(found.Bytes, found.ContentType);
+});
+
+// Uploads a custom icon for a shortcut (PNG, WEBP or SVG, 512 KB max); replaces any previous upload for it.
+// Under /api/settings, not /api/shortcuts: local-only like the rest of the settings API, since over Wi-Fi the
+// phone only ever needs to read an icon (GET /api/shortcuts/icon, above), never write one.
+app.MapPost("/api/settings/shortcut-icon", (string id, HttpRequest req, ConfigStore cfg, ShortcutIconUploads icons) =>
+    UploadShortcutIconAsync(id, req.Headers["X-Config-Version"], req.Body, req.ContentType, cfg, icons));
+
+// Removes a shortcut's uploaded icon; it falls back to its auto-detected program icon, or the emoji.
+app.MapDelete("/api/settings/shortcut-icon", (string id, HttpRequest req, ConfigStore cfg, ShortcutIconUploads icons) =>
+{
+    lock (IconCommit)
+    {
+        if (!cfg.Get().Shortcuts.Any(s => s.Id == id)) return Results.NotFound();
+        if (cfg.VersionConflict(req.Headers["X-Config-Version"])) return Results.Json(new { error = ConfigStore.Conflict }, statusCode: StatusCodes.Status409Conflict);
+        icons.Remove(id);
+        cfg.Touch();
+        return Results.Ok(new { version = cfg.VersionText });
+    }
 });
 
 app.Lifetime.ApplicationStarted.Register(() =>
@@ -806,3 +907,141 @@ static void AddMonitor<T>(IServiceCollection s) where T : class, IHostedService
 
 /// <summary>Body of POST /api/pair/claim.</summary>
 internal sealed record PairClaim(string? Code);
+
+public partial class Program
+{
+    internal static bool LanPortCollidesWithLocal(string json, int localPort)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+            // ConfigStore.Save deserializes a repeated member (in any letter case) last-wins, so the last "lan" is the
+            // one that gets saved; a last one that is not an object leaves Wi-Fi off
+            var collides = false;
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (!prop.Name.Equals("lan", StringComparison.OrdinalIgnoreCase)) continue;
+                collides = false;
+                if (prop.Value.ValueKind != JsonValueKind.Object) continue;
+                var enabled = false;
+                var port = 8766;
+                foreach (var lp in prop.Value.EnumerateObject())
+                {
+                    if (lp.Name.Equals("enabled", StringComparison.OrdinalIgnoreCase) && lp.Value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                        enabled = lp.Value.GetBoolean();
+                    else if (lp.Name.Equals("port", StringComparison.OrdinalIgnoreCase) && lp.Value.ValueKind == JsonValueKind.Number && lp.Value.TryGetInt32(out var p))
+                        port = Math.Clamp(p, 1024, 65535);
+                }
+                collides = enabled && port == localPort;
+            }
+            return collides;
+        }
+        catch (JsonException) { }
+        return false;
+    }
+
+    /// <summary>
+    /// True when settings JSON gives the phone key and the webhook key the same value: every webhook sender would then
+    /// hold the phone's key (Lan.AuthorizeRequest no longer trusts it as one). Checked on the settings page's save
+    /// only, so other writes (a Note from the phone) still go through on a config that was edited by hand.
+    /// </summary>
+    internal static bool LanKeysShared(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+            string? token = null, webhook = null;
+            // last-wins for repeated members, like ConfigStore.Save; blank keys are replaced by new ones there
+            foreach (var prop in doc.RootElement.EnumerateObject())
+            {
+                if (!prop.Name.Equals("lan", StringComparison.OrdinalIgnoreCase)) continue;
+                token = webhook = null;
+                if (prop.Value.ValueKind != JsonValueKind.Object) continue;
+                foreach (var lp in prop.Value.EnumerateObject())
+                {
+                    var text = lp.Value.ValueKind == JsonValueKind.String ? lp.Value.GetString() : null;
+                    if (lp.Name.Equals("token", StringComparison.OrdinalIgnoreCase)) token = text;
+                    else if (lp.Name.Equals("webhookToken", StringComparison.OrdinalIgnoreCase)) webhook = text;
+                }
+            }
+            return !string.IsNullOrWhiteSpace(token) && string.Equals(token, webhook, StringComparison.Ordinal);
+        }
+        catch (JsonException) { }
+        return false;
+    }
+
+    internal static async Task<IResult> UploadShortcutIconAsync(
+        string id, string? configVersion, Stream body, string? contentType, ConfigStore cfg, ShortcutIconUploads icons)
+    {
+        if (!cfg.Get().Shortcuts.Any(s => s.Id == id)) return Results.NotFound(new { error = "Unknown shortcut (save it once first)" });
+        if (cfg.VersionConflict(configVersion)) return Results.Json(new { error = ConfigStore.Conflict }, statusCode: StatusCodes.Status409Conflict);
+        var bytes = await ShortcutIconUploads.ReadBounded(body);
+        // The body is read outside the lock; the checks, the write and the version bump are one step, so of two
+        // uploads that started from the same version the second gets 409 instead of replacing the first one's icon.
+        lock (IconCommit)
+        {
+            if (cfg.VersionConflict(configVersion)) return Results.Json(new { error = ConfigStore.Conflict }, statusCode: StatusCodes.Status409Conflict);
+            if (!cfg.Get().Shortcuts.Any(s => s.Id == id)) return Results.NotFound(new { error = "Unknown shortcut (save it once first)" });
+            var err = icons.Save(id, contentType, bytes);
+            if (err is not null) return Results.BadRequest(new { error = err });
+            if (!cfg.Get().Shortcuts.Any(s => s.Id == id))
+            {
+                icons.Cleanup(() => cfg.Get().Shortcuts.Select(s => s.Id));
+                return cfg.VersionConflict(configVersion)
+                    ? Results.Json(new { error = ConfigStore.Conflict }, statusCode: StatusCodes.Status409Conflict)
+                    : Results.NotFound(new { error = "Unknown shortcut (save it once first)" });
+            }
+            cfg.Touch();
+            return Results.Ok(new { version = cfg.VersionText });
+        }
+    }
+
+    /// <summary>
+    /// Serializes the writes that move <see cref="ConfigStore.Version"/> for shortcut icons (upload, removal) with the
+    /// settings save. Taken before the icon store's own lock, never inside it (its cleanup reads the settings).
+    /// </summary>
+    internal static readonly Lock IconCommit = new();
+
+    /// <summary>
+    /// POST /api/pair/claim. Wi-Fi is checked again once the body has arrived, with the settings that answer the claim:
+    /// a claim still waiting for its body when Wi-Fi is turned off is refused and does not use up the code.
+    /// </summary>
+    internal static async Task<IResult> ClaimPairingAsync(HttpRequest req, ConfigStore cfg, PairingCodes codes,
+        System.Security.Cryptography.X509Certificates.X509Certificate2? lanCert, int lanPort, ILogger log)
+    {
+        if (!cfg.Get().Lan.Enabled || lanCert is null || req.ContentLength is > 1024) return Results.StatusCode(StatusCodes.Status403Forbidden);
+        var code = await PairingCodes.ReadClaimCodeAsync(req);
+        var lan = cfg.Get().Lan;
+        if (!lan.Enabled || code is null || !codes.Claim(code, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        log.LogInformation("phone paired over Wi-Fi ({Model})", req.Headers["X-PhoneBox-Model"].ToString());
+        return Results.Json(new
+        {
+            enabled = true,
+            pc = Environment.MachineName,
+            port = lanPort,
+            token = lan.Token,
+            fingerprint = Lan.Fingerprint(lanCert),
+            hosts = Lan.Addresses(),
+        });
+    }
+
+    /// <summary>
+    /// POST /api/run/{id}. Why a shortcut failed stays in the agent log: an exception text can carry the configured
+    /// command, its arguments, a key sequence or a working folder (Process.Start names the program and the folder).
+    /// </summary>
+    internal static IResult RunShortcutForPhone(AgentConfig cfg, string id, ILogger log, PushStore push, AudioControl audio) =>
+        Shortcuts.Run(cfg, id, log, push, audio) is { } error ? Results.Problem(HintOrGeneric(error)) : Results.Ok();
+
+    /// <summary>
+    /// What the phone may see of a failed shortcut: an error can carry configured command text, so only the agent's own
+    /// fixed hint (it tells the user what to do) goes through as it is; anything else becomes a generic message.
+    /// </summary>
+    internal static string HintOrGeneric(string error) =>
+        error.Contains(KeySender.AccessibilityHint, StringComparison.Ordinal)
+            ? KeySender.AccessibilityHint
+            : "The shortcut failed. The agent log on the computer has the details.";
+}
+
