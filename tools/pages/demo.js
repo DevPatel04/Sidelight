@@ -64,7 +64,7 @@
         artTint: true, autoBrightness: false, nightWhenDark: false, proximityWake: true, pin: false, homeScreen: false, keepAwake: true, followComputerLock: false,
         homePage: null, switchCountdownSec: 3, touchGraceSec: 20, minDwellSec: 15, holdMaxMin: 30 },
       lan: { enabled: true, port: 8766, token: 'demo', webhookToken: 'demo-webhook-key' },
-      updates: { auto: true, repo: 'ersinkoc/phonebox' },
+      updates: { auto: true, repo: 'DevPatel04/phonebox', channel: 'stable' },
       claude: { phoneApprovals: true, timeoutSec: 90, onlyWhenAway: false },
       antigravity: { phoneApprovals: true, timeoutSec: 30, onlyWhenAway: false },
       cursor: { phoneApprovals: true, timeoutSec: 60, onlyWhenAway: false },

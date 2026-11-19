@@ -80,8 +80,12 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
         if (RunningInstalled) RemoveFrameworkDependentLeftovers(InstallDir, SingleFile);
         await Task.Delay(TimeSpan.FromSeconds(20), ct);
         var nextCheck = DateTime.MinValue;
+        var source = "";
         while (!ct.IsCancellationRequested)
         {
+            // switching channel or repo in the settings checks again right away, not at the next 6-hour mark
+            var u = cfg.Get().Updates;
+            if (u.Repo + " " + u.Channel != source) { source = u.Repo + " " + u.Channel; nextCheck = DateTime.MinValue; }
             if (DateTime.UtcNow >= nextCheck)
             {
                 await CheckAsync(ct);
@@ -106,9 +110,12 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
         try
         {
             _state = "checking";
-            var repo = cfg.Get().Updates.Repo;
-            using var doc = JsonDocument.Parse(await ApiStringAsync($"https://api.github.com/repos/{repo}/releases/latest", ct));
-            var r = doc.RootElement;
+            var u = cfg.Get().Updates;
+            // /releases/latest never returns a pre-release, so the test channel reads the list and picks the newest itself
+            using var doc = JsonDocument.Parse(await ApiStringAsync(u.Channel == "test"
+                ? $"https://api.github.com/repos/{u.Repo}/releases?per_page=30"
+                : $"https://api.github.com/repos/{u.Repo}/releases/latest", ct));
+            var r = u.Channel == "test" ? NewestRelease(doc.RootElement) ?? throw new InvalidOperationException("no releases yet") : doc.RootElement;
             foreach (var a in r.GetProperty("assets").EnumerateArray())
                 if (a.GetProperty("browser_download_url").GetString() is { } url && a.TryGetProperty("url", out var api) && api.GetString() is { } apiUrl)
                     _apiUrls[url] = apiUrl;
@@ -403,6 +410,23 @@ public sealed class UpdateService(ConfigStore cfg, AdbReverse adb, IHostApplicat
     }
 
     internal sealed record Release(string Version, string? Url, string? Apk, string? AgentZip, string? Sums);
+
+    /// <summary>
+    /// The published release with the highest version in a /releases listing, pre-releases included. Test builds are
+    /// numbered &lt;version&gt;.&lt;run&gt; (0.9.14.57), so they sort after the release they build on and before the next one.
+    /// </summary>
+    internal static JsonElement? NewestRelease(JsonElement releases)
+    {
+        JsonElement? best = null;
+        Version? bestVersion = null;
+        foreach (var r in releases.EnumerateArray())
+        {
+            if (r.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.True) continue;
+            if (!Version.TryParse((r.GetProperty("tag_name").GetString() ?? "").TrimStart('v', 'V'), out var v)) continue;
+            if (bestVersion is null || v > bestVersion) { best = r; bestVersion = v; }
+        }
+        return best;
+    }
 
     /// <summary>
     /// The phone app, this machine's agent zip and the checksum file of a GitHub release
