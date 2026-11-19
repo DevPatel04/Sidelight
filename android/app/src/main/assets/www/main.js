@@ -4,6 +4,7 @@
 import { W } from './registry.js';
 import './appearance.js';
 import { applyBackground } from './background.js';
+import { themeOf } from './themes.js';
 import { cached } from './widgets/helpers.js';
 import './widgets/basic.js';
 import './widgets/stack.js';
@@ -991,7 +992,7 @@ export function portraitLayout(widgets) {
 // the root once, when they are created; the theme is part of the layout key, so a new one builds the pages again.
 function applyTheme() {
   const d = cfg.display || {};
-  const theme = ['amoled', 'midnight', 'warm', 'graphite', 'glass', 'cockpit', 'nature'].includes(d.theme) ? d.theme : 'default';
+  const theme = themeOf(d.theme);
   document.body.dataset.theme = document.documentElement.dataset.theme = theme;
   return theme;
 }

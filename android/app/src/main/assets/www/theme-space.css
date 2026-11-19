@@ -1,0 +1,217 @@
+/* ================================================================ Space
+   Deep space: cards as violet-glass HUD panels with corner brackets, chrome digits with a moon orbiting a planet for
+   the seconds, and gauges as a star, a rocket, a moon and a satellite (widgets/space.js). The background is bg-galaxy.js.
+   No web fonts: the futuristic feel comes from wide tracking and the drawn digits. */
+:root[data-theme="space"] {
+  --cpu: #9cc8ff; --gpu: #ffb86b; --ram: #e6e2cf; --net: #7cc4ff; --up: #b48cff; --ok: #5eead4;
+}
+body[data-theme="space"] {
+  --bg: #04030f;
+  --card: rgba(30, 26, 78, .5); --card-hi: rgba(60, 52, 140, .55); --line: rgba(124, 196, 255, .2);
+  --text: #e8ecff; --muted: #a3abd6; --dim: #6c7299;
+--cy: #7cc4ff; --vi: #b48cff; --or: #ffb86b; --st: #e8ecff;
+  --font: Roboto, "Segoe UI", system-ui, sans-serif;
+  --font-num: Roboto, "Segoe UI", system-ui, sans-serif;
+  /* HUD brackets in two corners over a violet glass gradient; all in the background, so no pseudo-element is taken */
+  --hud: linear-gradient(var(--cy), var(--cy));
+  --card-bg:
+    var(--hud) left 4px top 4px / 8px 1.5px no-repeat, var(--hud) left 4px top 4px / 1.5px 8px no-repeat,
+    var(--hud) right 4px bottom 4px / 8px 1.5px no-repeat, var(--hud) right 4px bottom 4px / 1.5px 8px no-repeat,
+    linear-gradient(160deg, rgba(40, 34, 96, .58), rgba(8, 10, 30, .78));
+  --card-border: 1px solid rgba(124, 196, 255, .22);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, .06), 0 0 24px rgba(124, 140, 255, .1);
+  --radius: clamp(12px, 8cqmin, 20px);
+  --radius-sm: 10px;
+  --surface: rgba(124, 150, 255, .08);
+  --surface-hi: rgba(124, 150, 255, .2);
+  --surface-line: rgba(124, 196, 255, .2);
+  --track: rgba(180, 190, 255, .15);
+  --overlay: rgba(12, 11, 38, .96);
+  --on-accent: #0b0a24;
+}
+
+/* ---------- labels and readouts: wide-tracked caps in cyan, light numbers ---------- */
+body[data-theme="space"] :is(.w-title, .t-label, .s-label, .g-label, .an-l) { letter-spacing: .2em; }
+body[data-theme="space"] :is(.t-label, .s-label) { color: var(--cy); }
+body[data-theme="space"] .w-title { color: var(--c, var(--cy)); }
+body[data-theme="space"] :is(.t-val, .s-main) b { font-weight: 300; letter-spacing: .02em; text-shadow: 0 0 12px rgba(140, 160, 255, .35); }
+body[data-theme="space"] .g-val { font-weight: 300; letter-spacing: .02em; }
+body[data-theme="space"] .chip { background: rgba(124, 150, 255, .1); color: var(--st); border: 1px solid rgba(124, 196, 255, .2); border-radius: 999px; }
+body[data-theme="space"] .mini-btn { background: rgba(124, 150, 255, .12); color: var(--cy); border-radius: 999px; }
+
+/* ---------- the clock: chrome digits, star colon, the moon orbiting for the seconds ---------- */
+.spx7 { height: .8em; width: auto; aspect-ratio: 72 / 104; display: block; overflow: visible; }
+.spx7 path { fill: none; stroke-width: 11; stroke-linecap: round; stroke-linejoin: round; }
+.spx7 .on { stroke: url(#spx-chrome); }
+.spx-colon { height: .8em; width: auto; aspect-ratio: 16 / 104; display: block; }
+.spx-colon path { fill: #dfe6ff; animation: blink 2s ease-in-out infinite; }
+.orb { height: .58em; width: auto; aspect-ratio: 1; display: block; overflow: visible; margin-left: .14em; }
+.orb .ring { fill: none; stroke: rgba(124, 196, 255, .45); stroke-width: 1.2; }
+.orb .ring.near { stroke: rgba(124, 196, 255, .8); }
+.orb circle:not([fill]) { fill: #e8ecff; }
+.orb .mx { animation: spx-ox 30s cubic-bezier(.37, 0, .63, 1) infinite alternate; }
+.orb .my { animation: spx-oy 30s cubic-bezier(.37, 0, .63, 1) infinite alternate; }
+@keyframes spx-ox { from { transform: translateX(-28px); } to { transform: translateX(28px); } }
+@keyframes spx-oy { from { transform: translateY(-11.8px); } to { transform: translateY(11.8px); } }
+body[data-theme="space"] .clock.cosmo {
+  align-items: center; gap: .06em; letter-spacing: 0; margin-left: 0;
+  filter: drop-shadow(0 0 .12em rgba(140, 160, 255, .45));
+}
+body[data-theme="space"] .clock.cosmo :is(.hh, .mm) { display: flex; align-items: center; gap: .07em; }
+body[data-theme="space"] .clock.cosmo .hh .orb { display: none; }
+body[data-theme="space"] .clock.cosmo:has(.sec:empty) .orb { display: none; }
+body[data-theme="space"] .clock.cosmo .colon { opacity: 1; animation: none; margin: 0 .02em; }
+/* the seconds sit under the orbit they belong to */
+body[data-theme="space"] .clock.cosmo .sec {
+  align-self: flex-end; margin: 0 0 0 -2.45em; width: 2.45em; text-align: center;
+  font: 400 .2em/1 var(--font-num); letter-spacing: .12em; color: var(--cy);
+}
+body[data-theme="space"] .clock.cosmo .ap { margin-left: .4em; color: var(--cy); letter-spacing: .1em; }
+body[data-theme="space"] .date { color: rgba(232, 236, 255, .7); text-transform: uppercase; letter-spacing: .16em; font-size: clamp(10px, 6.4cqh, 16px); }
+body[data-theme="space"] .status { letter-spacing: .1em; text-transform: uppercase; font-size: clamp(9px, 4.6cqh, 11.5px); }
+body[data-theme="space"] .status .smini { color: var(--or); animation: blink 1.4s infinite; }
+body[data-theme="space"] .dot.on { background: var(--cy); box-shadow: 0 0 8px var(--cy); }
+body[data-theme="space"] .wx-temp { font-weight: 300; letter-spacing: .04em; }
+
+/* ---------- drawn gauges ---------- */
+.spx-star .c0 { stop-color: #fff; } .spx-star .c1 { stop-color: #9cc8ff; } .spx-star .c2 { stop-color: #4b5bd6; stop-opacity: 0; }
+.spx-star.hot .c0 { stop-color: #fff3d6; } .spx-star.hot .c1 { stop-color: #ff9b4a; } .spx-star.hot .c2 { stop-color: #c2332b; }
+.spx-star .glow { opacity: .5; }
+.spx-star :is(.glow, .core, .in) { transition: r 1s ease; }
+.spx-star .in { fill: #fff; }
+.spx-star.hot .in { fill: #fff3d6; }
+.spx-star .cor { transition: transform 1s ease; }
+.spx-star .rays { fill: none; stroke: #9cc8ff; stroke-width: 1.4; stroke-linecap: round; opacity: .85; transform-box: fill-box; transform-origin: center; animation: spx-spin 18s linear infinite; }
+.spx-star.hot .rays { stroke: #ff9b4a; }
+@keyframes spx-spin { to { transform: rotate(360deg); } }
+.spx-rocket .rkt { animation: spx-bob 2.6s ease-in-out infinite; }
+@keyframes spx-bob { 50% { transform: translateY(-2.5px); } }
+.spx-rocket .flame { transition: transform 1s ease; }
+.spx-rocket .flk { transform-box: fill-box; transform-origin: 50% 0; animation: pb-flick .25s ease-in-out infinite; }
+.spx-rocket .f1 { fill: #ffb86b; } .spx-rocket .f2 { fill: #fff3d6; }
+.spx-rocket.hot .f1 { fill: #ff6b4a; }
+.spx-rocket .hull { fill: #e8ecff; } .spx-rocket .nose { fill: #ff8a6b; } .spx-rocket .fins { fill: #b48cff; } .spx-rocket .nozzle { fill: #6f7697; }
+.spx-rocket .port { fill: #2a3a7a; stroke: #7cc4ff; stroke-width: 1.5; }
+.spx-moon .halo { fill: rgba(230, 226, 207, .06); }
+.spx-moon .dark { fill: #262a45; }
+.spx-moon .lit { fill: #e6e2cf; }
+.spx-moon.hot .lit { fill: #ffd2a8; }
+.spx-moon .cr { fill: rgba(0, 0, 0, .13); }
+.spx-moon .rim { fill: none; stroke: rgba(230, 226, 207, .28); }
+.spx-sat .track { fill: none; stroke: rgba(180, 190, 255, .22); stroke-width: 1.2; stroke-dasharray: 1 4; stroke-linecap: round; }
+.spx-sat .arc { fill: none; stroke: var(--qc, var(--q, var(--c, #7cc4ff))); stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 100 100; stroke-dashoffset: 100; transition: stroke-dashoffset 1s ease; filter: drop-shadow(0 0 3px rgba(124, 196, 255, .6)); }
+.spx-sat .planet { fill: #3b2f8f; }
+.spx-sat .band { fill: none; stroke: rgba(217, 204, 255, .35); stroke-width: 2; }
+.spx-sat .sv { transition: transform 1s ease; }
+.spx-sat .panel { fill: #7cc4ff; } .spx-sat .body { fill: #e8ecff; }
+.spx-sat.hot .panel { fill: #ff8a6b; }
+body[data-theme="space"] .g-dial.art-dial .g-val { font-weight: 300; letter-spacing: .04em; }
+body[data-theme="space"] .w-stat .t-art { right: 3%; height: 86cqh; max-width: 38cqw; aspect-ratio: 80 / 92; }
+body[data-theme="space"] .w-stat :is(.t-val, .t-sub) { text-shadow: 0 1px 6px rgba(0, 0, 0, .8); }
+/* rings (gauges, quotas, pomodoro, timer, battery care): the empty part is a dotted orbit */
+body[data-theme="space"] :is(.g-dial, .q-dial) .bg { stroke: rgba(180, 190, 255, .2); stroke-width: 3; stroke-dasharray: 1 5; stroke-linecap: round; }
+body[data-theme="space"] .cc-bg { stroke-dasharray: 1 5; stroke-linecap: round; stroke-width: 3; stroke: rgba(180, 190, 255, .25); }
+body[data-theme="space"] .q-card {
+  border-color: rgba(124, 196, 255, .22); border-radius: var(--radius);
+  background: radial-gradient(90% 70% at 50% 0%, color-mix(in srgb, var(--q) 16%, transparent), transparent 70%), linear-gradient(160deg, rgba(40, 34, 96, .58), rgba(8, 10, 30, .78));
+  box-shadow: var(--card-shadow);
+}
+body[data-theme="space"] .q-name { letter-spacing: .06em; }
+body[data-theme="space"] .q-plan { border-radius: 999px; }
+
+/* ---------- music: the cover as a ringed planet, progress as a rocket from Earth to the Moon ---------- */
+body[data-theme="space"] .art-wrap {
+  overflow: visible; border-radius: 50%; margin: 0 6%;
+  background: radial-gradient(circle at 38% 32%, #ffd9a8, #e0875a 55%, #5a2a5e);
+  box-shadow: 0 0 22px rgba(255, 184, 107, .25);
+}
+body[data-theme="space"] .art-wrap :is(img, .art-ph) { border-radius: 50%; }
+/* a shaded limb over the cover makes it a sphere */
+body[data-theme="space"] .art-wrap .art-ph { color: rgba(255, 255, 255, .7); }
+body[data-theme="space"] .art-wrap::before, body[data-theme="space"] .art-wrap::after {
+  content: ""; position: absolute; left: -24%; right: -24%; top: 36%; height: 28%;
+  border: 3px solid rgba(255, 217, 168, .4); border-radius: 50%; transform: rotate(-18deg); pointer-events: none;
+}
+/* the ring's near half passes in front of the planet; the far half (::before) lies under the cover */
+body[data-theme="space"] .art-wrap::after { border-color: rgba(255, 217, 168, .85); clip-path: inset(50% 0 0 0); z-index: 1; box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .3); }
+body[data-theme="space"] .m-app { color: var(--cy); letter-spacing: .2em; }
+body[data-theme="space"] .m-title { font-weight: 500; letter-spacing: .03em; }
+body[data-theme="space"] .bar { margin: 0 10px; }
+body[data-theme="space"] .bar::before { height: 2px; background: repeating-linear-gradient(90deg, rgba(232, 236, 255, .35) 0 2px, transparent 2px 7px); }
+body[data-theme="space"] .bar::after {
+  content: ""; position: absolute; right: -9px; width: 12px; height: 12px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #f4f5fb, #9aa0b8); box-shadow: 0 0 8px rgba(207, 211, 230, .5);
+}
+body[data-theme="space"] .fill { height: 2px; background: linear-gradient(90deg, rgba(124, 196, 255, .1), var(--cy)); box-shadow: 0 0 6px rgba(124, 196, 255, .6); }
+body[data-theme="space"] .fill::before {
+  content: ""; position: absolute; left: -12px; top: -6px; width: 14px; height: 14px; border-radius: 50%;
+  background: radial-gradient(circle at 60% 40%, #4fd18b 0 22%, transparent 24%), radial-gradient(circle at 35% 70%, #4fd18b 0 16%, transparent 18%), radial-gradient(circle at 35% 35%, #7fb0ff, #2a5cd6);
+  box-shadow: 0 0 8px rgba(74, 140, 255, .6);
+}
+/* the rocket, nose to the right, its exhaust trailing */
+body[data-theme="space"] .fill::after {
+  right: -9px; top: -5px; width: 20px; height: 12px; border-radius: 0;
+  background: linear-gradient(90deg, #ffb86b 0 30%, #e8ecff 30% 78%, #ff8a6b 78%);
+  clip-path: polygon(0 50%, 30% 20%, 34% 0, 46% 22%, 78% 22%, 100% 50%, 78% 78%, 46% 78%, 34% 100%, 30% 80%);
+  filter: drop-shadow(0 0 3px rgba(255, 184, 107, .7));
+}
+body[data-theme="space"] .times { margin: 0 4px; letter-spacing: .1em; }
+body[data-theme="space"] .w-media .ic { color: var(--st); background: rgba(124, 196, 255, .1); box-shadow: inset 0 0 0 1px rgba(124, 196, 255, .4); }
+body[data-theme="space"] .w-media .ic.play { background: radial-gradient(circle at 50% 40%, #d9ccff, #6b5cff); color: #0b0a24; box-shadow: 0 0 18px rgba(138, 125, 255, .6); }
+body[data-theme="space"] .w-media .ic:active { background: rgba(124, 196, 255, .25); }
+body[data-theme="space"] input[type=range]::-webkit-slider-runnable-track { height: 3px; background: linear-gradient(to right, var(--cy) var(--p, 50%), rgba(180, 190, 255, .16) var(--p, 50%)); }
+body[data-theme="space"] input[type=range]::-webkit-slider-thumb { width: 14px; height: 14px; margin-top: -5.5px; background: radial-gradient(circle at 35% 35%, #fff, #b48cff); box-shadow: 0 0 0 3px rgba(124, 196, 255, .2), 0 0 10px rgba(180, 140, 255, .8); }
+body[data-theme="space"] .vol-val { color: var(--cy); }
+
+/* ---------- rows, keys, lists ---------- */
+body[data-theme="space"] :is(.proc, .sess, .deck-channel, .sq-now) { border-color: rgba(124, 196, 255, .14); }
+body[data-theme="space"] .proc { background: rgba(30, 26, 78, .45); }
+body[data-theme="space"] .sess.waiting { border-color: rgba(255, 138, 107, .55); background: rgba(255, 107, 74, .12); }
+body[data-theme="space"] .key {
+  border-radius: 14px;
+  background: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--k) 26%, transparent), transparent 70%), rgba(10, 12, 36, .6);
+  border: 1px solid color-mix(in srgb, var(--k) 45%, rgba(124, 196, 255, .2));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+body[data-theme="space"] .key .k-label { letter-spacing: .06em; }
+body[data-theme="space"] .key.toggle.on::before { background: var(--cy); box-shadow: 0 0 9px var(--cy); }
+body[data-theme="space"] .deck-button { border-radius: 12px; border-color: rgba(124, 196, 255, .25); }
+body[data-theme="space"] .deck-button:is(.selected, .held, .is-playing) { border-color: var(--cy); box-shadow: 0 0 0 1px rgba(124, 196, 255, .4), 0 0 14px rgba(124, 196, 255, .25); }
+body[data-theme="space"] .track { background: rgba(180, 190, 255, .12); }
+body[data-theme="space"] .track i { box-shadow: 0 0 6px var(--c, var(--cpu)); }
+body[data-theme="space"] .cal-d.today { background: radial-gradient(circle at 40% 35%, #d9ccff, #6b5cff); color: #0b0a24; box-shadow: 0 0 12px rgba(138, 125, 255, .6); border-radius: 50%; }
+body[data-theme="space"] .cl-box { border-color: var(--cy); border-radius: 50%; }
+body[data-theme="space"] .wc { border-left-color: rgba(124, 196, 255, .16); }
+body[data-theme="space"] :is(.wc-t, .cd-v, .sw-t, .ct-n) { font-weight: 300; letter-spacing: .04em; }
+body[data-theme="space"] .wc-n { color: var(--cy); letter-spacing: .18em; }
+body[data-theme="space"] .fc-r { color: var(--cy); }
+body[data-theme="space"] .chip-btn { border-radius: 999px; border: 1px solid rgba(124, 196, 255, .22); }
+body[data-theme="space"] .wc-main .hr { color: var(--cy); text-shadow: 0 0 14px rgba(124, 196, 255, .5); }
+
+/* the analog clock: an orbital chart */
+body[data-theme="space"] .analog .face { fill: rgba(10, 12, 36, .55); stroke: rgba(124, 196, 255, .3); }
+body[data-theme="space"] .analog .tk { stroke: rgba(180, 190, 255, .3); }
+body[data-theme="space"] .analog .tk.b { stroke: var(--cy); }
+body[data-theme="space"] .analog :is(.hh, .mh) { stroke: #e8ecff; }
+body[data-theme="space"] .analog .sh { stroke: var(--or); }
+body[data-theme="space"] .analog .hub { fill: var(--or); }
+
+/* ---------- page dots as stars, and what opens over the pages ---------- */
+body[data-theme="space"] #dots i { width: 5px; height: 5px; border-radius: 50%; background: rgba(232, 236, 255, .3); }
+body[data-theme="space"] #dots i.on { width: 7px; height: 7px; background: #fff; box-shadow: 0 0 0 3px rgba(124, 196, 255, .25), 0 0 10px #fff; }
+body[data-theme="space"] #ptitle { letter-spacing: .2em; text-transform: uppercase; font-size: 11.5px; color: var(--cy); border-color: rgba(124, 196, 255, .35); box-shadow: 0 0 18px rgba(124, 140, 255, .25); }
+body[data-theme="space"] :is(.toast, #navCard, #navChip, .p-sheet, .ap-card, .session-panel) {
+  background: linear-gradient(160deg, #221e5a, #08091c);
+  border: 1px solid rgba(124, 196, 255, .35); box-shadow: 0 0 0 4px rgba(124, 196, 255, .06), 0 16px 40px rgba(0, 0, 10, .7);
+}
+body[data-theme="space"] .ap-card { border-color: rgba(255, 184, 107, .55); }
+body[data-theme="space"] .ap-tool { letter-spacing: .04em; }
+body[data-theme="space"] #overview { background: radial-gradient(80% 90% at 70% 0%, #1a1450, #04030f 70%); }
+body[data-theme="space"] .ov-tile { background: rgba(30, 26, 78, .5); border-color: rgba(124, 196, 255, .2); }
+body[data-theme="space"] .ov-tile.on { border-color: var(--cy); box-shadow: 0 0 0 2px rgba(124, 196, 255, .25), 0 0 16px rgba(124, 196, 255, .2); }
+/* the night screen stays black for OLED; the clock glows a dim violet */
+body[data-theme="space"] #night { color: #3d3878; }
+body[data-theme="space"] #nClock { font-weight: 200; letter-spacing: .02em; text-shadow: 0 0 24px rgba(90, 80, 200, .35); }
+body[data-theme="space"] #nDate { letter-spacing: .2em; text-transform: uppercase; }
+
+@media (prefers-reduced-motion: reduce) { .orb :is(.mx, .my), .spx-colon path { animation: none !important; } }

@@ -37,7 +37,7 @@
     for (const sheet of document.styleSheets) {
       if (scaledSheets.has(sheet)) continue;
       const href = sheet.href || '';
-      if (!/\/(?:style|controls)\.css(?:[?#]|$)/i.test(href)) continue;
+      if (!/\/(?:style|controls|packs|theme-[a-z]+)\.css(?:[?#]|$)/i.test(href)) continue;
       try {
         scaleRuleList(sheet.cssRules);
         scaledSheets.add(sheet);

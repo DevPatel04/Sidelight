@@ -1,17 +1,26 @@
 import { API, PANEL_HEADERS } from './main.js';
+import { THEMES } from './themes.js';
+import city from './bg-city.js';
+import galaxy from './bg-galaxy.js';
+import inkwash from './bg-inkwash.js';
+import notebook from './bg-notebook.js';
+import synthwave from './bg-synthwave.js';
 
 // ---------------------------------------------------------------- page background (Settings › Display)
 // A canvas behind the pages draws the chosen animation, and an optional picture of the user's own sits under it.
 // Old phones run this for hours, so the canvas is drawn at a fraction of the screen's pixels (the soft shapes do not
 // need more), at a capped frame rate, and not at all on the night screen, in a hidden WebView, or when the system
 // asks for reduced motion (then one still frame is drawn).
-const MODES = ['glow', 'blobs', 'aurora', 'stars', 'bubbles', 'rain', 'horizon', 'forest', 'none'];
+// a theme's own background may live in a module of its own (bg-<name>.js): { scale, fps, draw(ctx, w, h, t, kit) }
+const MODULES = { galaxy, synthwave, notebook, inkwash, city };
+const MODES = ['glow', 'blobs', 'aurora', 'stars', 'bubbles', 'rain', 'horizon', 'forest', ...Object.keys(MODULES), 'none'];
 // the drawing scale against CSS pixels and frames per second: blurred shapes are fine small and slow
 const SPEC = {
   blobs: { scale: 0.2, fps: 20 }, aurora: { scale: 0.25, fps: 20 },
   stars: { scale: 1, fps: 24 }, bubbles: { scale: 0.75, fps: 30 }, rain: { scale: 0.75, fps: 30 },
   horizon: { scale: 0.5, fps: 20 }, forest: { scale: 0.5, fps: 20 },
 };
+for (const [name, m] of Object.entries(MODULES)) SPEC[name] = { scale: m.scale ?? 0.5, fps: m.fps ?? 20 };
 // the colour sets the animations draw in; glass brings its own, the other themes follow the accent colour
 const GLASS = ['255,95,162', '124,92,255', '36,212,255', '255,179,71', '46,230,166'];
 
@@ -255,6 +264,9 @@ DRAW.forest = (t) => {
   ctx.restore();
 };
 
+// the modules draw into the canvas in its own pixels, with the same helpers the built-in backgrounds use
+for (const [name, m] of Object.entries(MODULES)) DRAW[name] = (t) => m.draw(ctx, w, hgt, t, { palette, seeded: (n) => (seeds ||= seeded(n)) });
+
 function frame(now) {
   raf = 0;
   const s = SPEC[mode];
@@ -309,7 +321,7 @@ export function applyBackground(display, theme, accent) {
   layers();
   const id = typeof display.backgroundImage === 'string' && /^[0-9a-f]{16}$/.test(display.backgroundImage) ? display.backgroundImage : '';
   // with a picture of their own, "the theme's own" background is that picture, untinted; a chosen animation plays over it
-  const own = { glass: 'blobs', cockpit: 'horizon', nature: 'forest' }[theme] || 'glow';
+  const own = THEMES[theme]?.bg || 'glow';
   const want = MODES.includes(display.background) ? display.background : id ? 'none' : own;
   palette = theme === 'glass' ? GLASS : accentPalette(accent);
   if (want !== mode) seeds = null;
