@@ -206,9 +206,10 @@ runs on Android 5.0, API 21, and later).
 | Rebuild agent + phone | `./scripts/dev.sh restart` | `.\scripts\dev.ps1 restart` |
 | Panel (`www/`) only | `./scripts/dev.sh phone` | `.\scripts\dev.ps1 phone` |
 | Agent / settings only | `./scripts/dev.sh agent` | `.\scripts\dev.ps1 agent` |
+| Pre-push checks | `./scripts/dev.sh test` | `.\scripts\dev.ps1 test` |
 
 That starts the agent from source, builds a debug APK, installs it over USB and opens the settings at
-<http://127.0.0.1:8765>. Use `status`, `logs`, `stop` and `start` the same way on both scripts.
+<http://127.0.0.1:8765>. Use `status`, `logs`, `stop`, `start` and `test` the same way on both scripts.
 
 ### Browser preview (no phone)
 

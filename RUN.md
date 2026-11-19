@@ -94,6 +94,7 @@ only after the app is rebuilt and reinstalled.
 ./scripts/dev.sh logs     # follow the agent's output (Ctrl+C to stop following)
 ./scripts/dev.sh stop     # stop the agent
 ./scripts/dev.sh start    # start the agent without rebuilding the app
+./scripts/dev.sh test     # release metadata + agent + Playwright UI (incl. i18n) before push
 ```
 
 The agent's output is written to `~/.local/state/phonebox-dev/agent.log`.
@@ -121,6 +122,15 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 See [RUN-WINDOWS.md](RUN-WINDOWS.md) for the full step-by-step setup, including the APK.
 
 ## 4. Tests
+
+Before push, run the same local suite CI covers for metadata, agent and browser UI (including Vietnamese leftover scans):
+
+```bash
+./scripts/dev.sh test
+# or one Playwright file: ./scripts/dev.sh test i18n-coverage.spec.js
+```
+
+Or by hand:
 
 ```bash
 dotnet test agent/PhoneBox.Agent.Tests

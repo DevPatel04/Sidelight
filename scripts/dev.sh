@@ -6,6 +6,7 @@
 #   ./scripts/dev.sh stop      # stop the agent
 #   ./scripts/dev.sh agent     # rebuild and restart only the agent (settings.html, C# changes)
 #   ./scripts/dev.sh phone     # rebuild and reinstall only the app, then reopen it (panel www/ changes)
+#   ./scripts/dev.sh test      # release metadata, agent unit tests, and Playwright UI (incl. i18n) — run before push
 #   ./scripts/dev.sh status    # is the agent running, is a phone connected
 #   ./scripts/dev.sh logs      # follow the agent's output
 #
@@ -101,13 +102,31 @@ status() {
   if phone_connected; then echo "phone: $("$adb" get-serialno)"; else echo "phone: none on adb"; fi
 }
 
+# Same checks CI runs for metadata, agent and the browser panel/settings (including Vietnamese leftover scans).
+# Extra args after "test" go to Playwright (e.g. ./scripts/dev.sh test i18n-coverage.spec.js).
+run_tests() {
+  shift || true
+  echo "tests: release metadata"
+  python3 "$root/tools/check-release.py"
+  echo "tests: agent"
+  dotnet test "$root/agent/PhoneBox.Agent.Tests" --nologo
+  echo "tests: UI (Playwright)"
+  (
+    cd "$root/tools/ui-tests"
+    if [ ! -d node_modules/@playwright/test ]; then npm ci; fi
+    npx playwright install chromium
+    npx playwright test "$@"
+  )
+}
+
 case "${1:-}" in
   start) start_agent ;;
   stop) stop_agent ;;
   agent) stop_agent; start_agent ;;
   phone) update_phone ;;
   restart) stop_agent; start_agent; update_phone ;;
+  test) run_tests "$@" ;;
   status) status ;;
   logs) exec tail -n 50 -f "$log" ;;
-  *) sed -n '2,14p' "$0"; exit 2 ;;
+  *) sed -n '2,15p' "$0"; exit 2 ;;
 esac

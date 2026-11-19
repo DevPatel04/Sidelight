@@ -132,6 +132,7 @@ only after the app is rebuilt and reinstalled.
 .\scripts\dev.ps1 logs     # follow the agent's output (Ctrl+C to stop following)
 .\scripts\dev.ps1 stop     # stop the agent
 .\scripts\dev.ps1 start    # start the agent without rebuilding the app
+.\scripts\dev.ps1 test     # release metadata + agent + Playwright UI (incl. i18n) before push
 ```
 
 The agent's log is `%LOCALAPPDATA%\PhoneBox\agent.log`.
