@@ -724,30 +724,30 @@ dd { margin: 0; word-break: break-all; }
       </div>
 
       <div class="card">
-        <h3>Cursor agent permission prompts</h3>
-        <p class="hint" style="margin:0 0 12px">When Cursor's agent wants to run a terminal command or call an MCP tool, the phone shows it with
+        <h3 data-i18n="s.cursor.title">Cursor agent permission prompts</h3>
+        <p class="hint" style="margin:0 0 12px" data-i18n-html="s.cursor.hint">When Cursor's agent wants to run a terminal command or call an MCP tool, the phone shows it with
           <b>Allow</b> and <b>Deny</b>. <b>Deny</b> always blocks it. <b>Allow</b> lets it run without asking in Cursor's <i>Run Everything</i>
           and <i>Allowlist</i> modes; in other modes Cursor may still ask in the editor. If nobody answers, Cursor asks in the editor;
           with no phone connected nothing changes. Edits to files are not sent. Needs Cursor 3.21 or newer for the editor fallback, and a
           hook in <code>~/.cursor/hooks.json</code>; PhoneBox adds it for you (a backup is kept next to the file).</p>
         <div class="row" style="margin-bottom:12px"><button class="btn" id="cursorHookBtn" data-i18n="s.claude.installHook">Install hook</button><span class="hint" id="cursorHookState"></span></div>
         <div class="row" style="margin-bottom:8px"><label class="switch"><input type="checkbox" data-bind="cursor.phoneApprovals"><span></span></label> <span data-i18n="s.claude.askOnPhone">Ask on the phone</span></div>
-        <label class="check"><input type="checkbox" data-bind="cursor.onlyWhenAway"> Only when I am away from the PC (no keyboard or mouse for a minute)</label>
-        <div class="field" style="max-width:260px;margin-top:12px"><label>Seconds to answer before Cursor asks in the editor</label><input type="number" min="10" max="3600" data-bind="cursor.timeoutSec" data-type="int">
-          <span class="hint">After changing this, remove and install the hook again.</span></div>
+        <label class="check"><input type="checkbox" data-bind="cursor.onlyWhenAway"> <span data-i18n="s.claude.onlyWhenAway">Only when I am away from the PC (no keyboard or mouse for a minute)</span></label>
+        <div class="field" style="max-width:260px;margin-top:12px"><label data-i18n="s.cursor.timeout">Seconds to answer before Cursor asks in the editor</label><input type="number" min="10" max="3600" data-bind="cursor.timeoutSec" data-type="int">
+          <span class="hint" data-i18n="s.hook.reinstallHint">After changing this, remove and install the hook again.</span></div>
       </div>
 
       <div class="card">
-        <h3>Antigravity CLI permission prompts</h3>
-        <p class="hint" style="margin:0 0 12px">When the Antigravity CLI (<code>agy</code>) wants to run a command, change a file or go to the web, the phone shows
+        <h3 data-i18n="s.antigravity.title">Antigravity CLI permission prompts</h3>
+        <p class="hint" style="margin:0 0 12px" data-i18n-html="s.antigravity.hint">When the Antigravity CLI (<code>agy</code>) wants to run a command, change a file or go to the web, the phone shows
           the request with <b>Allow</b> and <b>Deny</b>. agy waits for the phone before it asks itself, so while this is on it pauses until you answer
           or the time runs out; then it asks in the terminal as usual. Calls your agy rules already allow also come to the phone.
           This needs a hook in <code>~/.gemini/config/hooks.json</code>; PhoneBox adds it for you (a backup is kept next to the file).</p>
         <div class="row" style="margin-bottom:12px"><button class="btn" id="agyHookBtn" data-i18n="s.claude.installHook">Install hook</button><span class="hint" id="agyHookState"></span></div>
         <div class="row" style="margin-bottom:8px"><label class="switch"><input type="checkbox" data-bind="antigravity.phoneApprovals"><span></span></label> <span data-i18n="s.claude.askOnPhone">Ask on the phone</span></div>
-        <label class="check"><input type="checkbox" data-bind="antigravity.onlyWhenAway"> Only when I am away from the PC (no keyboard or mouse for a minute)</label>
-        <div class="field" style="max-width:260px;margin-top:12px"><label>Seconds to answer before the terminal takes over</label><input type="number" min="10" max="3600" data-bind="antigravity.timeoutSec" data-type="int">
-          <span class="hint">After changing this, remove and install the hook again.</span></div>
+        <label class="check"><input type="checkbox" data-bind="antigravity.onlyWhenAway"> <span data-i18n="s.claude.onlyWhenAway">Only when I am away from the PC (no keyboard or mouse for a minute)</span></label>
+        <div class="field" style="max-width:260px;margin-top:12px"><label data-i18n="s.claude.timeout">Seconds to answer before the terminal takes over</label><input type="number" min="10" max="3600" data-bind="antigravity.timeoutSec" data-type="int">
+          <span class="hint" data-i18n="s.hook.reinstallHint">After changing this, remove and install the hook again.</span></div>
       </div>
 
       <div class="card">
@@ -806,9 +806,7 @@ dd { margin: 0; word-break: break-all; }
             <select data-bind="updates.channel"><option value="stable" data-i18n="s.updates.channel.stable">Stable (main branch releases)</option><option value="test" data-i18n="s.updates.channel.test">Testing (builds from the test branch)</option></select></div>
           <div class="field"><label data-i18n="s.updates.repo">GitHub repository</label><input type="text" data-bind="updates.repo" placeholder="owner/name" spellcheck="false"></div>
         </div>
-        <p class="hint" style="margin:0 0 12px">Checks <span id="updRepo"></span> on GitHub every 6 hours, and right after you save a new channel. The phone app is installed over USB without a prompt
-          on the phone; the agent replaces its own files and restarts. Testing gets every push to the test branch; switching back to Stable
-          keeps the test build until the next stable release is newer.</p>
+        <p class="hint" style="margin:0 0 12px"><span data-i18n="s.updates.checksBefore">Checks</span> <span id="updRepo"></span> <span data-i18n="s.updates.checksAfter">on GitHub every 6 hours, and right after you save a new channel. The phone app is installed over USB without a prompt on the phone; the agent replaces its own files and restarts. Testing gets every push to the test branch; switching back to Stable keeps the test build until the next stable release is newer.</span></p>
         <dl id="updInfo"></dl>
         <div class="row" style="margin-top:12px"><button class="btn" id="updCheck" data-i18n="s.updates.check">Check now</button><button class="btn primary" id="updApply" hidden data-i18n="s.updates.apply">Update now</button><span class="hint" id="updState"></span></div>
       </div>
@@ -2976,10 +2974,10 @@ function renderThemePage() {
   $('themeGrid').replaceChildren(...THEMES.map((x) => {
     const mini = vars(h('span', { class: 'tc-mini' }, h('span', { class: 'clk' }, '10:42'), h('i'), h('i'), h('i')),
       { '--m-bg': x.bg, '--m-card': x.card, '--m-line': x.line, '--m-text': x.text, '--m-accent': x.accent, '--m-font': x.font, '--m-r': x.r });
-    return h('button', { type: 'button', class: 'theme-card', role: 'radio', 'aria-checked': String(x.id === theme), onclick: pick('theme', x.id) },
+    return h('button', { type: 'button', class: 'theme-card', role: 'radio', 'data-theme': x.id, 'aria-checked': String(x.id === theme), onclick: pick('theme', x.id) },
       mini, h('b', { 'data-i18n': 's.display.theme.' + x.id }, t('s.display.theme.' + x.id)), h('small', { 'data-i18n': 's.theme.desc.' + x.id }, t('s.theme.desc.' + x.id)));
   }));
-  $('bgGrid').replaceChildren(...BACKGROUNDS.map((x) => h('button', { type: 'button', class: 'bg-chip', role: 'radio', 'aria-checked': String(x.id === bg), onclick: pick('background', x.id) },
+  $('bgGrid').replaceChildren(...BACKGROUNDS.map((x) => h('button', { type: 'button', class: 'bg-chip', role: 'radio', 'data-bg': x.id, 'aria-checked': String(x.id === bg), onclick: pick('background', x.id) },
     vars(h('span'), { '--sw': x.sw }), h('b', { 'data-i18n': 's.display.bg.' + x.id }, t('s.display.bg.' + x.id)))));
 }
 let themePreviewFrame = null, themePreviewReady = false;

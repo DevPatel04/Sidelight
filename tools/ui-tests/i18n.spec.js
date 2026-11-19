@@ -186,7 +186,8 @@ test('both settings language selectors stay in sync and Revert restores the save
   await page.locator('#displayLangSel').selectOption('tr');
   await expect(page.locator('#langSel')).toHaveValue('tr');
   await expect(page.locator('#save')).toBeEnabled();
-  await expect(page.locator('[data-bind="display.theme"]')).toBeVisible();
+  await page.goto('/settings/#theme');
+  await expect(page.locator('.theme-card[aria-checked="true"]')).toBeVisible();
   await page.locator('#revert').click();
   await expect(page.locator('#langSel')).toHaveValue('en');
   await expect(page.locator('#displayLangSel')).toHaveValue('en');
