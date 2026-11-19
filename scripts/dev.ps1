@@ -42,6 +42,9 @@ if (-not $env:JAVA_HOME) {
         Where-Object Name -like 'jdk-17*' | Select-Object -First 1
     if ($jdk) { $env:JAVA_HOME = $jdk.FullName }
 }
+if (-not (Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path 'C:\Program Files\dotnet\dotnet.exe')) {
+    $env:PATH = "C:\Program Files\dotnet;$env:PATH"
+}
 
 function Find-Adb {
     $cmd = Get-Command adb -ErrorAction SilentlyContinue
