@@ -1,17 +1,23 @@
 const { test, expect } = require('@playwright/test');
 
 async function layout(page, widgets, extra = {}) {
-  await page.goto('/panel/');
+  await page.goto('/panel/style.css');
   await page.evaluate(({ widgets, extra }) => {
     localStorage.clear();
     // Widget interaction tests must not depend on the host's wall-clock night schedule.
     localStorage.setItem('pb-demo-config', JSON.stringify({ night: { enabled: false }, ...extra, pages: [{ id: 'test', title: 'Test', enabled: true, widgets }], shortcuts: [] }));
   }, { widgets, extra });
-  await page.reload();
+  await page.goto('/panel/');
   await expect(page.locator('.w').first()).toBeVisible();
   await expect(page.locator('body')).not.toHaveClass(/night/);
 }
 const widget = (type, options = {}) => ({ id: 'test', type, x: 0, y: 0, w: 12, h: 6, options });
+
+test('fixture initialization preserves its layout when default bootstrap completion is delayed', async ({ page }) => {
+  const { gatedLayout } = require('./layout-ordering');
+  expect(await gatedLayout(page, layout)).toEqual(['test']);
+  await expect(page.locator('.w-note')).toHaveText('owned-layout');
+});
 
 for (const viewport of [{ width: 780, height: 360 }, { width: 360, height: 780 }]) {
   test(`stack renders children, changes cards and follows live data at ${viewport.width}px`, async ({ page }) => {
@@ -285,6 +291,26 @@ test('settings Display Time format select saves false, true and auto', async ({ 
   await expect(sel).toHaveValue('auto');
 });
 
+// The feeds, cameras, console, Discord and ping editors (and each control action's "enabled") fill in their defaults
+// while they render. The unsaved-changes baseline used to be taken before that, so a page that had just loaded already
+// offered Save, and Revert could never get back to a clean state.
+test('a freshly loaded settings page has nothing to save, and Revert gets back to that', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.goto('/settings/#general');
+  // the Advanced JSON box is empty in the markup and filled by the changed() at the end of load(): from here on the
+  // config is rendered, the form handlers are bound and the baseline is taken (both buttons start disabled anyway)
+  await expect(page.locator('#json')).toHaveValue(/"pages"/);
+  await expect(page.locator('#save')).toBeDisabled();
+  await expect(page.locator('#revert')).toBeDisabled();
+
+  await page.locator('input[data-bind="night.brightness"]').fill('0.1');
+  await expect(page.locator('#save')).toBeEnabled();
+  await page.locator('#revert').click();
+  await expect(page.locator('#save')).toBeDisabled();
+  await expect(page.locator('#revert')).toBeDisabled();
+  await expect(page.locator('#nbv')).toHaveText('2%');
+});
+
 test('multi option preserves saved unlisted quota provider IDs when toggling choices', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
   await layout(page, [widget('quotas', { providers: ['claude', 'alibaba'] })]);
@@ -518,6 +544,54 @@ test('news feeds list headlines and open one on the PC by its id', async ({ page
   await expect(page.locator('.w-feeds .fd-m')).toHaveCount(0);
   await layout(page, [widget('feeds', { title: 'None', feed: 'nothing like this' })]);
   await expect(page.locator('.w-feeds .empty')).toHaveText('No headlines from "nothing like this"');
+});
+
+// #108: the list scrolls (and keeps its place when the ages refresh), an opened article loses its accent bar on
+// this phone, and a headline can take two or three lines.
+test('news feeds scroll, mark opened articles and wrap headlines', async ({ page }) => {
+  await layout(page, [{ ...widget('feeds', { title: 'News', open: true }), h: 2 }]);
+  const list = page.locator('.w-feeds .fd-list');
+  await expect(page.locator('.w-feeds .fd-i')).toHaveCount(6);
+  // more headlines than fit: the list scrolls instead of dropping them
+  expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  await list.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  const bottom = await list.evaluate((el) => el.scrollTop);
+  expect(bottom).toBeGreaterThan(0);
+
+  // every headline starts with the accent bar; opening one takes it away, and the list stays where it was scrolled
+  await expect(page.locator('.w-feeds .fd-i.link.read')).toHaveCount(0);
+  await page.locator('.w-feeds .fd-i').last().click();
+  await expect(page.locator('#toast')).toContainText('Opening on the PC');
+  await expect(page.locator('.w-feeds .fd-i').last()).toHaveClass(/\bread\b/);
+  await expect(page.locator('.w-feeds .fd-i.read')).toHaveCount(1);
+  expect(await page.locator('.w-feeds .fd-i').last().evaluate((el) => getComputedStyle(el).borderLeftColor)).toBe('rgba(0, 0, 0, 0)');
+  expect(await list.evaluate((el) => el.scrollTop)).toBe(bottom);
+
+  // it stays read after the panel reloads (kept on the phone)
+  await page.reload();
+  await expect(page.locator('.w-feeds .fd-i').last()).toHaveClass(/\bread\b/);
+
+  // in a Smart Stack, a vertical swipe over a list that scrolls scrolls it rather than changing the card
+  await layout(page, [{ ...widget('stack', { widgets: [{ type: 'feeds', options: { title: 'News' } }, { type: 'clock' }] }), h: 2 }]);
+  await expect(page.locator('.stack-item.active .w-feeds .fd-i')).toHaveCount(6);
+  await page.locator('.stack-item.active .fd-list').evaluate((el) => {
+    const mk = (type, x, y) => {
+      const e = new Event(type, { bubbles: true, cancelable: true });
+      const touch = { clientX: x, clientY: y };
+      e.touches = type === 'touchstart' ? [touch] : [];
+      e.changedTouches = [touch];
+      return e;
+    };
+    el.firstElementChild.dispatchEvent(mk('touchstart', 100, 200));
+    el.firstElementChild.dispatchEvent(mk('touchend', 100, 100));
+  });
+  await expect(page.locator('.stack-item.active .w-feeds')).toHaveCount(1);
+
+  // headlines over two lines
+  await layout(page, [widget('feeds', { title: 'News', lines: '2' })]);
+  const title = page.locator('.w-feeds .fd-t').first();
+  await expect(page.locator('.w-feeds .fd-list.wrap')).toHaveCount(1);
+  expect(await title.evaluate((el) => [getComputedStyle(el).whiteSpace, getComputedStyle(el).webkitLineClamp])).toEqual(['normal', '2']);
 });
 
 // Each News feeds widget follows its own "open" option, and the demo, like the agent, ignores disabled pages.

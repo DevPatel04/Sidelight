@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -32,6 +33,8 @@ public sealed class AgentConfig
     public List<FeedSource> Feeds { get; set; } = [];
     /// <summary>The Photo frame widget's folder; like the feeds, it never goes to the phone.</summary>
     public PhotoFrameConfig Photos { get; set; } = new();
+    /// <summary>IP cameras for the Camera widget; their addresses (with the passwords in them) never go to the phone.</summary>
+    public CameraConfig Cameras { get; set; } = new();
     /// <summary>Home Assistant address and long-lived access token (the token never goes to the phone).</summary>
     public HomeAssistantConfig HomeAssistant { get; set; } = new();
     /// <summary>OBS Studio's WebSocket server (obs-websocket 5).</summary>
@@ -51,7 +54,10 @@ public sealed class AgentConfig
     }
 
     /// <summary>The part sent to the phone: commands (shortcut cmd/args/cwd, command widget scripts) are never included.</summary>
-    public object ToPublic(string? deviceId = null) => new
+    /// <param name="shortcutIcon">A shortcut's picture: its revision (null when it has none), and whether the user uploaded
+    /// it rather than it being the program's own icon; only an upload may fill a Big button (a program icon is small, or on
+    /// Linux a theme logo). One lookup gives both, so they always describe the same picture.</param>
+    public object ToPublic(string? deviceId = null, Func<Shortcut, (long? Rev, bool Upload)>? shortcutIcon = null) => new
     {
         weather = Weather,
         codexBar = CodexBar,
@@ -67,7 +73,13 @@ public sealed class AgentConfig
                 options = StackWidgets.PublicOptions(w),
             }),
         }),
-        shortcuts = Shortcuts.Select(s => new { s.Id, s.Label, s.Icon, s.Color, toggle = s.Toggle || s.Cmd == "builtin:mute" }),
+        // cameras: only how often the Camera widget may ask for a picture; the addresses and names stay on this computer
+        cameras = Cameras.Sources.Select(c => new { c.Id, c.Fps }),
+        shortcuts = Shortcuts.Select(s =>
+        {
+            var pic = shortcutIcon?.Invoke(s);
+            return new { s.Id, s.Label, s.Icon, s.Color, toggle = s.Toggle || s.Cmd == "builtin:mute", iconRev = pic?.Rev, iconUpload = pic?.Upload == true };
+        }),
         // names only (for the Rules widget); what a rule matches on stays here
         rules = Rules.Select(r => new { r.Id, r.Name, r.Enabled, r.When }),
         charge = new { Charge.Enabled, Charge.Min, Charge.Max },
@@ -97,6 +109,12 @@ public sealed class PingConfig
 {
     /// <summary>Host or IP address pinged every 5 s for the ping metric and the "ping high" rule; empty = off.</summary>
     public string? Host { get; set; } = PingMonitor.DefaultHost;
+    /// <summary>
+    /// Network adapters (their names, as Windows or the OS shows them) whose traffic the network meters add up. Empty =
+    /// automatic: the connected Ethernet and Wi-Fi adapters, without virtual ones. With a VPN that tunnels the same
+    /// traffic, or a driver that reports it twice, picking the one adapter gives the real rate (#190, #169).
+    /// </summary>
+    public List<string> Adapters { get; set; } = [];
 }
 
 public sealed class NightConfig
@@ -110,10 +128,10 @@ public sealed class NightConfig
 public sealed class DisplayConfig
 {
     public AppearanceConfig? Appearance { get; set; }
-    /// <summary>UI language code ("auto", "en", "tr", "de", "fr", "es", "it", "pt", "nl", "pl", "ru", "zh").</summary>
+    /// <summary>UI language code ("auto", "en", "tr", "de", "fr", "es", "it", "pt", "nl", "pl", "ru", "vi", "zh").</summary>
     public string Language { get; set; } = "auto";
     /// <summary>The codes the panel and the settings page are translated into (i18n.js).</summary>
-    internal static readonly string[] Languages = ["auto", "en", "tr", "de", "fr", "es", "it", "pt", "nl", "pl", "ru", "zh"];
+    internal static readonly string[] Languages = ["auto", "en", "tr", "de", "fr", "es", "it", "pt", "nl", "pl", "ru", "vi", "zh"];
     public bool ShowSeconds { get; set; } = true;
     /// <summary>false ("14:05", default), true ("2:05 PM") or "auto" (follow the phone).</summary>
     [JsonConverter(typeof(Hour12JsonConverter))]
@@ -314,7 +332,10 @@ public sealed class RuleConfig
     public string? During { get; set; }
     /// <summary>Seconds the phone counts down before switching pages; null = the phone's setting, 0 = at once.</summary>
     public int? CountdownSec { get; set; }
-    /// <summary>Push trigger: compare the value instead of "is on" (&gt;, &lt;, =, !=) with <see cref="Arg"/>.</summary>
+    /// <summary>
+    /// Push trigger: compare the value instead of "is on" (&gt;, &gt;=, &lt;, &lt;=, =, !=) with <see cref="Arg"/>, or
+    /// "stale": the value has not been updated for <see cref="Arg"/> seconds (or is not there at all).
+    /// </summary>
     public string? Op { get; set; }
     public string? Arg { get; set; }
 
@@ -432,6 +453,13 @@ public sealed partial class ConfigStore(string path)
     /// <summary>Version stamp (file write time) so the phone can notice changes.</summary>
     public long Version { get { Get(); return _seen.Ticks; } }
 
+    /// <summary>
+    /// <see cref="Version"/> for a JSON reply. File-time ticks (~6.4e17) are beyond what a JavaScript number holds
+    /// exactly (2^53), so as a JSON number the page gets it rounded, sends that back in X-Config-Version, and its next
+    /// save is refused as a conflict. As text it comes back exactly.
+    /// </summary>
+    public string VersionText => Version.ToString(CultureInfo.InvariantCulture);
+
     public AgentConfig Get()
     {
         lock (_lock)
@@ -457,23 +485,42 @@ public sealed partial class ConfigStore(string path)
     /// <summary>Save refused: the file changed after the caller loaded it (<see cref="Save"/> with an expected version).</summary>
     public const string Conflict = "The settings were changed in another tab or window after this one loaded them. Reload the page to see them; the changes made here were not saved.";
 
+    /// <summary>True when <paramref name="header"/> (X-Config-Version) names a version other than the current one.
+    /// Missing or unparseable is not a conflict: scripts and other callers that never send it still go through.</summary>
+    public bool VersionConflict(string? header) => long.TryParse(header, out var expected) && expected != Version;
+
+    /// <summary>
+    /// Advances <see cref="Version"/> without touching the saved settings: for a write that bypasses <see cref="Save"/>
+    /// (a shortcut icon upload or removal), so another tab's own optimistic-concurrency check still notices it.
+    /// </summary>
+    public void Touch() { lock (_lock) { try { File.SetLastWriteTimeUtc(path, DateTime.UtcNow); } catch { } } }
+
     /// <summary>
     /// Validates and saves the settings. Returns an error message, or null on success. With
     /// <paramref name="expectedVersion"/> (the <see cref="Version"/> the caller loaded), a save over a newer file is
     /// refused with <see cref="Conflict"/> instead of silently undoing the newer change.
     /// </summary>
-    public string? Save(string json, long? expectedVersion = null)
+    public string? Save(string json, long? expectedVersion = null) => Save(json, expectedVersion, out _);
+
+    /// <summary>Same as <see cref="Save(string, long?)"/>, and reports the version it wrote while it still holds the lock.</summary>
+    public string? Save(string json, long? expectedVersion, out long savedVersion)
     {
+        savedVersion = 0;
         AgentConfig cfg;
         try { cfg = JsonSerializer.Deserialize<AgentConfig>(json, ReadOpts) ?? throw new JsonException("empty"); }
         catch (JsonException ex) { return "Invalid JSON: " + ex.Message; }
 
-        cfg = Normalize(cfg);
+        var staleIds = Get().Shortcuts.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
+        cfg = Normalize(cfg, staleIds);
         foreach (var s in cfg.Shortcuts)
             if (string.IsNullOrWhiteSpace(s.Cmd)) return $"Shortcut '{s.Label}' has no command";
         if (cfg.Console.Profiles.Count > AppConsole.MaxProfiles) return $"The app console has more than {AppConsole.MaxProfiles} apps";
         foreach (var p in cfg.Console.Profiles)
             if (AppConsole.Validate(p) is { } consoleError) return consoleError;
+        if (cfg.Cameras.Sources.Count > CameraFeeds.MaxCameras) return $"There are more than {CameraFeeds.MaxCameras} cameras";
+        foreach (var cam in cfg.Cameras.Sources)
+            if (!CameraFeeds.ValidUrl(cam.Url))
+                return $"Camera '{(cam.Name.Length > 0 ? cam.Name : "(no name)")}': the address must start with rtsp:// or rtsps://";
         if (cfg.Weather.Lat is < -90 or > 90 || cfg.Weather.Lon is < -180 or > 180) return "Invalid weather location";
         if (!HhMm().IsMatch(cfg.Night.Start ?? "") || !HhMm().IsMatch(cfg.Night.End ?? "")) return "Night mode times must be in HH:MM format";
 
@@ -489,12 +536,13 @@ public sealed partial class ConfigStore(string path)
             File.Move(tmp, path, overwrite: true);
             _config = cfg;
             _stamp = _seen = File.GetLastWriteTimeUtc(path);
+            savedVersion = _seen.Ticks;
         }
         return null;
     }
 
     /// <summary>Fills in defaults: builds pages from templates, migrates old pages, generates unique ids.</summary>
-    private static AgentConfig Normalize(AgentConfig c)
+    private static AgentConfig Normalize(AgentConfig c, IReadOnlySet<string>? staleIds = null)
     {
         c.Weather ??= new();
         c.CodexBar ??= new();
@@ -524,7 +572,6 @@ public sealed partial class ConfigStore(string path)
         c.Display.TouchGraceSec = Math.Clamp(c.Display.TouchGraceSec, 0, 600);
         c.Display.MinDwellSec = Math.Clamp(c.Display.MinDwellSec, 0, 600);
         c.Display.HoldMaxMin = Math.Clamp(c.Display.HoldMaxMin, 0, 1440);
-        c.Display.HomePage = string.IsNullOrWhiteSpace(c.Display.HomePage) ? null : c.Display.HomePage.Trim();
         c.Lan ??= new();
         c.Updates ??= new();
         c.Ping ??= new();
@@ -544,19 +591,43 @@ public sealed partial class ConfigStore(string path)
         if (string.IsNullOrWhiteSpace(c.Lan.WebhookToken)) c.Lan.WebhookToken = NewToken();
         c.Night.Brightness = Math.Clamp(c.Night.Brightness, 0.01, 1);
 
-        c.Pages = NormalizePages(c.Pages);
+        c.Pages = NormalizePages(c.Pages, out var originalPageIds);
+        // an exact match first; a reference with stray spaces around it still finds the page it names
+        string PageId(string id) =>
+            originalPageIds.TryGetValue(id, out var exact) ? exact
+            : originalPageIds.TryGetValue(id.Trim(), out var trimmed) ? trimmed
+            : id.Trim();
+        c.Display.HomePage = string.IsNullOrWhiteSpace(c.Display.HomePage) ? null : PageId(c.Display.HomePage).Trim();
 
         var used = new HashSet<string>();
         c.Shortcuts = (c.Shortcuts ?? []).Where(s => s is not null).ToList(); // "shortcuts": [null] in a hand-written file
+
+        // Pass 1: reserve every explicitly-provided id first. Otherwise a blank-id (brand-new) shortcut processed
+        // earlier in the list than one that explicitly keeps an id could grab that id for itself, since at that
+        // point nothing yet says it is taken — bumping the one that actually owns it to an unrelated id instead.
+        var reserved = new Dictionary<Shortcut, string>();
+        foreach (var s in c.Shortcuts.Where(s => !string.IsNullOrWhiteSpace(s.Id)))
+        {
+            var id = Slug(s.Id);
+            if (id == "") id = "shortcut";
+            var unique = id;
+            for (var i = 2; !used.Add(unique); i++) unique = $"{id}-{i}";
+            reserved[s] = unique;
+        }
+
         foreach (var s in c.Shortcuts)
         {
             s.Label = s.Label?.Trim() ?? "";
             s.Icon = IconText.Repair(s.Icon);
-            var id = string.IsNullOrWhiteSpace(s.Id) ? Slug(s.Label) : Slug(s.Id);
-            if (id == "") id = "shortcut";
-            var unique = id;
-            for (var i = 2; !used.Add(unique); i++) unique = $"{id}-{i}";
-            s.Id = unique;
+            if (reserved.TryGetValue(s, out var keptId)) s.Id = keptId;
+            else
+            {
+                var id = Slug(s.Label);
+                if (id == "") id = "shortcut";
+                var unique = id;
+                for (var i = 2; staleIds?.Contains(unique) == true || !used.Add(unique); i++) unique = $"{id}-{i}";
+                s.Id = unique;
+            }
             if (string.IsNullOrWhiteSpace(s.Args)) s.Args = null;
             if (string.IsNullOrWhiteSpace(s.Cwd)) s.Cwd = null;
             s.Steps = s.Steps?.Where(x => x is not null).Select(x => x.Trim()).Where(x => x.Length > 0).Take(50).ToList();
@@ -566,7 +637,14 @@ public sealed partial class ConfigStore(string path)
             if (string.IsNullOrWhiteSpace(s.OffArgs)) s.OffArgs = null;
         }
         c.Phones = (c.Phones ?? []).Where(p => p is not null && !string.IsNullOrWhiteSpace(p.Id)).GroupBy(p => p.Id).Select(g => g.First()).Take(20).ToList();
-        foreach (var ph in c.Phones) { ph.Name = ph.Name?.Trim() ?? ""; if (ph.Pages is { Count: 0 }) ph.Pages = null; }
+        foreach (var ph in c.Phones)
+        {
+            ph.Name = ph.Name?.Trim() ?? "";
+            ph.Pages = ph.Pages?.Where(id => !string.IsNullOrWhiteSpace(id)).Select(PageId).Distinct().ToList();
+            if (ph.Pages is { Count: 0 }) ph.Pages = null;
+        }
+        c.Ping ??= new();
+        c.Ping.Adapters = (c.Ping.Adapters ?? []).Where(a => !string.IsNullOrWhiteSpace(a)).Select(a => a.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Take(16).ToList();
         c.Obs ??= new();
         c.Discord ??= new();
         c.Discord.ClientId = string.IsNullOrWhiteSpace(c.Discord.ClientId) ? null : c.Discord.ClientId.Trim();
@@ -600,6 +678,22 @@ public sealed partial class ConfigStore(string path)
         c.Photos ??= new();
         c.Photos.Folder = (c.Photos.Folder ?? "").Trim() is { Length: > 1024 } longFolder ? longFolder[..1024] : (c.Photos.Folder ?? "").Trim();
         foreach (var f in c.Feeds) { var n = f.Name?.Trim() ?? ""; f.Name = n.Length > 60 ? n[..60] : n; f.Url = f.Url?.Trim() ?? ""; }
+        c.Cameras ??= new();
+        c.Cameras.Ffmpeg = (c.Cameras.Ffmpeg ?? "").Trim() is { Length: > 1024 } longFfmpeg ? longFfmpeg[..1024] : (c.Cameras.Ffmpeg ?? "").Trim();
+        // a row left empty in the editor is dropped; ids are random and kept, so widgets keep pointing at the same camera
+        c.Cameras.Sources = (c.Cameras.Sources ?? []).Where(x => x is not null && !string.IsNullOrWhiteSpace(x.Url)).Take(100).ToList();
+        var cameraIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var cam in c.Cameras.Sources)
+        {
+            var n = cam.Name?.Trim() ?? "";
+            cam.Name = n.Length > 60 ? n[..60] : n;
+            cam.Url = cam.Url.Trim() is { Length: > 2048 } longUrl ? longUrl[..2048] : cam.Url.Trim();
+            cam.Transport = string.Equals(cam.Transport?.Trim(), "udp", StringComparison.OrdinalIgnoreCase) ? "udp" : "tcp";
+            cam.Fps = cam.Fps is >= 1 and <= CameraFeeds.MaxFps ? cam.Fps : CameraFeeds.DefaultFps;
+            var id = (cam.Id ?? "").Trim().ToLowerInvariant();
+            if (!CameraId().IsMatch(id) || !cameraIds.Add(id)) { id = Guid.NewGuid().ToString("N")[..12]; cameraIds.Add(id); }
+            cam.Id = id;
+        }
 
         c.Charge ??= new();
         c.Charge.Min = Math.Clamp(c.Charge.Min, 5, 95);
@@ -625,18 +719,26 @@ public sealed partial class ConfigStore(string path)
             if (r.CountdownSec is { } cd) r.CountdownSec = Math.Clamp(cd, 0, 30);
             r.Days = RuleEngine.NormalizeDays(r.Days);
             r.During = string.IsNullOrWhiteSpace(r.During) ? null : r.During.Trim();
-            r.Op = r.Op is ">" or "<" or "=" or "!=" ? r.Op : null;
+            r.Op = r.Op is ">" or ">=" or "<" or "<=" or "=" or "!=" or "stale" ? r.Op : null;
+            // seconds without an update: 1 s to a day, a minute when the box was left empty or holds text ("Infinity" too)
+            if (r.Op == "stale")
+                r.Arg = (double.TryParse(r.Arg, NumberStyles.Float, CultureInfo.InvariantCulture, out var staleSec) && double.IsFinite(staleSec) && staleSec > 0
+                    ? Math.Clamp(Math.Round(staleSec), 1, 86400) : 60).ToString(CultureInfo.InvariantCulture);
             r.Shortcut = string.IsNullOrWhiteSpace(r.Shortcut) ? null : r.Shortcut.Trim();
+            if (r.Page is { } page) r.Page = PageId(page);
         }
         return c;
     }
 
     /// <summary>Expands templates, migrates the old fixed pages, keeps widgets on the grid and makes ids unique.</summary>
-    private static List<PageConfig> NormalizePages(List<PageConfig>? input)
+    private static List<PageConfig> NormalizePages(List<PageConfig>? input, out Dictionary<string, string> originalIds)
     {
+        originalIds = new(StringComparer.Ordinal);
+        input = input?.Where(p => p is not null).ToList();
         var src = input is { Count: > 0 } ? input : DefaultPages.Select(t => new PageConfig { Template = t }).ToList();
         var pages = new List<PageConfig>();
         var pageIds = new HashSet<string>();
+        var reservedPages = ReserveLayoutIds(src, p => p.Id, _ => "page", pageIds);
         foreach (var p in src)
         {
             if (p is null) continue;
@@ -652,31 +754,28 @@ public sealed partial class ConfigStore(string path)
             p.Icon = IconText.Repair(p.Icon);
             p.Title = p.Title.Trim();
             if (p.IdleSec is { } idleSec) p.IdleSec = Math.Clamp(idleSec, 0, 86400);
-            var id = Slug(string.IsNullOrWhiteSpace(p.Id) ? (tpl?.Id ?? p.Title) : p.Id);
-            if (id == "") id = "page";
-            var unique = id;
-            for (var i = 2; !pageIds.Add(unique); i++) unique = $"{id}-{i}";
-            p.Id = unique;
+            var originalId = p.Id;
+            p.Id = reservedPages.TryGetValue(p, out var reservedPage)
+                ? reservedPage : UniqueLayoutId(LayoutId(tpl?.Id ?? p.Title, "page"), pageIds);
+            if (!string.IsNullOrWhiteSpace(originalId)) originalIds.TryAdd(originalId, p.Id);
             p.Template = null;
             p.Type = null;
             p.Options = null;
 
             var widgetIds = new HashSet<string>();
             var widgets = new List<WidgetConfig>();
-            foreach (var w in p.Widgets ?? [])
+            var supportedWidgets = (p.Widgets ?? []).Where(w => w?.Type is not null && Catalog.IsWidget(w.Type)).ToList();
+            var reservedWidgets = ReserveLayoutIds(supportedWidgets, w => w.Id, w => w.Type, widgetIds);
+            foreach (var w in supportedWidgets)
             {
-                if (w?.Type is null || !Catalog.IsWidget(w.Type)) continue;
                 w.Appearance?.Normalize(widget: true);
                 var (minW, minH) = Catalog.MinSize(w.Type);
                 w.W = Math.Clamp(w.W, Math.Min(minW, Catalog.Cols), Catalog.Cols);
                 w.H = Math.Clamp(w.H, Math.Min(minH, Catalog.Rows), Catalog.Rows);
                 w.X = Math.Clamp(w.X, 0, Catalog.Cols - w.W);
                 w.Y = Math.Clamp(w.Y, 0, Catalog.Rows - w.H);
-                var wid = Slug(string.IsNullOrWhiteSpace(w.Id) ? w.Type : w.Id);
-                if (wid == "") wid = w.Type;
-                var wu = wid;
-                for (var i = 2; !widgetIds.Add(wu); i++) wu = $"{wid}-{i}";
-                w.Id = wu;
+                w.Id = reservedWidgets.TryGetValue(w, out var reservedWidget)
+                    ? reservedWidget : UniqueLayoutId(LayoutId(w.Type, w.Type), widgetIds);
                 widgets.Add(w);
             }
             p.Widgets = widgets;
@@ -684,6 +783,34 @@ public sealed partial class ConfigStore(string path)
         }
         if (pages.Count > 0 && pages.All(p => !p.Enabled)) pages[0].Enabled = true;
         return pages;
+    }
+
+    private static Dictionary<T, string> ReserveLayoutIds<T>(IEnumerable<T> items, Func<T, string> getId,
+        Func<T, string> fallback, HashSet<string> used) where T : class
+    {
+        var reserved = new Dictionary<T, string>();
+        var collisions = new List<(T Item, string Id)>();
+        var explicitIds = items.Select(item => (Item: item, Original: getId(item)))
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.Original))
+            .Select(entry => (entry.Item, entry.Original, Id: LayoutId(entry.Original, fallback(entry.Item))))
+            .OrderByDescending(entry => entry.Id == entry.Original);
+        // Reserve existing canonical IDs and each explicit base before allocating suffixes.
+        foreach (var (item, _, id) in explicitIds)
+        {
+            if (used.Add(id)) reserved[item] = id;
+            else collisions.Add((item, id));
+        }
+        foreach (var (item, id) in collisions) reserved[item] = UniqueLayoutId(id, used);
+        return reserved;
+    }
+
+    private static string LayoutId(string text, string fallback) => Slug(text) is { Length: > 0 } id ? id : fallback;
+
+    private static string UniqueLayoutId(string id, HashSet<string> used)
+    {
+        var unique = id;
+        for (var i = 2; !used.Add(unique); i++) unique = $"{id}-{i}";
+        return unique;
     }
 
     /// <summary>Carries the options of a pre-0.6.2 fixed page over to the widgets of its template.</summary>
@@ -699,7 +826,7 @@ public sealed partial class ConfigStore(string path)
                 var clock = Find("clock");
                 clock?.Set("weather", On("weather"));
                 var tiles = p.Options?.TryGetValue("tiles", out var t) == true && t.ValueKind == JsonValueKind.Array
-                    ? t.EnumerateArray().Select(x => x.GetString()).OfType<string>().ToList()
+                    ? t.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
                     : ["cpu", "gpu", "ram", "net"];
                 ws.RemoveAll(w => w.Type == "stat");
                 if (!On("media")) { ws.RemoveAll(w => w.Type == "media"); if (clock is not null) clock.W = 12; }
@@ -723,7 +850,7 @@ public sealed partial class ConfigStore(string path)
                 Find("processes")?.Set("allowKill", On("allowKill"));
                 break;
             case "deck":
-                if (p.Options?.TryGetValue("columns", out var cols) == true && cols.TryGetInt32(out var n)) Find("shortcuts")?.Set("columns", n);
+                if (p.Options?.TryGetValue("columns", out var cols) == true && cols.ValueKind == JsonValueKind.Number && cols.TryGetInt32(out var n)) Find("shortcuts")?.Set("columns", n);
                 break;
         }
     }
@@ -767,6 +894,9 @@ public sealed partial class ConfigStore(string path)
 
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\.+$)[A-Za-z0-9._-]{1,100}$")]
     private static partial Regex RepoName();
+
+    [GeneratedRegex("^[a-z0-9]{6,32}$")]
+    private static partial Regex CameraId();
 }
 
 public sealed class CodexBarConfig

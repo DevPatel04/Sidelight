@@ -327,6 +327,8 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
 
     private enum ClaudeResult { Ok, Limited, Refused, Offline, Unrecognized, Failed }
 
+    internal const string NoCliSignIn = "No Claude Code sign-in here; Claude Desktop doesn't share its own. Run claude to sign in";
+
     /// <summary>One pass of the usage loop for Claude, at wall-clock time <paramref name="nowMs"/>.</summary>
     internal async Task ClaudeTickAsync(long nowMs, CancellationToken ct)
     {
@@ -381,7 +383,9 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
         }
 
         var print = token.Length == 0 ? "" : Fingerprint(token);
-        var wait = token.Length == 0 ? "Not signed in to Claude Code"
+        // A plan without a token is what the Claude Desktop app leaves in the file: it keeps its own sign-in to itself,
+        // so only a Claude Code command-line sign-in can be used here (#247)
+        var wait = token.Length == 0 ? NoCliSignIn
             : expires > 0 && expires - nowMs < ClaudeTokenMarginMs ? "Token expired; it will refresh when Claude Code runs"
             : print == _claudeRefused && nowMs - _claudeRefusedAt is >= 0 and < ClaudeRefusedRetryMs ? RefusedMessage : null;
         _claudeAwaitingToken = wait is not null;
@@ -711,15 +715,18 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     private static CodexUsage? ReadCodexUsage(string path)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        var len = Math.Min(fs.Length, 1 << 20);
-        fs.Seek(-len, SeekOrigin.End);
+        var fileLen = fs.Length;
+        var len = Math.Min(fileLen, 1 << 20);
+        fs.Seek(fileLen - len, SeekOrigin.Begin); // from the length read above: an append since then must not shift the window past a record minIndex trusts
         var buf = new byte[len];
         fs.ReadExactly(buf);
         var lines = Encoding.UTF8.GetString(buf).Split('\n');
+        var minIndex = fileLen > len ? 1 : 0;
+        if (minIndex == 0 && lines.Length > 0) lines[0] = lines[0].TrimStart('\uFEFF');
         string? model = null, effort = null;
         JsonElement? info = null;
         long updatedAt = new DateTimeOffset(File.GetLastWriteTimeUtc(path)).ToUnixTimeMilliseconds();
-        for (var i = lines.Length - 1; i >= 1 && (info is null || model is null); i--)
+        for (var i = lines.Length - 1; i >= minIndex && (info is null || model is null); i--)
         {
             var line = lines[i];
             if (!line.Contains("\"token_count\"") && !line.Contains("\"turn_context\"")) continue;
@@ -758,12 +765,15 @@ public sealed partial class QuotaMonitor(ConfigStore config, ILogger<QuotaMonito
     private static string? LastLineWith(string path, string needle)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        var len = Math.Min(fs.Length, 1 << 20);
-        fs.Seek(-len, SeekOrigin.End);
+        var fileLen = fs.Length;
+        var len = Math.Min(fileLen, 1 << 20);
+        fs.Seek(fileLen - len, SeekOrigin.Begin); // from the length read above: an append since then must not shift the window past a record minIndex trusts
         var buf = new byte[len];
         fs.ReadExactly(buf);
         var lines = Encoding.UTF8.GetString(buf).Split('\n');
-        for (var i = lines.Length - 1; i >= 1; i--) // the first line may be partial
+        var minIndex = fileLen > len ? 1 : 0;
+        if (minIndex == 0 && lines.Length > 0) lines[0] = lines[0].TrimStart('﻿'); // the first line may be partial when reading a tail slice
+        for (var i = lines.Length - 1; i >= minIndex; i--)
         {
             if (!lines[i].Contains(needle) || !lines[i].Contains("\"primary\"")) continue;
             try
