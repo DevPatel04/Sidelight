@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.22 — 2026-11-19
+
+First release of [DevPatel04/phonebox](https://github.com/DevPatel04/phonebox): upstream 0.9.21 plus this fork's
+panel themes, update channels, and local development scripts. GitHub Actions publishes a stable release on every
+push to `main` (after a version bump) and a Testing-channel pre-release on every push to `test`.
+
+**Panel**
+- Theme packs: glass, cockpit, nature, space, gaming, paper, zen, rainy and related skins; choose one under
+  **Settings → Display**.
+- Background image support for the panel.
+
+**Settings / updates**
+- Update channels: **Stable** (`main` releases) and **Testing** (`test` branch pre-releases); configurable GitHub
+  repository (default `DevPatel04/phonebox`).
+
+**Development**
+- `scripts/dev.sh` (Linux/macOS) and `scripts/dev.ps1` (Windows) rebuild and restart the agent and/or reinstall the
+  debug APK on a connected phone. See [RUN.md](RUN.md) and [RUN-WINDOWS.md](RUN-WINDOWS.md).
+
 ## 0.9.21 — 2026-11-18
 
 Security and reliability fixes from an audit of the agent, the panel, the phone app and the installers, Big buttons

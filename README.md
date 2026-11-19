@@ -38,12 +38,10 @@ Windows, Linux and macOS. No root, PhoneBox account or cloud service required.</
 <p align="center"><img src="docs/hero-0.6.png" width="900" alt="PhoneBox on three phones showing automation, home and planner pages"><br>
 <sub>Example layouts with demo data.</sub></p>
 
-> **About this repository:** [DevPatel04/phonebox](https://github.com/DevPatel04/phonebox) is a fork of
-> [ersinkoc/phonebox](https://github.com/ersinkoc/phonebox), currently based on upstream **0.9.21**. The install
-> commands and downloads below use this fork's releases. Agents can follow two update channels
-> (**Settings → General → Updates**): **Stable** installs releases built from `main`, and **Testing** also installs
-> the pre-releases built from every push to the `test` branch. While developing from source, set the Updates
-> repository to `DevPatel04/phonebox` and turn automatic updates off so a published APK does not replace your debug build.
+> **Updates:** agents follow two channels (**Settings → General → Updates**). **Stable** installs releases from
+> `main`; **Testing** installs pre-releases from every push to `test`. Default repository is
+> `DevPatel04/phonebox`. While developing from source, turn automatic updates off so a published APK does not
+> replace your debug build.
 
 PhoneBox pairs a full-screen **Android app** with a small **desktop agent**. Build your panel in a browser-based
 visual editor: **123 widgets**, **30 templates**, multiple pages and a live preview. Pick a panel theme (glass,
@@ -232,7 +230,7 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
   [release workflow](.github/workflows/release.yml). Every signing request requires manual approval.
   Bundled runtime and library notices are in [THIRD-PARTY-NOTICES.txt](agent/PhoneBox.Agent/THIRD-PARTY-NOTICES.txt).
 - **Android app:** release APKs use the project's own signing key, independently of SignPath.
-- **Team roles:** committer, reviewer and signing approver: [ersinkoc](https://github.com/ersinkoc).
+- **Team roles:** committer, reviewer and signing approver for this repository: [DevPatel04](https://github.com/DevPatel04).
   Pull requests from other contributors are reviewed before merging.
 - **Privacy:** see the [privacy policy](PRIVACY.md).
 
@@ -240,7 +238,7 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
 
 People who tested PhoneBox on their own hardware:
 
-- [anandyakshit](https://github.com/anandyakshit): Android 7 support, on an Android 7.1.1 phone ([#73](https://github.com/ersinkoc/phonebox/issues/73)).
+- [anandyakshit](https://github.com/anandyakshit): Android 7 support, on an Android 7.1.1 phone ([#73](https://github.com/DevPatel04/phonebox/issues/73)).
 
 ## Sponsor
 
