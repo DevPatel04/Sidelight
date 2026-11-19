@@ -72,7 +72,7 @@ test('page presets inherit global edge padding that the preset does not override
 test('desktop appearance preview applies unsaved changes and Save persists them',async({page})=>{
   await show(page);
   await page.setViewportSize({width:1280,height:1000});
-  await page.goto('/settings/#general');
+  await page.goto('/settings/#display');
   const editor=page.locator('#appearanceSettings');
   await editor.getByRole('combobox',{name:'Surface style',exact:true}).selectOption('flat');
   const radius=editor.getByRole('slider',{name:'Corner radius',exact:true});
@@ -190,7 +190,7 @@ test('desktop settings font and font size controls preview and persist',async({p
   await show(page);
   const baseNote=parseFloat(await css(page.locator('.w-note .note-t'),'fontSize'));
   await page.setViewportSize({width:1280,height:1000});
-  await page.goto('/settings/#general');
+  await page.goto('/settings/#display');
   const editor=page.locator('#appearanceSettings');
   await editor.getByRole('combobox',{name:'Font',exact:true}).selectOption('mono');
   const fontSize=editor.getByRole('slider',{name:'Font size',exact:true});

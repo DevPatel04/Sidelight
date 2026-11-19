@@ -10,6 +10,7 @@
   .\scripts\dev.ps1 stop      # stop the agent
   .\scripts\dev.ps1 agent     # rebuild and restart only the agent (settings.html, C# changes)
   .\scripts\dev.ps1 phone     # rebuild and reinstall only the app, then reopen it (panel www/ changes)
+  .\scripts\dev.ps1 test      # release metadata, agent unit tests, and Playwright UI (incl. i18n) — run before push
   .\scripts\dev.ps1 status    # is the agent running, is a phone connected
   .\scripts\dev.ps1 logs      # follow the agent's output
 
@@ -22,8 +23,10 @@
 #>
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('start', 'stop', 'agent', 'phone', 'restart', 'status', 'logs')]
-    [string]$Command = ''
+    [ValidateSet('start', 'stop', 'agent', 'phone', 'restart', 'test', 'status', 'logs')]
+    [string]$Command = '',
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$PlaywrightArgs = @()
 )
 $ErrorActionPreference = 'Stop'
 
@@ -185,6 +188,32 @@ function Show-Logs {
     Get-Content -LiteralPath $log -Tail 50 -Wait
 }
 
+function Invoke-Tests {
+    # Same checks CI runs for metadata, agent and the browser panel/settings (including Vietnamese leftover scans).
+    # Extra args go to Playwright (e.g. .\scripts\dev.ps1 test i18n-coverage.spec.js).
+    Write-Host 'tests: release metadata'
+    & python (Join-Path $root 'tools\check-release.py')
+    if ($LASTEXITCODE) { throw "check-release.py failed (exit code $LASTEXITCODE)" }
+
+    Write-Host 'tests: agent'
+    & dotnet test (Join-Path $root 'agent\PhoneBox.Agent.Tests') --nologo
+    if ($LASTEXITCODE) { throw "dotnet test failed (exit code $LASTEXITCODE)" }
+
+    Write-Host 'tests: UI (Playwright)'
+    $ui = Join-Path $root 'tools\ui-tests'
+    Push-Location $ui
+    try {
+        if (-not (Test-Path -LiteralPath (Join-Path $ui 'node_modules\@playwright\test'))) {
+            & npm ci
+            if ($LASTEXITCODE) { throw "npm ci failed (exit code $LASTEXITCODE)" }
+        }
+        & npx playwright install chromium
+        if ($LASTEXITCODE) { throw "playwright install failed (exit code $LASTEXITCODE)" }
+        & npx playwright test @PlaywrightArgs
+        if ($LASTEXITCODE) { throw "playwright test failed (exit code $LASTEXITCODE)" }
+    } finally { Pop-Location }
+}
+
 function Show-Usage {
     @'
 Development loop for Windows (same as scripts/dev.sh):
@@ -194,6 +223,7 @@ Development loop for Windows (same as scripts/dev.sh):
   .\scripts\dev.ps1 stop      # stop the agent
   .\scripts\dev.ps1 agent     # rebuild and restart only the agent
   .\scripts\dev.ps1 phone     # rebuild and reinstall only the phone app
+  .\scripts\dev.ps1 test      # release metadata, agent unit tests, and Playwright UI (incl. i18n)
   .\scripts\dev.ps1 status    # is the agent running, is a phone connected
   .\scripts\dev.ps1 logs      # follow the agent log
 '@ | Write-Host
@@ -205,6 +235,7 @@ switch ($Command) {
     'agent'   { Stop-Agent; Start-Agent }
     'phone'   { Update-Phone }
     'restart' { Stop-Agent; Start-Agent; Update-Phone }
+    'test'    { Invoke-Tests }
     'status'  { Show-Status }
     'logs'    { Show-Logs }
     default   { Show-Usage; exit 2 }
