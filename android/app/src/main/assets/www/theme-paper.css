@@ -1,0 +1,312 @@
+/* ================================================================ Paper sketch
+   The one light theme: cream notebook paper, cards as sheets drawn round in pen, graphite and blue-ink strokes,
+   highlighter accents. The clock is written by hand and gauges are doodles (widgets/paper.js); this sheet draws the
+   rest. Every hard-coded pastel or white in the shared sheets is light-on-dark, so it is darkened here to ink that
+   reads on paper (text at least 4.5:1 on the card colour). */
+:root[data-theme="paper"] {
+  --cpu: #2f55c4; --gpu: #b8322a; --ram: #7a4a2a; --net: #2c7a46; --up: #6a3fa8; --ok: #2e7d32;
+}
+body[data-theme="paper"] {
+  /* pen colours: ink for text, blue pen, red pen, pencil grey, and the highlighters */
+  --ink: #2b2f4a; --up: #6a3fa8; --pen: #2f55c4; --red: #b8322a; --amber-ink: #8a5a00; --green-ink: #2e7d32; --pencil: #8b8fa6;
+  --hl-yellow: rgba(255, 226, 77, .75); --hl-pink: rgba(255, 150, 180, .55); --hl-green: rgba(140, 220, 120, .55);
+  --hand: "Segoe Print", "Comic Neue", "Patrick Hand", "Bradley Hand", "Chalkboard SE", "Comic Sans MS";
+
+  --bg: #f5eedb;
+  --card: #fffdf6; --card-hi: #f3ecda; --line: rgba(43, 47, 74, .22);
+  --text: #2b2f4a; --muted: #4f5470; --dim: #666b88;
+  --err: #b8322a; --ok: #2e7d32;
+  --accent: #2f55c4; --ambient: 47, 85, 196;
+  --font: var(--hand), Roboto, "Segoe UI", system-ui, sans-serif;
+  --font-num: var(--hand), "Caveat", Roboto, sans-serif;
+  /* a sheet of paper with its edges gone over in pen: each side a separate stroke running a little past the corner,
+     drawn again fainter. Non-scaling strokes keep the pen width on any card size. */
+  --sketch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cg fill='none' stroke='%232b2f4a' stroke-linecap='round' vector-effect='non-scaling-stroke'%3E%3Cpath vector-effect='non-scaling-stroke' stroke-width='1.5' d='M.3 1.4 C30 .7 64 1.9 99.6 1 M98.8 .2 C99.3 34 98.3 66 98.9 99.7 M99.7 98.7 C66 99.4 34 98.3 .4 98.9 M1.1 99.8 C.6 66 1.6 34 .9 .3'/%3E%3Cpath vector-effect='non-scaling-stroke' stroke-width='1' stroke-opacity='.35' d='M1.5 .6 C34 1.6 70 .4 98.4 1.7 M99.4 1.6 C98.6 40 99.6 72 98.3 98.4 M98.6 99.5 C70 98.5 30 99.6 1.8 98.2 M.3 98.6 C1.2 70 .2 30 1.5 1.5'/%3E%3C/g%3E%3C/svg%3E");
+  --card-bg: var(--sketch) 0 0 / 100% 100% no-repeat, #fffdf6;
+  --card-border: 0;
+  --card-shadow: 0 1px 1px rgba(60, 45, 20, .08), 0 8px 16px -10px rgba(70, 55, 30, .45);
+  --radius: 3px;
+  --radius-sm: 6px;
+  --surface: rgba(43, 47, 74, .05);
+  --surface-hi: rgba(47, 85, 196, .13);
+  --surface-line: rgba(43, 47, 74, .28);
+  --track: rgba(43, 47, 74, .14);
+  --overlay: #fffdf6;
+  --on-accent: #fffdf6;
+  color-scheme: light;
+}
+body[data-theme="paper"]::before { display: none; }
+
+/* sheets lie a little askew; every few has a strip of tape holding it down */
+body[data-theme="paper"] .w.card:nth-child(odd) { transform: rotate(-.35deg); }
+body[data-theme="paper"] .w.card:nth-child(even) { transform: rotate(.3deg); }
+body[data-theme="paper"] .w.card:nth-child(3n+1)::after {
+  content: ""; position: absolute; z-index: 3; top: -4px; left: 50%; width: 54px; height: 13px; margin-left: -27px;
+  background: rgba(236, 214, 150, .7); transform: rotate(-3deg); box-shadow: 0 1px 1px rgba(60, 45, 20, .12); pointer-events: none;
+}
+body[data-theme="paper"] .w.card:nth-child(3n+1).w-media::after { left: 78%; }
+
+/* small type: titles written as a heading with a highlighter stripe, not shouted in capitals */
+body[data-theme="paper"] :is(.w-title, .t-label, .g-label, .s-label, .cd-l, .wc-n, .ac-title) {
+  text-transform: none; letter-spacing: .02em; font-weight: 700;
+}
+body[data-theme="paper"] :is(.w-title, .s-label, .t-label) { font-size: 12.5px; }
+body[data-theme="paper"] :is(.t-label, .s-label) {
+  color: color-mix(in srgb, var(--c, var(--ink)) 62%, #1d2036); width: fit-content; max-width: 100%;
+  background: linear-gradient(transparent 55%, color-mix(in srgb, var(--c, var(--pen)) 18%, transparent) 55% 92%, transparent 92%);
+}
+body[data-theme="paper"] .w-title { color: color-mix(in srgb, var(--c, var(--muted)) 62%, #1d2036); }
+body[data-theme="paper"] .g-label { color: color-mix(in srgb, var(--q, var(--ink)) 62%, #1d2036); }
+body[data-theme="paper"] .mini-btn { background: transparent; border: 1.5px solid var(--surface-line); color: var(--ink); border-radius: 12px 10px 14px 9px; }
+
+/* ---------- clock: written in pen, the seconds circled, a red scribble underneath ---------- */
+.ink7 { height: .8em; width: auto; aspect-ratio: 60 / 100; display: block; overflow: visible; }
+.ink7 path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.ink7 .st { stroke: var(--ink, #2b2f4a); stroke-width: 6.5; }
+.ink7 .re { stroke: var(--ink, #2b2f4a); stroke-width: 2.4; opacity: .38; }
+.ink-colon { height: .8em; width: auto; aspect-ratio: 16 / 100; display: block; }
+.ink-colon path { fill: var(--ink, #2b2f4a); stroke: var(--ink, #2b2f4a); stroke-width: 3; stroke-linecap: round; }
+body[data-theme="paper"] .clock.inked { position: relative; align-items: center; gap: .02em; letter-spacing: 0; padding-bottom: .1em; }
+body[data-theme="paper"] .clock.inked :is(.hh, .mm) { display: flex; gap: .04em; }
+body[data-theme="paper"] .clock.inked .hh { transform: rotate(-1.5deg); }
+body[data-theme="paper"] .clock.inked .mm { transform: rotate(1deg); }
+body[data-theme="paper"] .clock.inked .colon { opacity: 1; margin: 0 .02em; }
+body[data-theme="paper"] .clock.inked .sec {
+  align-self: flex-start; margin: .06em 0 0 .18em; padding: .32em .42em .3em; min-width: 2.4em; text-align: center;
+  font: 700 .22em/1 var(--font-num); color: var(--pen);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 54 46' preserveAspectRatio='none'%3E%3Cpath d='M30 4 C10 2 2 14 4 26 C6 40 26 44 40 38 C52 32 52 14 40 7 C34 4 26 4 20 6' fill='none' stroke='%232f55c4' stroke-width='2.2' stroke-linecap='round'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
+}
+body[data-theme="paper"] .clock.inked .ap { margin: 0 0 .12em .2em; font: 700 .2em/1 var(--font-num); color: var(--muted); }
+body[data-theme="paper"] .clock.inked::after {
+  content: ""; position: absolute; left: 0; bottom: -.02em; width: min(100%, 4.2em); height: .12em; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 14' preserveAspectRatio='none'%3E%3Cpath d='M4 9 C60 3 120 12 180 6 S270 4 296 8' fill='none' stroke='%23c23b30' stroke-width='3' stroke-linecap='round'/%3E%3Cpath d='M30 12 C90 7 170 13 260 9' fill='none' stroke='%23c23b30' stroke-width='1.6' stroke-linecap='round' opacity='.7'/%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat;
+}
+body[data-theme="paper"] .date { color: var(--ink); width: fit-content; max-width: 100%; padding: 0 .2em; margin-left: -.1em; background: linear-gradient(transparent 48%, var(--hl-yellow) 48% 90%, transparent 90%); }
+body[data-theme="paper"] .wx-temp { font-weight: 700; color: var(--ink); }
+body[data-theme="paper"] .wx-meta { color: var(--muted); }
+
+/* the status line as sticky notes */
+body[data-theme="paper"] .status { color: var(--ink); gap: 4px; overflow: hidden; padding: 2px 1px 3px; }
+body[data-theme="paper"] .status .sep { display: none; }
+body[data-theme="paper"] .status > span:not(.dot):not(.sep) { padding: 0 6px; background: #fff3a3; box-shadow: 0 1px 2px rgba(60, 45, 20, .2); transform: rotate(-1.5deg); flex: 0 0 auto; }
+body[data-theme="paper"] .status > span:nth-of-type(4n+3) { background: #cfe6fb; transform: rotate(1.2deg); }
+body[data-theme="paper"] .status > span.qm { background: #d7f2cc; transform: rotate(-.8deg); }
+body[data-theme="paper"] .status > span.smini { background: #ffc9d6; color: var(--red); transform: rotate(2deg); }
+body[data-theme="paper"] .status > span.upd { background: #cfe6fb; color: var(--pen); }
+body[data-theme="paper"] .status .qm b { color: inherit; }
+body[data-theme="paper"] .dot { border: 1.5px solid var(--ink); background: transparent; width: 9px; height: 9px; flex-basis: 9px; }
+body[data-theme="paper"] .dot.on { background: #5cb85c; box-shadow: none; }
+body[data-theme="paper"] .dot.off { background: var(--red); }
+
+/* ---------- doodled gauges ---------- */
+.pp .ln path { fill: none; stroke: var(--ink, #2b2f4a); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pp text { font: 700 11px var(--font-num, sans-serif); fill: var(--ink, #2b2f4a); }
+.pp .hi { fill: var(--red, #b8322a); opacity: 0; transition: opacity .4s; }
+.pp.hot .hi { opacity: 1; }
+.speedo .hatch { fill: url(#pbHatch); }
+.speedo.hot .hatch { fill: url(#pbHatchRed); }
+.speedo .lo { opacity: .55; }
+.speedo .needle { transform-box: view-box; transform-origin: 40px 54px; transition: transform .9s cubic-bezier(.3, 1.4, .5, 1); }
+.speedo .needle path { stroke: var(--red, #b8322a); stroke-width: 2.6; stroke-linecap: round; }
+.speedo .hub { fill: var(--red, #b8322a); }
+.thermo .col { fill: var(--red, #b8322a); transform-box: fill-box; transform-origin: 50% 100%; transition: transform 1s ease; }
+.thermo .bulb { fill: var(--red, #b8322a); }
+.mug .coffee { transition: transform 1.2s ease; }
+.mug .coffee rect { fill: #8a5a3c; }
+.mug .crema { stroke: #c48b5f; stroke-width: 2; }
+.mug .steam path { fill: none; stroke: var(--pencil, #8b8fa6); stroke-width: 1.6; stroke-linecap: round; animation: pb-steam 2.4s ease-out infinite; }
+.mug .steam path:nth-child(2) { animation-delay: .8s; } .mug .steam path:nth-child(3) { animation-delay: 1.6s; }
+.mug.hot .steam path { stroke: var(--red, #b8322a); }
+@keyframes pb-steam { 0% { opacity: 0; transform: translateY(4px); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateY(-5px); } }
+body[data-theme="paper"] .g-dial.art-dial .g-val { font: 700 min(14cqh, 19cqw)/1 var(--font-num); color: var(--ink); }
+body[data-theme="paper"] .w-stat .t-art { right: 3%; top: auto; bottom: 4%; transform: none; height: 84cqh; aspect-ratio: 80 / 84; }
+body[data-theme="paper"] .w-stat :is(.t-val, .t-sub) { text-shadow: none; }
+/* charts are drawn on a canvas in the metric's ink; bent a little they look drawn by hand */
+body[data-theme="paper"] :is(.w-stat, .w-chart) canvas { filter: url(#pbWob); }
+body[data-theme="paper"] .w-stat:has(.t-art) canvas { opacity: .5; }
+
+/* readouts in ink */
+body[data-theme="paper"] :is(.t-val, .s-main, .g-val) b { font-family: var(--font-num); font-weight: 700; color: var(--ink); }
+body[data-theme="paper"] :is(.t-sub, .g-sub, .s-name) { color: var(--muted); }
+body[data-theme="paper"] .g-sub.hot { color: var(--red); }
+body[data-theme="paper"] :is(.g-dial, .q-dial) .bg { stroke: var(--track); stroke-dasharray: 2 3; }
+body[data-theme="paper"] :is(.g-dial, .q-dial) .fg { filter: url(#pbWob); }
+body[data-theme="paper"] .q-dial .pace { stroke: var(--ink); }
+body[data-theme="paper"] .chip { background: transparent; color: var(--ink); border: 1.2px solid var(--surface-line); border-radius: 10px 7px 11px 6px; }
+body[data-theme="paper"] .track { background: var(--track); border-radius: 2px; }
+body[data-theme="paper"] .track > * { background-image: repeating-linear-gradient(45deg, rgba(255, 253, 246, .35) 0 2px, transparent 2px 5px); }
+
+/* ---------- music: a taped polaroid, a pencil drawing the progress line, doodled buttons, a hatched wedge ---------- */
+body[data-theme="paper"] .art-wrap {
+  overflow: visible; border-radius: 0; background: #fff; padding: 4px 4px 12px; transform: rotate(-3deg);
+  box-shadow: 0 2px 6px rgba(60, 45, 20, .25);
+}
+body[data-theme="paper"] .art-wrap img { top: 4px; left: 4px; right: 4px; bottom: 12px; width: calc(100% - 8px); height: calc(100% - 16px); }
+body[data-theme="paper"] .art-wrap::after {
+  content: ""; position: absolute; top: -6px; left: 50%; width: 40%; height: 11px; margin-left: -20%;
+  background: rgba(236, 214, 150, .75); transform: rotate(4deg); box-shadow: 0 1px 1px rgba(60, 45, 20, .12);
+}
+body[data-theme="paper"] .art-ph { color: var(--pencil); top: 4px; left: 4px; right: 4px; bottom: 12px; }
+body[data-theme="paper"] .m-app { color: var(--red); text-transform: none; letter-spacing: .02em; font-weight: 700; }
+body[data-theme="paper"] .m-title { font-family: var(--font-num); font-weight: 700; color: var(--ink); }
+body[data-theme="paper"] .bar::before { height: 2px; background: repeating-linear-gradient(90deg, var(--pencil) 0 4px, transparent 4px 9px); }
+body[data-theme="paper"] .fill { height: 2.5px; background: var(--ink); border-radius: 2px; filter: url(#pbWob); }
+/* the pencil that is drawing the line, its tip on the end of it */
+body[data-theme="paper"] .fill::after {
+  width: 40px; height: 22px; left: calc(100% - 2px); right: auto; top: -18px; border-radius: 0; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 -8 40 22'%3E%3Cg transform='rotate(-24 2 11)'%3E%3Cpath d='M2 11 L7 8.4 L7 13.6Z' fill='%232b2f4a'/%3E%3Cpath d='M7 8.4 L11 7.6 L11 14.4 L7 13.6Z' fill='%23f2d3a8'/%3E%3Crect x='11' y='7.6' width='20' height='6.8' fill='%23f4c430'/%3E%3Crect x='31' y='7.6' width='3.5' height='6.8' fill='%23b8b8b8'/%3E%3Crect x='34.5' y='7.6' width='4.5' height='6.8' rx='1.5' fill='%23ff8fa3'/%3E%3C/g%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat;
+}
+body[data-theme="paper"] .times { color: var(--muted); }
+body[data-theme="paper"] .ic { color: var(--ink); position: relative; }
+body[data-theme="paper"] :is(.w-media, .w-media-remote, .control-deck) .ic::before {
+  content: ""; position: absolute; top: 3px; right: 3px; bottom: 3px; left: 3px; pointer-events: none;
+  border: 2px solid currentColor; border-radius: 52% 48% 50% 46% / 48% 52% 46% 54%; opacity: .8;
+}
+body[data-theme="paper"] .ic.play { background: transparent; color: var(--red); }
+body[data-theme="paper"] .ic.play::before { border-width: 2.4px; transform: rotate(-6deg); }
+body[data-theme="paper"] .ic:active { background: var(--hl-yellow); }
+/* sliders: a hatched wedge that grows to the right, the thumb a pencil mark */
+body[data-theme="paper"] input[type=range]::-webkit-slider-runnable-track {
+  height: 14px; border-radius: 0; clip-path: polygon(0 100%, 100% 100%, 100% 0);
+  background:
+    repeating-linear-gradient(135deg, var(--ink) 0 1.2px, transparent 1.2px 4px) 0 0 / var(--p, 50%) 100% no-repeat,
+    repeating-linear-gradient(135deg, rgba(43, 47, 74, .14) 0 1px, transparent 1px 4px),
+    linear-gradient(to top, var(--ink) 1.5px, transparent 1.5px);
+}
+body[data-theme="paper"] input[type=range]::-webkit-slider-thumb {
+  width: 6px; height: 20px; margin-top: -4px; border-radius: 2px; background: var(--red); box-shadow: none; transform: rotate(8deg);
+}
+body[data-theme="paper"] .vol-val { color: var(--muted); }
+
+/* ---------- rows, lists and keys: paper slips and pen boxes ---------- */
+body[data-theme="paper"] :is(.sess, .pi, .cl-i, .ru-row, .pl-i, .ib-i, .ha-tile, .dk-row, .fd-i, .hn-i, .ag-i) { color: var(--ink); }
+body[data-theme="paper"] :is(.proc, .sess) { border-color: var(--line); }
+body[data-theme="paper"] .seg { background: transparent; border: 1.2px solid var(--surface-line); }
+body[data-theme="paper"] .seg button.on { background: var(--hl-yellow); color: var(--ink); }
+body[data-theme="paper"] .key {
+  border-radius: 10px 6px 12px 7px; border: 2px solid color-mix(in srgb, var(--k, var(--ink)) 60%, #2b2f4a);
+  background: color-mix(in srgb, var(--k, #fff3a3) 14%, #fffdf6); box-shadow: 1px 2px 0 rgba(43, 47, 74, .25);
+}
+body[data-theme="paper"] .deck-grid > :nth-child(odd) .key, body[data-theme="paper"] .deck-grid > .key:nth-child(odd) { transform: rotate(-.6deg); }
+body[data-theme="paper"] .deck-grid > :nth-child(even) .key, body[data-theme="paper"] .deck-grid > .key:nth-child(even) { transform: rotate(.5deg); }
+body[data-theme="paper"] .key .k-label { color: var(--ink); font-weight: 700; }
+body[data-theme="paper"] .key:active { filter: none; background: var(--hl-yellow); }
+body[data-theme="paper"] .key.toggle::before { background: transparent; border: 1.5px solid var(--ink); }
+body[data-theme="paper"] .key.toggle.on::before { background: #5cb85c; box-shadow: none; }
+body[data-theme="paper"] .key.toggle.on { filter: none; background: color-mix(in srgb, var(--k, #5cb85c) 26%, #fffdf6); }
+
+/* the pastel status colours of the dark themes, darkened to ink that reads on paper: red, amber, green, blue, purple
+   pens, and the white text that sat straight on a card */
+body[data-theme="paper"] .toast.err, body[data-theme="paper"] .status .smini,
+body[data-theme="paper"] .q-pace.over, body[data-theme="paper"] .q-alert,
+body[data-theme="paper"] .q-foot .q-err, body[data-theme="paper"] .sess.waiting .ds,
+body[data-theme="paper"] .gh-pr .ci.FAILURE, body[data-theme="paper"] .gh-pr .ci.ERROR,
+body[data-theme="paper"] .gh-pr .rv.CHANGES_REQUESTED, body[data-theme="paper"] .gh-err,
+body[data-theme="paper"] .ps-btn.danger, body[data-theme="paper"] .cal .we,
+body[data-theme="paper"] .w-command.bad .cmd-o, body[data-theme="paper"] .bt-row.low .bt-pct,
+body[data-theme="paper"] .dk-btn.danger, body[data-theme="paper"] .w-onair.on .oa-sub,
+body[data-theme="paper"] .g-sub.hot, body[data-theme="paper"] .chg.down, body[data-theme="paper"] .ap-btn.deny { color: var(--red); }
+body[data-theme="paper"] .page-pause.on, body[data-theme="paper"] .toast.warn,
+body[data-theme="paper"] .q-pace.fast, body[data-theme="paper"] .sess.busy .ds,
+body[data-theme="paper"] .gh-pr .ci.PENDING, body[data-theme="paper"] .gh-pr .ci.EXPECTED,
+body[data-theme="paper"] .ha-tile.on .ha-state, body[data-theme="paper"] .ha-err,
+body[data-theme="paper"] .ag-err, body[data-theme="paper"] .ru-note, body[data-theme="paper"] .stack-pause.on,
+body[data-theme="paper"] .gd-temp { color: var(--amber-ink); }
+body[data-theme="paper"] .toast.ok, body[data-theme="paper"] .q-left, body[data-theme="paper"] .q-pace.calm,
+body[data-theme="paper"] .gh-pr .ci.SUCCESS, body[data-theme="paper"] .gh-pr .rv.APPROVED,
+body[data-theme="paper"] .w-countdown.past .cd-v, body[data-theme="paper"] .w-checklist.all .w-sub,
+body[data-theme="paper"] .w-batteries .w-title, body[data-theme="paper"] .dk-btn.go,
+body[data-theme="paper"] .chg.up { color: var(--green-ink); }
+body[data-theme="paper"] .status .upd, body[data-theme="paper"] .fc-r, body[data-theme="paper"] .w-ha .w-title,
+body[data-theme="paper"] .w-docker .w-title, body[data-theme="paper"] .w-agenda .w-title,
+body[data-theme="paper"] .radio-card.is-playing .radio-name { color: var(--pen); }
+body[data-theme="paper"] .ap-tile.armed .ap-name, body[data-theme="paper"] .w-apps .w-title { color: var(--up); }
+body[data-theme="paper"] .page-pause, body[data-theme="paper"] .page-pause:hover,
+body[data-theme="paper"] .stack-pause, body[data-theme="paper"] .stack-pause:hover,
+body[data-theme="paper"] .obs-pill.on b, body[data-theme="paper"] .obs-pill.on .obs-time { color: var(--muted); }
+body[data-theme="paper"] .w-command.bad { --c: var(--red); }
+body[data-theme="paper"] .sess .tl.codex { color: var(--ink); }
+body[data-theme="paper"] .sess .tl.claude { color: #a8502f; }
+body[data-theme="paper"] .pi .lbl b.sess { color: #a8502f; }
+body[data-theme="paper"] .hn-r { color: #b34700; }
+body[data-theme="paper"] .ap-logo { color: #a8502f; }
+/* a note is a sticky note in its own colour, pale enough for ink */
+body[data-theme="paper"] .w-note {
+  border: 0; border-radius: 1px 1px 2px 14px / 1px 1px 2px 10px; transform: rotate(-1deg);
+  background: linear-gradient(170deg, color-mix(in srgb, var(--n, #ffd84d) 28%, #fff8c4), color-mix(in srgb, var(--n, #ffd84d) 36%, #fff3a3));
+  box-shadow: 0 1px 1px rgba(60, 45, 20, .12), 2px 10px 14px -10px rgba(60, 45, 20, .55);
+}
+body[data-theme="paper"] .note-t { color: color-mix(in srgb, var(--n, var(--ink)) 30%, #1d2036); }
+body[data-theme="paper"] :is(.pv, .ag-big-s, .ag-when, .aq-v) { color: color-mix(in srgb, var(--c, var(--ink)) 66%, #1d2036); }
+body[data-theme="paper"] .pl-v { color: color-mix(in srgb, var(--lc, var(--muted)) 70%, #1d2036); }
+body[data-theme="paper"] .q-plan { color: color-mix(in srgb, var(--q) 70%, #1d2036); }
+body[data-theme="paper"] .w-onair.on .oa-sign { color: #fffdf6; background: var(--red); border-color: var(--red); }
+body[data-theme="paper"] .obs-pill.on :is(b, .obs-time) { color: var(--red); }
+body[data-theme="paper"] .sun-row, body[data-theme="paper"] .w-sun { --c: #a86a00; }
+body[data-theme="paper"] .sa-fg { stroke: #d08a00; }
+body[data-theme="paper"] .sa-sun { fill: #ffd34d; stroke: #a86a00; filter: none; }
+body[data-theme="paper"] .w-crypto { --c: #b06000; }
+body[data-theme="paper"] .art-ph, body[data-theme="paper"] .mo-dark { stroke: var(--line); }
+body[data-theme="paper"] .mo-dark { fill: #d9d2bf; }
+body[data-theme="paper"] .mo-lit { fill: #fff6c9; stroke: var(--ink); stroke-width: .6; filter: none; }
+
+/* analog clock: a face drawn in pen */
+body[data-theme="paper"] .analog .face { fill: #fffdf6; stroke: var(--ink); stroke-width: 1.4; filter: url(#pbWob); }
+body[data-theme="paper"] .analog .tk { stroke: var(--pencil); }
+body[data-theme="paper"] .analog .tk.b { stroke: var(--ink); }
+
+/* ---------- page furniture and what opens over the pages ---------- */
+body[data-theme="paper"] #dots i { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--ink); background: transparent; opacity: .55; }
+body[data-theme="paper"] #dots i.on { width: 9px; height: 9px; background: var(--red); border-color: var(--red); opacity: 1; }
+body[data-theme="paper"] #dots.paused { background: #fff3a3; border-color: var(--amber-ink); }
+body[data-theme="paper"] #dots.paused i.on { background: var(--amber-ink); border-color: var(--amber-ink); }
+body[data-theme="paper"] #ptitle { color: var(--ink); background: #fff3a3; border-color: transparent; box-shadow: 0 2px 4px rgba(60, 45, 20, .25); border-radius: 2px; }
+body[data-theme="paper"] :is(.toast, #navCard, .p-sheet, .ap-card, .session-panel) {
+  background: var(--sketch) 0 0 / 100% 100% no-repeat, #fffdf6;
+  border: 0; border-radius: 3px; box-shadow: 0 2px 3px rgba(60, 45, 20, .15), 0 16px 34px -12px rgba(60, 45, 20, .5);
+}
+body[data-theme="paper"] #overview { background: rgba(245, 238, 219, .96); }
+body[data-theme="paper"] .ov-tile { background: #fffdf6; }
+body[data-theme="paper"] .nv-ring circle { stroke: var(--track); }
+body[data-theme="paper"] .nv-btn.go { color: var(--ink); background: var(--hl-yellow); }
+body[data-theme="paper"] .ps-btn.armed { color: #fffdf6; }
+
+/* the night screen stays dark for sleeping: a blackboard in chalk rather than paper */
+body[data-theme="paper"] #night { background: #101115; color: #67635a; }
+body[data-theme="paper"] #nClock { font-weight: 400; position: relative; }
+body[data-theme="paper"] #nClock::after {
+  content: ""; position: absolute; left: 4%; right: 4%; bottom: -.04em; height: .06em; opacity: .5;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 14' preserveAspectRatio='none'%3E%3Cpath d='M4 9 C60 3 120 12 180 6 S270 4 296 8' fill='none' stroke='%237a3a34' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E") 0 0 / 100% 100% no-repeat;
+}
+body[data-theme="paper"] #nDate { color: #67635a; }
+
+@media (prefers-reduced-motion: reduce) { body[data-theme="paper"] .mug .steam path { animation: none; } }
+
+/* ---------- AI usage: each provider on its own sheet; rings in a darker pen so pale brand colours still show ---------- */
+body[data-theme="paper"] .q-card { background: var(--card-bg); border: 0; border-radius: 3px; box-shadow: var(--card-shadow); }
+body[data-theme="paper"] .q-card:nth-child(even) { transform: rotate(.4deg); }
+body[data-theme="paper"] .q-card:nth-child(odd) { transform: rotate(-.3deg); }
+body[data-theme="paper"] .q-logo { color: color-mix(in srgb, var(--q) 70%, #1d2036); }
+body[data-theme="paper"] :is(.g-dial, .q-dial) .fg { stroke: color-mix(in srgb, var(--qc, var(--q)) 78%, #1d2036); }
+
+/* ---------- buttons and deck controls: boxes drawn in pen, an uneven corner each, a pencil shadow ---------- */
+body[data-theme="paper"] :is(.deck-button, .deck-hold, .ap-tile, .chip-btn, .obs-sc, .dk-btn, .ac-key, .ps-btn, .nv-btn, .ru-pause, .dc-btn) {
+  background: #fffdf6; color: var(--ink); border: 1.6px solid var(--ink); border-radius: 9px 5px 10px 4px / 5px 9px 4px 10px;
+  box-shadow: 1.5px 2px 0 rgba(43, 47, 74, .22);
+}
+body[data-theme="paper"] :is(.deck-button, .deck-hold, .ap-tile, .chip-btn, .obs-sc, .dk-btn, .ac-key):nth-child(even) { border-radius: 5px 10px 4px 9px / 9px 4px 10px 5px; }
+body[data-theme="paper"] :is(.deck-button, .deck-hold, .ap-tile, .chip-btn, .obs-sc, .dk-btn, .ac-key):active,
+body[data-theme="paper"] .deck-hold.held { background: var(--hl-yellow); color: var(--ink); box-shadow: none; transform: translate(1px, 1px); }
+body[data-theme="paper"] :is(.obs-sc.cur, .ap-tile.armed, .deck-button.on, .deck-button.active) { background: var(--hl-yellow); border-color: var(--ink); }
+body[data-theme="paper"] .deck-channel { background: rgba(43, 47, 74, .035); border: 1.2px dashed var(--surface-line); border-radius: 4px; }
+body[data-theme="paper"] .pb { background: #fffdf6; color: var(--ink); border: 1.6px solid var(--ink); }
+body[data-theme="paper"] :is(.dk-btn.danger, .ps-btn.danger) { border-color: var(--red); }
+body[data-theme="paper"] .dk-btn.go { border-color: var(--green-ink); }
+body[data-theme="paper"] .ps-btn.armed { background: var(--red); border-color: var(--red); color: #fffdf6; }
+
+/* readouts that take a pale colour from the widget or the data */
+body[data-theme="paper"] .ct-n { color: color-mix(in srgb, var(--q, var(--ink)) 62%, #1d2036); }
+body[data-theme="paper"] :is(.nu-when) { color: color-mix(in srgb, var(--nu, var(--pen)) 62%, #1d2036); }
+body[data-theme="paper"] .w-quotaring .g-label { color: color-mix(in srgb, var(--q, var(--ink)) 55%, #1d2036); }
+body[data-theme="paper"] .pb.main { background: color-mix(in srgb, var(--q, var(--red)) 80%, #1d2036); border-color: transparent; color: #fffdf6; }
+/* GitHub's brand colour is near-white on the dark themes; on paper it is plain ink */
+body[data-theme="paper"] .w-github .s-label { color: var(--ink); background: linear-gradient(transparent 55%, rgba(43, 47, 74, .12) 55% 92%, transparent 92%); }

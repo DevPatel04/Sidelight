@@ -1,0 +1,340 @@
+/* ================================================================ Gaming
+   An arcade cabinet at night: chamfered cards with neon edges, a pixel-font scoreboard clock, HP-bar meters, a cassette
+   for the album, arcade buttons, and an RGB edge that steps through magenta, cyan and yellow. The pixel digits and the
+   meters are drawn by widgets/gaming.js; this sheet lights and frames them. Animations step (a few repaints a second)
+   or only move transforms, and stop when the system asks for reduced motion. */
+:root[data-theme="gaming"] {
+  --cpu: #26f0ff; --gpu: #ff2bd6; --ram: #ffe14d; --net: #39ff88; --up: #b98cff; --ok: #39ff88;
+}
+/* the RGB edge colour, registered so it can be animated and used inside gradients */
+@property --gx-rgb { syntax: "<color>"; inherits: true; initial-value: #ff2bd6; }
+@keyframes gx-rgb { 0%, 100% { --gx-rgb: #ff2bd6; } 33% { --gx-rgb: #26f0ff; } 66% { --gx-rgb: #ffe14d; } }
+@keyframes gx-flick { 0%, 91%, 93%, 96%, 100% { opacity: 1; } 92%, 95% { opacity: .55; } }
+@keyframes gx-blink { 50% { opacity: .25; } }
+@keyframes gx-spin { to { transform: rotate(360deg); } }
+
+body[data-theme="gaming"] {
+  --bg: #0b0220;
+  --card: rgba(16, 6, 38, .82); --card-hi: rgba(38, 240, 255, .14); --line: rgba(38, 240, 255, .3);
+  --text: #f6eaff; --muted: rgba(232, 214, 255, .76); --dim: rgba(232, 214, 255, .5);
+  --mg: #ff2bd6; --cy: #26f0ff; --yl: #ffe14d; --gr: #39ff88;
+  --cut: 10px;
+  --font: "Roboto Condensed", sans-serif-condensed, "Arial Narrow", Roboto, sans-serif;
+  --font-num: ui-monospace, "Roboto Mono", "Droid Sans Mono", "Cascadia Mono", "DejaVu Sans Mono", monospace;
+  /* chamfered corners: the clip cuts the border away there, so two thin diagonals redraw it; a pink tab on top,
+     faint scanlines and a deep purple plate */
+  --gx-edge: rgba(38, 240, 255, .55);
+  --card-bg:
+    linear-gradient(to bottom right, transparent calc(50% - 1px), var(--gx-edge) 0 calc(50% + .5px), transparent 0) 0 0 / var(--cut) var(--cut) no-repeat border-box,
+    linear-gradient(to top left, transparent calc(50% - 1px), var(--gx-edge) 0 calc(50% + .5px), transparent 0) 100% 100% / var(--cut) var(--cut) no-repeat border-box,
+    linear-gradient(var(--mg), var(--mg)) calc(var(--cut) + 6px) 0 / 34px 3px no-repeat border-box,
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, .025) 0 1px, transparent 1px 3px),
+    linear-gradient(160deg, rgba(34, 9, 66, .86), rgba(10, 3, 28, .88));
+  --card-border: 1px solid rgba(38, 240, 255, .34);
+  --card-shadow: inset 0 0 16px rgba(38, 240, 255, .09);
+  --radius: 0px; --radius-sm: 2px;
+  --surface: rgba(38, 240, 255, .07); --surface-hi: rgba(255, 43, 214, .24); --surface-line: rgba(38, 240, 255, .3);
+  --track: rgba(38, 240, 255, .16);
+  --overlay: rgba(14, 4, 32, .97);
+  --on-accent: #1a0326;
+  --clip: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+  --clip-sm: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  letter-spacing: .02em;
+}
+body[data-theme="gaming"] .w.card:not(.w-shortcuts, .w-quotas) { clip-path: var(--clip); }
+/* the music card's edge steps through the RGB colours, a couple of repaints a second */
+body[data-theme="gaming"] .w-media.card { --gx-edge: var(--gx-rgb); border-color: var(--gx-rgb); animation: gx-rgb 6s steps(12) infinite; }
+
+/* ---------- type ---------- */
+body[data-theme="gaming"] :is(.w-title, .t-label, .g-label, .s-label, .q-label, .m-app, .cal-h) {
+  font-family: var(--font-num); text-transform: uppercase; letter-spacing: .14em;
+}
+body[data-theme="gaming"] .w-title { color: var(--c, var(--cy)); text-shadow: 0 0 6px color-mix(in srgb, var(--c, var(--cy)) 55%, transparent); }
+body[data-theme="gaming"] .w-sub { font-family: var(--font-num); letter-spacing: 0; }
+body[data-theme="gaming"] :is(.t-val b, .s-main b, .g-val, .q-pct, .sw-t, .wc-t, .cd-v, .ct-n, .pv, .vb-v, .cc-pct, .wx-temp, .gd-big b, .q-ov-val) {
+  font-family: var(--font-num); font-weight: 700; letter-spacing: -.02em;
+}
+body[data-theme="gaming"] :is(.t-val b, .s-main b) { text-shadow: 0 0 10px color-mix(in srgb, var(--c, var(--cy)) 55%, transparent); }
+
+/* ---------- the clock: a pixel scoreboard ---------- */
+.px7 { height: .8em; width: auto; aspect-ratio: 50 / 70; display: block; overflow: visible; }
+.px7 .lit { fill: #ffd2f5; }
+.px7 .unl { fill: rgba(255, 43, 214, .07); }
+.pxc { height: .8em; width: auto; aspect-ratio: 10 / 70; display: block; }
+.pxc path { fill: var(--cy, #26f0ff); }
+body[data-theme="gaming"] .clock.pixel { align-items: center; gap: .05em; letter-spacing: 0; margin: .04em 0 .05em; }
+body[data-theme="gaming"] .clock.pixel :is(.hh, .mm) {
+  display: flex; gap: .06em;
+  filter: drop-shadow(0 0 1.5px #ff2bd6) drop-shadow(0 0 7px rgba(255, 43, 214, .75));
+  animation: gx-flick 9s steps(1) infinite;
+}
+body[data-theme="gaming"] .clock.pixel .colon { opacity: 1; margin: 0 .03em; animation: gx-blink 2s steps(1) infinite; filter: drop-shadow(0 0 4px #26f0ff); }
+/* the seconds in a HUD box */
+body[data-theme="gaming"] .clock.pixel .sec:not(:empty) {
+  display: flex; flex-direction: column; align-items: center; gap: .2em; align-self: flex-start;
+  margin: .02em 0 0 .3em; padding: .22em .3em .18em; font: 700 .16em/1 var(--font-num); color: var(--cy);
+  border: 1px solid var(--cy); box-shadow: 0 0 8px rgba(38, 240, 255, .4), inset 0 0 6px rgba(38, 240, 255, .25);
+  text-shadow: 0 0 6px var(--cy);
+}
+body[data-theme="gaming"] .clock.pixel .sec:not(:empty)::before { content: "SEC"; font-size: .42em; letter-spacing: .12em; opacity: .8; }
+body[data-theme="gaming"] .clock.pixel .ap { font: 700 .16em/1 var(--font-num); color: var(--yl); margin: 0 0 .1em .3em; }
+body[data-theme="gaming"] .clock:not(.pixel) { font-family: var(--font-num); font-weight: 700; color: #ffd2f5; text-shadow: 0 0 10px rgba(255, 43, 214, .7); }
+body[data-theme="gaming"] .date { font-family: var(--font-num); text-transform: uppercase; letter-spacing: .1em; color: var(--cy); font-size: clamp(10px, 6.5cqh, 16px); }
+body[data-theme="gaming"] .wx-temp { color: var(--yl); text-shadow: 0 0 10px rgba(255, 225, 77, .55); }
+body[data-theme="gaming"] .wx-meta { font-family: var(--font-num); font-size: clamp(9px, 5cqh, 12px); text-transform: uppercase; }
+/* the status line as a game HUD; a waiting prompt is a blinking quest */
+body[data-theme="gaming"] .status { font-family: var(--font-num); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+body[data-theme="gaming"] .status b { color: var(--cy); }
+body[data-theme="gaming"] .status .smini { color: var(--yl); text-shadow: 0 0 6px var(--yl); animation: gx-blink 1.2s steps(1) infinite; }
+body[data-theme="gaming"] .status .smini::before { content: "! "; }
+body[data-theme="gaming"] .dot { border-radius: 0; }
+body[data-theme="gaming"] .dot.on { background: var(--gr); box-shadow: 0 0 6px var(--gr); }
+
+/* ---------- meters: HP bars, an equalizer, inventory slots (gaming.js) ---------- */
+.gx { display: block; width: 100%; height: 100%; overflow: visible; }
+.gx .sg { fill: rgba(38, 240, 255, .1); }
+.gx .sg.on { fill: var(--gx, #26f0ff); }
+.gx .sg.on.w { fill: #ffe14d; }
+.gx .sg.on.h { fill: #ff2bd6; }
+.gx-ring .sg { fill: none; stroke: rgba(38, 240, 255, .12); stroke-width: 9; }
+.gx-ring .sg.on { fill: none; stroke: var(--gx, #26f0ff); }
+.gx-ring .sg.on.w { fill: none; stroke: #ffe14d; }
+.gx-ring .sg.on.h { fill: none; stroke: #ff2bd6; }
+.gx-inv .sg { fill: transparent; stroke: color-mix(in srgb, var(--gx, #ffe14d) 40%, transparent); stroke-width: .8; }
+.gx-inv .sg.on { fill: var(--gx, #ffe14d); stroke: var(--gx, #ffe14d); }
+.gx-eq .eb { fill: var(--gx, #ff2bd6); transform-box: fill-box; transform-origin: 50% 100%; transition: transform .6s ease; }
+.gx { filter: drop-shadow(0 0 3px color-mix(in srgb, var(--gx, #26f0ff) 70%, transparent)); }
+.gx.hot :is(.sg.on, .eb) { animation: gx-blink 1s steps(1) infinite; }
+.w-stat .gx { --gx: var(--c); }
+.w-gauge .gx { --gx: var(--q); }
+/* a tile shows the strip along its foot, a gauge the square picture */
+.t-art .gx-sq, .g-art .gx-strip { display: none; }
+body[data-theme="gaming"] .w-stat .t-art { top: auto; right: 9%; left: 9%; bottom: 11%; transform: none; height: clamp(6px, 11cqh, 14px); max-width: none; aspect-ratio: auto; }
+body[data-theme="gaming"] .w-stat .t-art:has(.gx-eq) { height: clamp(10px, 24cqh, 30px); }
+body[data-theme="gaming"] .w-stat .t-art:has(.gx-inv) { height: clamp(8px, 14cqh, 18px); }
+body[data-theme="gaming"] .w-stat:has(.t-art) canvas { width: 100%; height: 42%; bottom: 26%; opacity: .3; }
+body[data-theme="gaming"] .w-stat canvas { opacity: .4; }
+body[data-theme="gaming"] .w-stat :is(.t-val, .t-sub) { text-shadow: none; }
+body[data-theme="gaming"] .t-sub { font-family: var(--font-num); text-transform: uppercase; font-size: clamp(9px, 11cqh, 12px); }
+body[data-theme="gaming"] .g-sub { font-family: var(--font-num); }
+/* the ring of blocks keeps the reading in its middle; the equalizer and the slots put it underneath */
+body[data-theme="gaming"] .g-dial.art-dial:has(.gx-ring) .g-art { bottom: 0; }
+body[data-theme="gaming"] .g-dial.art-dial:has(.gx-ring) .g-val { top: 0; bottom: 0; height: auto; font-size: min(15cqh, 20cqw); }
+body[data-theme="gaming"] .g-dial.art-dial:not(:has(.gx-ring)) .g-art { top: 6%; bottom: 24%; left: 8%; right: 8%; }
+body[data-theme="gaming"] .g-dial.art-dial .g-val { color: var(--text); text-shadow: 0 0 8px color-mix(in srgb, var(--q) 60%, transparent); }
+
+/* plain rings (pomodoro, timer, quotas, charge care) are cut into blocks */
+body[data-theme="gaming"] :is(.g-dial:not(.art-dial) svg, .q-dial svg, .cc-ring) {
+  -webkit-mask: repeating-conic-gradient(#000 0 12deg, transparent 12deg 15deg);
+  mask: repeating-conic-gradient(#000 0 12deg, transparent 12deg 15deg);
+}
+body[data-theme="gaming"] :is(.g-dial, .q-dial) .fg, body[data-theme="gaming"] .cc-fg { stroke-linecap: butt; stroke-width: 11; }
+body[data-theme="gaming"] :is(.g-dial, .q-dial) .bg, body[data-theme="gaming"] .cc-bg { stroke: rgba(38, 240, 255, .13); stroke-width: 11; }
+body[data-theme="gaming"] .q-dial .pace { stroke: var(--yl); }
+/* straight meters are cut into blocks the same way */
+body[data-theme="gaming"] :is(.track, .p-bar, .bt-bar, .nu-track, .deck-meter, .pr-list .track) {
+  border-radius: 0; height: 8px;
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 8px);
+  mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 8px);
+}
+body[data-theme="gaming"] :is(.track, .p-bar, .bt-bar, .nu-track, .deck-meter) i { border-radius: 0; box-shadow: none; }
+body[data-theme="gaming"] .p-bar i { background: var(--mg); }
+body[data-theme="gaming"] .p-bar { height: 4px; -webkit-mask-image: repeating-linear-gradient(90deg, #000 0 4px, transparent 4px 6px); mask-image: repeating-linear-gradient(90deg, #000 0 4px, transparent 4px 6px); }
+body[data-theme="gaming"] .p-ico { border-radius: 0; }
+
+/* ---------- charts, chips, rows ---------- */
+body[data-theme="gaming"] .s-name { font-family: var(--font-num); color: var(--dim); }
+body[data-theme="gaming"] .chip {
+  font-family: var(--font-num); text-transform: uppercase; letter-spacing: .04em;
+  background: rgba(38, 240, 255, .08); border: 1px solid rgba(38, 240, 255, .35); color: var(--cy); border-radius: 0; clip-path: var(--clip-sm);
+}
+body[data-theme="gaming"] :is(.sess, .proc, .cl-i, .ru-row, .q-card, .gh-pr, .ib-i, .fd-i, .tp-i, .bt-row, .dk-row, .ag-row, .pi) { border-radius: 2px; }
+body[data-theme="gaming"] :is(.sess, .proc, .cl-i, .ru-row) { border-left: 2px solid rgba(38, 240, 255, .45); }
+body[data-theme="gaming"] .sess.waiting { border-left-color: var(--yl); background: rgba(255, 225, 77, .1); border-color: rgba(255, 225, 77, .5); }
+body[data-theme="gaming"] .sess.busy { border-left-color: var(--mg); }
+body[data-theme="gaming"] .sess .st { border-radius: 0; }
+body[data-theme="gaming"] .proc { background: rgba(16, 6, 38, .85); border-color: rgba(38, 240, 255, .25); }
+body[data-theme="gaming"] .q-card { background: var(--card-bg); border: var(--card-border); box-shadow: var(--card-shadow); clip-path: var(--clip); }
+body[data-theme="gaming"] .q-plan { border-radius: 0; font-family: var(--font-num); }
+body[data-theme="gaming"] .cl-box { border-radius: 0; border-color: var(--cy); }
+body[data-theme="gaming"] .cl-i.done .cl-box { background: var(--gr); border-color: var(--gr); box-shadow: 0 0 6px var(--gr); }
+body[data-theme="gaming"] .ru-row.on { background: rgba(255, 43, 214, .16); border-left-color: var(--mg); }
+body[data-theme="gaming"] :is(.ru-dot, .dk-dot, .ag-dot, .obs-led) { border-radius: 0; }
+body[data-theme="gaming"] .cal-d { border-radius: 0; font-family: var(--font-num); }
+body[data-theme="gaming"] .cal-d.today { background: var(--mg); color: #1a0326; box-shadow: 0 0 10px rgba(255, 43, 214, .7); }
+body[data-theme="gaming"] .cal-h { color: var(--cy); }
+body[data-theme="gaming"] .wc { border-left-color: rgba(38, 240, 255, .25); }
+body[data-theme="gaming"] .wc-t { color: var(--text); text-shadow: 0 0 8px rgba(38, 240, 255, .5); }
+body[data-theme="gaming"] .wc-n { font-family: var(--font-num); text-transform: uppercase; letter-spacing: .1em; color: var(--cy); }
+body[data-theme="gaming"] .sw-t { color: var(--cy); text-shadow: 0 0 10px rgba(38, 240, 255, .55); }
+body[data-theme="gaming"] .ct-n { text-shadow: 0 0 10px color-mix(in srgb, var(--q) 60%, transparent); }
+body[data-theme="gaming"] :is(.fc-t, .fc-v, .hn-r, .fx-v, .chg, .nu-when, .dk-stat, .gh-pr .rp) { font-family: var(--font-num); }
+body[data-theme="gaming"] .fc-v { color: var(--yl); }
+body[data-theme="gaming"] .chg.up { color: var(--gr); }
+body[data-theme="gaming"] .chg.down { color: var(--mg); }
+body[data-theme="gaming"] :is(.gh-pr .rv, .q-pace) { border-radius: 0; }
+
+/* ---------- keys and buttons: chamfered arcade keys that glow when pressed ---------- */
+body[data-theme="gaming"] .key {
+  border-radius: 0; clip-path: var(--clip);
+  background:
+    linear-gradient(to bottom right, transparent calc(50% - 1px), color-mix(in srgb, var(--k) 80%, white) 0 calc(50% + .5px), transparent 0) 0 0 / var(--cut) var(--cut) no-repeat border-box,
+    linear-gradient(to top left, transparent calc(50% - 1px), color-mix(in srgb, var(--k) 80%, white) 0 calc(50% + .5px), transparent 0) 100% 100% / var(--cut) var(--cut) no-repeat border-box,
+    linear-gradient(180deg, color-mix(in srgb, var(--k) 26%, #12052a), #0c0322);
+  border: 1px solid color-mix(in srgb, var(--k) 70%, white 10%);
+  box-shadow: inset 0 0 14px color-mix(in srgb, var(--k) 35%, transparent), inset 0 -3px 0 rgba(0, 0, 0, .35);
+}
+body[data-theme="gaming"] .key:active { transform: translateY(2px); filter: brightness(1.45); }
+body[data-theme="gaming"] .key .k-label { font-family: var(--font-num); text-transform: uppercase; letter-spacing: .06em; font-size: clamp(9px, 3.3cqmin, 13px); color: var(--text); }
+body[data-theme="gaming"] .key .k-icon { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--k) 80%, transparent)); }
+body[data-theme="gaming"] .key::after { border-radius: 0; }
+body[data-theme="gaming"] .key.toggle::before { border-radius: 0; }
+body[data-theme="gaming"] .key.toggle.on::before { background: var(--gr); box-shadow: 0 0 8px var(--gr); }
+
+body[data-theme="gaming"] :is(.chip-btn, .ps-btn, .dk-btn, .ac-key, .mini-btn, .nv-btn, .obs-sc, .seg, .seg button, .deck-button, .deck-hold, .radio-card, .ap-tile, .ha-tile, .dc-btn, .obs-pill, .pcs-row .ov-pc, .ov-pc) {
+  border-radius: 0; font-family: var(--font-num); letter-spacing: .04em;
+}
+body[data-theme="gaming"] :is(.chip-btn, .ps-btn, .dk-btn, .ac-key, .nv-btn, .obs-sc, .deck-button, .deck-hold, .mini-btn) {
+  clip-path: var(--clip-sm); background: rgba(38, 240, 255, .08); border: 1px solid rgba(38, 240, 255, .4); color: var(--text); text-transform: uppercase;
+}
+body[data-theme="gaming"] :is(.chip-btn, .ps-btn, .dk-btn, .ac-key, .nv-btn, .obs-sc, .deck-button, .deck-hold, .mini-btn):active,
+body[data-theme="gaming"] :is(.deck-button.selected, .deck-button[aria-pressed=true], .deck-hold.held, .obs-sc.cur) {
+  background: rgba(255, 43, 214, .28); border-color: var(--mg); color: #fff; box-shadow: inset 0 0 12px rgba(255, 43, 214, .45);
+}
+body[data-theme="gaming"] .ps-btn.danger, body[data-theme="gaming"] .dk-btn.danger { color: #ff7ab8; border-color: rgba(255, 43, 214, .6); }
+body[data-theme="gaming"] .dk-btn.go { color: var(--gr); border-color: rgba(57, 255, 136, .5); }
+body[data-theme="gaming"] .ps-btn.armed { background: var(--mg); color: #1a0326; }
+body[data-theme="gaming"] .seg { background: rgba(38, 240, 255, .06); border: 1px solid rgba(38, 240, 255, .3); }
+body[data-theme="gaming"] .seg button.on { background: var(--cy); color: #04232a; }
+/* round arcade buttons: pomodoro and timer, the counter, the stopwatch */
+body[data-theme="gaming"] .pb { border-radius: 50%; color: #04232a; background: radial-gradient(circle at 38% 32%, #9ffbff, #16cfe0 55%, #0a7f8c); box-shadow: 0 3px 0 #04454d, 0 0 10px rgba(38, 240, 255, .4); }
+body[data-theme="gaming"] .pb.main { color: #3d0333; background: radial-gradient(circle at 38% 32%, #ffb3f2, #ff2bd6 55%, #a3088a); box-shadow: 0 3px 0 #5c0450, 0 0 12px rgba(255, 43, 214, .55); }
+body[data-theme="gaming"] .pb:active { transform: translateY(3px); box-shadow: 0 0 0 transparent; }
+
+/* ---------- music: a cassette, an XP bar and arcade buttons ---------- */
+body[data-theme="gaming"] .art-wrap {
+  height: min(56cqh, 30cqw); aspect-ratio: 1.4; border-radius: 6px;
+  background:
+    linear-gradient(#07021a, #07021a) 50% 90% / 64% 30% no-repeat,
+    linear-gradient(var(--yl), var(--yl)) 50% 53% / 88% 5% no-repeat,
+    linear-gradient(180deg, #24123c, #160a2a);
+  border: 1.5px solid var(--cy); box-shadow: 0 0 12px rgba(38, 240, 255, .35), inset 0 0 0 3px #160a2a;
+}
+/* the cover is the cassette's label; the placeholder stands in for it */
+body[data-theme="gaming"] .art-wrap :is(img, .art-ph) { top: 7%; left: 6%; right: 6%; bottom: auto; width: 88%; height: 42%; border-radius: 2px; }
+body[data-theme="gaming"] .art-wrap:has(img.on) .art-ph { display: none; }
+body[data-theme="gaming"] .art-wrap .art-ph { background: var(--mg); color: #1a0326; font-size: clamp(12px, 8cqh, 22px); }
+/* the two reels turn while it plays */
+body[data-theme="gaming"] .art-wrap::before, body[data-theme="gaming"] .art-wrap::after {
+  content: ""; position: absolute; top: 61%; width: 21%; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle, #07021a 0 22%, transparent 23%), repeating-conic-gradient(#f6eaff 0 100deg, #07021a 100deg 120deg);
+  animation: gx-spin 1.8s linear infinite paused;
+}
+body[data-theme="gaming"] .art-wrap::before { left: 26%; }
+body[data-theme="gaming"] .art-wrap::after { right: 26%; }
+body[data-theme="gaming"] .w-media.playing .art-wrap::before, body[data-theme="gaming"] .w-media.playing .art-wrap::after { animation-play-state: running; }
+body[data-theme="gaming"] .m-app { color: var(--mg); text-shadow: 0 0 6px rgba(255, 43, 214, .6); }
+body[data-theme="gaming"] .m-title { font-weight: 700; text-shadow: 0 0 10px rgba(38, 240, 255, .45); }
+body[data-theme="gaming"] .times { font-family: var(--font-num); color: var(--muted); }
+body[data-theme="gaming"] .bar::before {
+  height: 8px; border-radius: 0;
+  background: repeating-linear-gradient(90deg, rgba(255, 225, 77, .16) 0 6px, transparent 6px 8px);
+}
+body[data-theme="gaming"] .fill {
+  height: 8px; border-radius: 0; background: repeating-linear-gradient(90deg, var(--yl) 0 6px, transparent 6px 8px);
+  filter: drop-shadow(0 0 3px rgba(255, 225, 77, .7));
+}
+body[data-theme="gaming"] .fill::after { width: 3px; height: 14px; right: -4px; top: -3px; border-radius: 0; background: #fff; box-shadow: 0 0 6px #fff; }
+body[data-theme="gaming"] .w-media .ic {
+  color: #04232a; background: radial-gradient(circle at 38% 32%, #9ffbff, #16cfe0 55%, #0a7f8c);
+  box-shadow: 0 3px 0 #04454d, 0 0 12px rgba(38, 240, 255, .4); transform: scale(.82);
+}
+body[data-theme="gaming"] .w-media .ic.play { color: #3d0333; background: radial-gradient(circle at 38% 32%, #ffb3f2, #ff2bd6 55%, #a3088a); box-shadow: 0 4px 0 #5c0450, 0 0 16px rgba(255, 43, 214, .6); transform: none; }
+body[data-theme="gaming"] .w-media .ic:active { transform: scale(.82) translateY(3px); box-shadow: 0 0 6px rgba(38, 240, 255, .4); }
+body[data-theme="gaming"] .w-media .ic.play:active { transform: translateY(3px); }
+body[data-theme="gaming"] .w-media .ic.sm { transform: none; background: none; box-shadow: none; color: var(--cy); }
+body[data-theme="gaming"] .vol-val { font-family: var(--font-num); color: var(--cy); }
+/* sliders: a segmented track and a square block for a thumb */
+body[data-theme="gaming"] input[type=range]::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 0;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 5px, #0b0220 5px 7px),
+    linear-gradient(to right, var(--cy) var(--p, 50%), rgba(38, 240, 255, .16) var(--p, 50%));
+}
+body[data-theme="gaming"] input[type=range]::-webkit-slider-thumb { width: 12px; height: 18px; margin-top: -6px; border-radius: 0; background: #fff; box-shadow: 0 0 8px var(--cy), 0 0 0 2px var(--mg); }
+body[data-theme="gaming"] .vb { border-radius: 0; }
+body[data-theme="gaming"] .vb i { border-radius: 0; background: repeating-linear-gradient(90deg, var(--cy) 0 8px, transparent 8px 10px); }
+body[data-theme="gaming"] .w-volume.vert .vb i { background: repeating-linear-gradient(0deg, var(--cy) 0 8px, transparent 8px 10px); }
+
+/* ---------- other widgets ---------- */
+body[data-theme="gaming"] .analog .face { fill: rgba(16, 6, 38, .6); stroke: var(--cy); stroke-width: 1.2; filter: drop-shadow(0 0 3px rgba(38, 240, 255, .6)); }
+body[data-theme="gaming"] .analog .tk { stroke: rgba(38, 240, 255, .45); stroke-linecap: butt; }
+body[data-theme="gaming"] .analog .tk.b { stroke: var(--cy); stroke-linecap: butt; }
+body[data-theme="gaming"] .analog text { fill: var(--cy); font-family: var(--font-num); }
+body[data-theme="gaming"] .analog :is(.hh, .mh) { stroke: #ffd2f5; stroke-linecap: square; filter: drop-shadow(0 0 3px var(--mg)); }
+body[data-theme="gaming"] .analog .sh { stroke: var(--yl); }
+body[data-theme="gaming"] .analog .hub { fill: var(--mg); }
+body[data-theme="gaming"] .wc-main { font-family: var(--font-num); font-weight: 400; text-transform: uppercase; }
+body[data-theme="gaming"] .wc-main .hr { color: var(--mg); text-shadow: 0 0 10px rgba(255, 43, 214, .7); }
+body[data-theme="gaming"] :is(.wc-lead, .wc-date) { font-family: var(--font-num); text-transform: uppercase; color: var(--cy); }
+body[data-theme="gaming"] .br-ball {
+  background: radial-gradient(circle, rgba(255, 43, 214, .32), rgba(255, 43, 214, .06) 68%, transparent 70%);
+  box-shadow: 0 0 0 2px var(--cy), 0 0 18px rgba(38, 240, 255, .5), inset 0 0 24px rgba(255, 43, 214, .45);
+}
+body[data-theme="gaming"] .br-w { font-family: var(--font-num); text-transform: uppercase; letter-spacing: .1em; text-shadow: 0 0 8px var(--mg); }
+body[data-theme="gaming"] .w-note {
+  border-radius: 0; font-family: var(--font-num);
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, .03) 0 1px, transparent 1px 3px), linear-gradient(160deg, color-mix(in srgb, var(--n) 18%, #12052a), #0a0320);
+  border: 1px solid color-mix(in srgb, var(--n) 70%, transparent); box-shadow: inset 0 0 16px color-mix(in srgb, var(--n) 30%, transparent);
+}
+body[data-theme="gaming"] .w-note .note-t { color: color-mix(in srgb, var(--n) 30%, #fff); text-shadow: 0 0 8px color-mix(in srgb, var(--n) 60%, transparent); }
+body[data-theme="gaming"] :is(.ru-pause, .gh-bell, .ap-count) { border-radius: 0; font-family: var(--font-num); text-transform: uppercase; border: 1px solid rgba(38, 240, 255, .35); background: rgba(38, 240, 255, .08); }
+body[data-theme="gaming"] .q-name { font-family: var(--font-num); text-transform: uppercase; letter-spacing: .1em; }
+body[data-theme="gaming"] .deck-track { font-family: var(--font-num); text-shadow: 0 0 10px rgba(38, 240, 255, .5); }
+body[data-theme="gaming"] .aq-v { font-family: var(--font-num); font-weight: 700; text-shadow: 0 0 12px currentColor; }
+body[data-theme="gaming"] :is(.qt-q) { font-family: var(--font); }
+body[data-theme="gaming"] .qt-mark { top: .08em; color: rgba(255, 43, 214, .4); text-shadow: 0 0 10px var(--mg); }
+body[data-theme="gaming"] .qt-a { font-family: var(--font-num); text-transform: uppercase; color: var(--cy); }
+body[data-theme="gaming"] .sa-fg { stroke: var(--yl); }
+body[data-theme="gaming"] .sa-sun { fill: var(--yl); filter: drop-shadow(0 0 6px var(--mg)); }
+body[data-theme="gaming"] .mo-lit { fill: #ffe9fb; filter: drop-shadow(0 0 6px rgba(255, 43, 214, .6)); }
+body[data-theme="gaming"] .mo-dark { fill: #12052a; stroke: rgba(38, 240, 255, .3); }
+body[data-theme="gaming"] .oa-sign { font-family: var(--font-num); border-radius: 0; }
+body[data-theme="gaming"] :is(.radio-card, .sq-now, .sq-item, .deck-channel) { border-radius: 0; background: rgba(38, 240, 255, .05); border-color: rgba(38, 240, 255, .25); }
+body[data-theme="gaming"] .deck-channel { border-left: 2px solid rgba(38, 240, 255, .5); }
+body[data-theme="gaming"] .deck-value { font-family: var(--font-num); color: var(--cy); }
+body[data-theme="gaming"] .radio-card.is-playing { border-color: var(--mg); background: rgba(255, 43, 214, .14); box-shadow: 0 0 12px rgba(255, 43, 214, .35); }
+
+/* ---------- page chrome: dots, title, overview and the panels over the pages ---------- */
+body[data-theme="gaming"] #dots i { width: 6px; height: 6px; border-radius: 0; background: rgba(38, 240, 255, .35); }
+body[data-theme="gaming"] #dots i.on { width: 16px; background: var(--gx-rgb); box-shadow: 0 0 8px var(--gx-rgb); animation: gx-rgb 6s steps(12) infinite; }
+body[data-theme="gaming"] #ptitle { border-radius: 0; clip-path: var(--clip-sm); font-family: var(--font-num); text-transform: uppercase; letter-spacing: .14em; border-color: var(--mg); color: var(--text); }
+body[data-theme="gaming"] #overview {
+  background: linear-gradient(rgba(38, 240, 255, .05) 1px, transparent 1px) 0 0 / 100% 24px, linear-gradient(90deg, rgba(38, 240, 255, .05) 1px, transparent 1px) 0 0 / 24px 100%, #0b0220;
+}
+body[data-theme="gaming"] .ov-tile { border-radius: 0; clip-path: var(--clip-sm); background: rgba(16, 6, 38, .92); border-color: rgba(38, 240, 255, .3); }
+body[data-theme="gaming"] .ov-tile.on { border-color: var(--mg); box-shadow: inset 0 0 14px rgba(255, 43, 214, .35); }
+body[data-theme="gaming"] .ov-map span { border-radius: 0; background: rgba(38, 240, 255, .14); }
+body[data-theme="gaming"] .ov-head { font-family: var(--font-num); text-transform: uppercase; letter-spacing: .06em; white-space: nowrap; }
+body[data-theme="gaming"] .ov-name { font-family: var(--font-num); text-transform: uppercase; }
+body[data-theme="gaming"] :is(.toast, #navCard, #navChip, .p-sheet, .ap-card, .session-panel) {
+  border-radius: 0; clip-path: var(--clip); background: var(--overlay); border: 1px solid var(--mg);
+  box-shadow: inset 0 0 22px rgba(255, 43, 214, .22);
+}
+body[data-theme="gaming"] .toast { font-family: var(--font-num); }
+body[data-theme="gaming"] :is(.ap-tool, .ps-title b, .session-panel h2) { font-family: var(--font-num); text-transform: uppercase; letter-spacing: .06em; }
+body[data-theme="gaming"] .ap-detail { border-radius: 0; font-family: var(--font-num); }
+body[data-theme="gaming"] .ap-btn { border-radius: 0; clip-path: var(--clip-sm); font-family: var(--font-num); text-transform: uppercase; letter-spacing: .08em; }
+body[data-theme="gaming"] .ap-btn.allow { background: var(--gr); color: #032010; box-shadow: inset 0 -3px 0 rgba(0, 0, 0, .3); }
+body[data-theme="gaming"] .ap-btn.deny { background: rgba(255, 43, 214, .14); color: #ff9be8; border-color: var(--mg); }
+body[data-theme="gaming"] .nv-ring circle { stroke-linecap: butt; }
+/* the night screen: a dim magenta scoreboard, nothing bright */
+body[data-theme="gaming"] #nClock { font-family: var(--font); font-weight: 700; color: #5c1a52; letter-spacing: -.02em; }
+body[data-theme="gaming"] #nDate { font-family: var(--font-num); text-transform: uppercase; letter-spacing: .12em; color: #3b1a4a; }
+
+@media (prefers-reduced-motion: reduce) {
+  body[data-theme="gaming"] :is(.w-media.card, #dots i.on, .clock.pixel .hh, .clock.pixel .mm, .clock.pixel .colon, .status .smini),
+  body[data-theme="gaming"] .art-wrap::before, body[data-theme="gaming"] .art-wrap::after,
+  body[data-theme="gaming"] .gx.hot :is(.sg.on, .eb) { animation: none; }
+  body[data-theme="gaming"] .gx-eq .eb { transition: none; }
+}

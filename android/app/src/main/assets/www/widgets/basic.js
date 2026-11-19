@@ -1,8 +1,7 @@
 import { $, API, D, LEVEL_COLOR, LOCALE, MEDIA_HTML, METRICS, Q_STYLE, S_ORDER, ago, api, averageColor, buzz, cfg, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, haptic, hasProcessesPage, hist, hour12, keyButton, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxIcon } from '../main.js';
 import { W } from '../registry.js';
 import { invalidateDeckState } from './controls.js';
-import { cockpit, dialSvg, lcdDigits, needle } from './instruments.js';
-import { BERRIES, leafDigits, nature, natureArt } from './nature.js';
+import { skin } from './skins.js';
 
 function bindProcessLink(box, sortTarget) {
   if (!hasProcessesPage()) return;
@@ -29,11 +28,10 @@ W.clock = {
     const clock = h('div', 'clock', hh, colon, mm, ss, ap);
     box.append(status || '', clock, date || '', wx || '');
     box.style.setProperty('--tf', (0.84 - (status ? 0.1 : 0) - (date ? 0.11 : 0) - (wx ? 0.2 : 0)).toFixed(2));
-    // Cockpit draws hours and minutes on a seven-segment LCD, Nature grows them from leaves with two berries for the
-    // colon; both from numbers only, redrawn when they change
-    const draw = cockpit() ? lcdDigits : nature() ? leafDigits : null;
-    if (draw === lcdDigits) clock.classList.add('lcd');
-    if (draw === leafDigits) { clock.classList.add('leafy'); colon.innerHTML = BERRIES; }
+    // a theme's skin may draw the hours and minutes (from numbers only), redrawn when they change
+    const sk = skin(), draw = sk?.digits || null;
+    if (sk?.clockClass) clock.classList.add(sk.clockClass);
+    if (sk?.colon) colon.innerHTML = sk.colon;
     const digits = (el, text) => {
       if (!draw) { el.textContent = text; return; }
       if (el.dataset.v === text) return;
@@ -244,15 +242,8 @@ W.stat = {
     const lbl = h('div', 't-label', m.label);
     const val = h('b', null, '—'), unit = h('small'), sub = h('div', 't-sub', ' ');
     box.append(canvas, lbl, h('div', 't-val', val, unit), sub);
-    // Cockpit: a small needle dial in the corner for the metrics that have a full scale
-    let mini = null;
-    if (cockpit() && (m.pct || !m.rate)) {
-      const corner = h('div', 't-dial');
-      corner.innerHTML = dialSvg(0.7, 0.85); // numbers only
-      mini = corner.firstElementChild;
-      box.append(corner);
-    }
-    const art = nature() && (m.pct || !m.rate) ? natureArt(o.metric) : null;
+    // a theme's skin may add a small picture of the reading in the corner, for metrics that have a full scale
+    const art = m.pct || !m.rate ? skin()?.art?.(o.metric) || null : null;
     let artBox = null;
     if (art) {
       artBox = h('div', 't-art');
@@ -270,11 +261,9 @@ W.stat = {
         const pctVal = m.pct?.(s);
         lbl.textContent = pctVal != null && m.label === 'RAM' ? `RAM (${Math.round(pctVal)}%)` : m.label;
         sub.textContent = m.sub?.(s) || ' ';
-        if (mini || art) {
+        if (art) {
           const raw = m.pct ? pctVal : m.val(s), v = raw == null ? 0 : m.pct ? raw / 100 : raw / m.max(s);
-          if (mini) needle(mini, v);
-          // autumn leaves when it runs hot, like the gauge's amber
-          if (art) art.set(artBox, v, m.hot ? m.val(s) > m.hot[0] : v >= 0.85);
+          art.set(artBox, v, m.hot ? m.val(s) > m.hot[0] : v >= 0.85);
         }
         chart(canvas, [{ data: hist[m.hist || o.metric] || hist.cpu, color: c, max: m.max(s) }]);
       },
@@ -292,17 +281,11 @@ W.gauge = {
     dial.append(pct);
     if (o.metric === 'cpu' || o.metric === 'ram') bindProcessLink(box, o.metric === 'cpu' ? 'cpu' : 'mem');
     let svg = null;
-    // Cockpit: a needle dial that stays in place, so the needle sweeps from one reading to the next
-    if (cockpit()) {
-      dial.classList.add('needle-dial');
-      dial.insertAdjacentHTML('afterbegin', dialSvg(0.7, 0.85));
-      svg = dial.firstElementChild;
-    }
-    // Nature: the reading grows a tree, burns a campfire or fills a pond instead of a ring
-    const art = nature() ? natureArt(o.metric) : null;
+    // a theme's skin may draw the reading as a picture (a needle dial, a tree, …) that stays in place between updates
+    const art = skin()?.art?.(o.metric) || null;
     let artBox = null;
     if (art) {
-      dial.classList.add('grow-dial');
+      dial.classList.add('art-dial');
       artBox = h('div', 'g-art');
       artBox.innerHTML = art.html; // numbers only
       dial.prepend(artBox);
@@ -315,8 +298,7 @@ W.gauge = {
         const p = raw == null ? 0 : (raw / (m.pct ? 100 : m.max(s))) * 100;
         const warn = m.hot ? (raw > m.hot[1] ? '#ef4444' : raw > m.hot[0] ? '#f59e0b' : '') : (p >= 95 ? '#ef4444' : p >= 85 ? '#f59e0b' : '');
         dial.style.setProperty('--qc', warn || 'var(--q)');
-        if (dial.classList.contains('needle-dial')) needle(svg, p / 100);
-        else if (art) art.set(artBox, p / 100, !!warn);
+        if (art) art.set(artBox, p / 100, !!warn);
         else {
           if (svg) svg.remove();
           dial.insertAdjacentHTML('afterbegin', ringSvg(p));

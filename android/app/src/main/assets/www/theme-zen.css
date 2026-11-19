@@ -1,0 +1,276 @@
+/* ================================================================ Zen garden
+   A garden at dusk, painted in ink on rice paper: quiet panels, brushed numerals with an ensō round the seconds, and
+   gauges as an ensō, incense, a cairn and raked sand (widgets/zen.js). A soft dusk rather than daylight paper: the
+   panel is on all day and night beside a screen, and a bright sheet would glare in a dark room; ink tones on a dim
+   ground stay calm in both. Vermilion is the seal: kept for what needs the eye (now playing, a waiting prompt, hot). */
+:root[data-theme="zen"] {
+  --cpu: #d9c49a; --gpu: #e58a68; --ram: #aebba3; --net: #90b2c6; --up: #c9a3bd; --ok: #9cbf86;
+}
+body[data-theme="zen"] {
+  --bg: #17161b;
+  --card: rgba(30, 28, 33, .62); --card-hi: rgba(52, 48, 54, .7); --line: rgba(236, 228, 211, .12);
+  --text: #ece4d3; --muted: rgba(236, 228, 211, .66); --dim: rgba(236, 228, 211, .42);
+  --err: #e0573a;
+  --font: "Noto Serif", "Shippori Mincho", "Noto Serif CJK JP", Georgia, "Liberation Serif", serif;
+  --font-num: "Noto Serif", "Shippori Mincho", "Noto Serif CJK JP", Georgia, "Liberation Serif", serif;
+  --card-bg: linear-gradient(180deg, rgba(34, 32, 37, .66), rgba(20, 19, 23, .76));
+  --card-border: 1px solid rgba(236, 228, 211, .11);
+  --card-shadow: inset 0 1px 0 rgba(236, 228, 211, .05), 0 10px 26px -18px rgba(0, 0, 0, .8);
+  --radius: 4px;
+  --radius-sm: 3px;
+  --surface: rgba(236, 228, 211, .05);
+  --surface-hi: rgba(236, 228, 211, .11);
+  --surface-line: rgba(236, 228, 211, .13);
+  --track: rgba(236, 228, 211, .13);
+  --overlay: rgba(24, 22, 27, .97);
+  --on-accent: #17161b;
+  --accent: #d9482b;
+  --vermilion: #d9482b; --gold: #c9a45c; --moss: #8fa876; --stone: #a39d92;
+  color-scheme: dark;
+}
+/* a light veil of mist behind the cards where there is something sharp behind them */
+body[data-theme="zen"]:is(.has-bg-image, [data-bg="stars"], [data-bg="rain"], [data-bg="bubbles"], [data-bg="inkwash"]) .w.card {
+  -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+/* titles are set like a scroll's caption: small, spaced, gold, with a short brush stroke after */
+body[data-theme="zen"] :is(.w-title, .t-label, .g-label, .s-label, .cd-l, .an-l, .wc-n, .gh-sec, .ag-day, .sq-head, .sq-label) {
+  font-weight: 500; letter-spacing: .2em;
+}
+body[data-theme="zen"] .w-title { color: var(--c, var(--gold)); }
+body[data-theme="zen"] .w-title::after {
+  content: ""; flex: 0 0 18px; height: 2px; align-self: center; border-radius: 2px; order: 1;
+  background: linear-gradient(90deg, currentColor, transparent); opacity: .5;
+}
+body[data-theme="zen"] .w-title > * { order: 2; }
+body[data-theme="zen"] .mini-btn { background: var(--surface); border: 1px solid var(--surface-line); border-radius: var(--radius-sm); }
+
+/* ---------- the clock: brushed numerals, ink-drop colon, an ensō painted round the seconds ---------- */
+body[data-theme="zen"] .clock.sumi { align-items: center; gap: .02em; letter-spacing: 0; margin-left: 0; }
+body[data-theme="zen"] .clock.sumi :is(.hh, .mm) { display: flex; align-items: center; }
+.zen-d { height: .86em; width: auto; display: block; overflow: visible; }
+.zen-d text { fill: var(--text, #ece4d3); font: 300 100px/1 var(--font-num, serif); text-anchor: middle; }
+.zen-colon { height: .86em; width: auto; aspect-ratio: 20 / 100; display: block; }
+.zen-colon path { fill: var(--vermilion, #d9482b); }
+body[data-theme="zen"] .clock.sumi .colon { opacity: 1; animation: none; margin: 0 .02em; }
+.zen-enso-s { display: none; }
+body[data-theme="zen"] .clock.sumi .mm .zen-enso-s { display: block; height: .62em; width: .62em; margin-left: .16em; overflow: visible; }
+.zen-enso-s .brush .e1, .z-enso .brush .e1 { fill: none; stroke: var(--text, #ece4d3); stroke-width: 7; stroke-linecap: round; opacity: .92; }
+.zen-enso-s .brush .e2, .z-enso .brush .e2 { fill: none; stroke: var(--text, #ece4d3); stroke-width: 2.4; opacity: .42; }
+/* the minute's ensō: drawn by an animation that began at the current second (zen.js) and lasts to the next minute */
+.zen-enso-s .e1 { stroke-dasharray: 0 100; animation: zen-paint 60s linear var(--zs, 0s) forwards; }
+.zen-enso-s .e2 { stroke-dasharray: 0 100; animation: zen-paint2 60s linear var(--zs, 0s) forwards; }
+@keyframes zen-paint { from { stroke-dasharray: .5 100; } to { stroke-dasharray: 97 100; } }
+@keyframes zen-paint2 { from { stroke-dasharray: .4 100; } to { stroke-dasharray: 90 100; } }
+body[data-theme="zen"] .clock.sumi .sec {
+  align-self: center; width: 3.1em; margin: 0 0 0 -3.1em; text-align: center;
+  font: 400 .2em/1 var(--font-num); color: var(--text); opacity: .9;
+}
+body[data-theme="zen"] .clock.sumi .ap { align-self: flex-end; margin: 0 0 .3em .35em; font: 400 .18em/1 var(--font-num); color: var(--gold); letter-spacing: .1em; }
+body[data-theme="zen"] .date { font-family: var(--font-num); color: var(--text); opacity: .86; letter-spacing: .04em; }
+body[data-theme="zen"] :is(.wx-temp, .wc-t, .cd-v, .sw-t, .ct-n, .pv, .aq-v, .wc-main, .br-c, #nClock, .q-pct, .g-val, .cc-pct) { font-family: var(--font-num); font-weight: 300; }
+body[data-theme="zen"] .status { letter-spacing: .05em; gap: 0; }
+body[data-theme="zen"] .status > * { margin-right: 6px; }
+body[data-theme="zen"] .status .sep { color: rgba(236, 228, 211, .25); }
+/* a waiting prompt is the one thing stamped with the seal */
+body[data-theme="zen"] .status .smini { color: var(--text); }
+body[data-theme="zen"] .status .smini::before {
+  content: "印"; display: inline-grid; place-items: center; width: 1.35em; height: 1.35em; margin-right: 5px; border-radius: 2px;
+  background: var(--vermilion); color: #f6ecdc; font: 600 .8em/1 var(--font); vertical-align: 1px;
+}
+body[data-theme="zen"] .status .upd { color: var(--gold); }
+body[data-theme="zen"] .dot.on { background: var(--moss); box-shadow: 0 0 6px rgba(143, 168, 118, .6); }
+body[data-theme="zen"] .dot.off { background: var(--vermilion); }
+
+/* ---------- drawn gauges ---------- */
+.z-enso .ghost { fill: none; stroke: rgba(236, 228, 211, .08); stroke-width: 7; }
+.z-enso .e1 { stroke-dasharray: var(--p, 1.5) 100; transition: stroke-dasharray 1.2s ease; }
+.z-enso .e2 { stroke-dasharray: var(--p2, 1) 100; transition: stroke-dasharray 1.4s ease; }
+.z-enso.hot .brush :is(.e1, .e2) { stroke: var(--vermilion, #d9482b); }
+.z-incense .smoke { transform-box: view-box; transform-origin: 40px 54px; transition: transform 1.4s ease, opacity 1.4s ease; }
+.z-incense .sm { fill: none; stroke-linecap: round; stroke: #efe6d4; }
+.z-incense .s1 { stroke-width: 3.6; opacity: 1; animation: zen-smoke 5s ease-in-out infinite; }
+.z-incense .s2 { stroke-width: 2.6; opacity: .75; animation: zen-smoke 6s ease-in-out -2s infinite reverse; }
+.z-incense .s3 { stroke-width: 2; opacity: .6; animation: zen-smoke 7s ease-in-out -4s infinite; }
+.z-incense .sm { transform-box: fill-box; transform-origin: 50% 100%; filter: drop-shadow(0 0 3px rgba(239, 230, 212, .6)); }
+.z-incense .ember { fill: #ff7a4c; filter: drop-shadow(0 0 3px #ff7a4c); animation: blink 2.4s ease-in-out infinite; }
+.z-incense.hot .ember { fill: #ff5a2e; }
+.z-incense .stick { stroke: #9a6a48; stroke-width: 1.8; }
+.z-incense .bowl { fill: #3d3a40; stroke: rgba(236, 228, 211, .3); stroke-width: 1; }
+.z-incense .ash { stroke: rgba(236, 228, 211, .45); stroke-width: 1.4; stroke-dasharray: 1.5 2; }
+@keyframes zen-smoke { 0%, 100% { transform: skewX(0) scaleX(1); } 33% { transform: skewX(8deg) scaleX(1.12); } 66% { transform: skewX(-7deg) scaleX(.9); } }
+.z-cairn .sand { fill: none; stroke: rgba(236, 228, 211, .3); stroke-width: 1.2; }
+.z-cairn .st { fill: none; stroke: rgba(236, 228, 211, .22); stroke-width: 1; stroke-dasharray: 2 2; transition: fill .6s ease, stroke .6s ease; }
+.z-cairn .st.on { stroke: rgba(0, 0, 0, .35); stroke-dasharray: none; }
+.z-cairn .st.on.s0 { fill: #9a958c; } .z-cairn .st.on.s1 { fill: #b8b1a3; } .z-cairn .st.on.s2 { fill: #85807a; }
+/* when memory runs short the top stone is the seal's colour */
+.z-cairn.hot .st.on:is(:last-child, :has(+ .st:not(.on))) { fill: var(--vermilion, #d9482b); }
+.z-sand .rk { fill: none; stroke: rgba(236, 228, 211, .55); stroke-width: 1.1; vector-effect: non-scaling-stroke; transition: d 1.2s ease; }
+.z-sand .r1, .z-sand .r3 { stroke: rgba(236, 228, 211, .38); }
+.z-sand .rock { fill: #6d6863; stroke: rgba(0, 0, 0, .3); }
+.z-sand .rock-hi { fill: rgba(236, 228, 211, .22); }
+.z-sand.hot .rock { fill: var(--vermilion, #d9482b); }
+body[data-theme="zen"] .g-dial.art-dial .g-art { bottom: 22%; }
+body[data-theme="zen"] .g-dial.art-dial .g-val { font: 300 min(13cqh, 18cqw)/1 var(--font-num); }
+body[data-theme="zen"] .g-dial:not(.art-dial) .bg { stroke: var(--track); }
+body[data-theme="zen"] .g-dial:not(.art-dial) .fg { filter: none; }
+body[data-theme="zen"] .w-stat .t-art { position: absolute; right: 4%; top: auto; bottom: 6%; transform: none; height: 80cqh; max-width: 38cqw; aspect-ratio: 80 / 92; }
+body[data-theme="zen"] .w-stat .t-art .z-sand { aspect-ratio: 100 / 70; }
+body[data-theme="zen"] .w-stat canvas { width: 58%; opacity: .4; }
+body[data-theme="zen"] .w-stat :is(.t-val, .t-sub) { text-shadow: 0 1px 6px rgba(0, 0, 0, .6); }
+
+/* ---------- readouts ---------- */
+body[data-theme="zen"] :is(.t-val, .s-main, .p-nums, .q-ov-val, .deck-value) b,
+body[data-theme="zen"] :is(.t-val, .s-main) b, body[data-theme="zen"] .deck-value { font-family: var(--font-num); font-weight: 300; }
+body[data-theme="zen"] .chip { background: var(--surface); border: 1px solid var(--surface-line); color: var(--text); border-radius: var(--radius-sm); }
+body[data-theme="zen"] :is(.proc, .sess) { background: var(--card-bg); border-color: var(--line); border-radius: var(--radius-sm); }
+body[data-theme="zen"] .sess.waiting { border-color: rgba(217, 72, 43, .6); background: rgba(217, 72, 43, .12); }
+body[data-theme="zen"] .sess.waiting .st { background: var(--vermilion); box-shadow: 0 0 8px var(--vermilion); }
+body[data-theme="zen"] .sess.busy .st { background: var(--gold); box-shadow: 0 0 6px var(--gold); }
+body[data-theme="zen"] .track, body[data-theme="zen"] .p-bar, body[data-theme="zen"] .bt-bar { background: var(--track); border-radius: 1px; }
+body[data-theme="zen"] .track i, body[data-theme="zen"] .bt-bar i { border-radius: 1px; }
+body[data-theme="zen"] .p-bar i { background: var(--gpu); }
+body[data-theme="zen"] .seg { background: var(--surface); border: 1px solid var(--surface-line); border-radius: var(--radius-sm); }
+body[data-theme="zen"] .seg button { border-radius: 2px; }
+body[data-theme="zen"] .seg button.on { background: var(--surface-hi); box-shadow: inset 0 -2px 0 var(--vermilion); }
+body[data-theme="zen"] .q-card { border-radius: var(--radius); background: radial-gradient(90% 70% at 50% 0%, color-mix(in srgb, var(--q) 9%, transparent), transparent 70%), var(--card-bg); border: var(--card-border); }
+body[data-theme="zen"] .q-plan { border-radius: 2px; }
+body[data-theme="zen"] .q-dial .bg { stroke: var(--track); }
+body[data-theme="zen"] .q-dial .fg { filter: none; }
+
+/* ---------- music: the cover in a round moon window with a koi circling, bamboo progress, river stones ---------- */
+body[data-theme="zen"] .art-wrap {
+  border-radius: 50%; overflow: hidden;
+  box-shadow: 0 0 0 3px #2a201b, 0 0 0 5px #6b4a2f, 0 10px 24px -8px rgba(0, 0, 0, .7);
+  background: radial-gradient(circle at 60% 40%, #efe1c6 0 22%, #d9c8a6 60%, #b8a483);
+}
+body[data-theme="zen"] .art-ph { color: rgba(42, 31, 26, .55); }
+body[data-theme="zen"] .art-wrap::after {
+  content: ""; position: absolute; top: 0; right: 0; bottom: 0; left: 0; pointer-events: none; opacity: 0; transition: opacity .8s;
+  background: no-repeat center / 100% 100% url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg transform='translate(50 13)'%3E%3Cpath d='M-12 0q7-4.6 13-.6q4 2.6 7 .6q-3 3.4-7 1.6q-6 3.6-13-1.6Z' fill='%23ff7a4c'/%3E%3Cpath d='M-12 0l-6-4.6l1.6 4.6l-1.6 4.4Z' fill='%23ff9a6c'/%3E%3Cpath d='M-4-1.6q2 1.6 4.4.6' stroke='%23fff3e6' stroke-width='1.6' fill='none'/%3E%3Ccircle cx='5' cy='-.6' r='.9' fill='%23221a16'/%3E%3C/g%3E%3C/svg%3E");
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, .5));
+}
+body[data-theme="zen"] .w-media.playing .art-wrap::after { opacity: 1; animation: zen-koi 14s linear infinite; }
+@keyframes zen-koi { to { transform: rotate(360deg); } }
+body[data-theme="zen"] .m-app { color: var(--gold); letter-spacing: .24em; font-weight: 500; }
+body[data-theme="zen"] .m-title { font-family: var(--font-num); font-weight: 500; }
+/* bamboo: a culm with a node every so often, and a leaf at the growing tip */
+body[data-theme="zen"] .bar::before { height: 6px; border-radius: 3px; background: transparent; border: 1px solid rgba(236, 228, 211, .2); }
+body[data-theme="zen"] .fill {
+  height: 6px; border-radius: 3px;
+  background: repeating-linear-gradient(90deg, #7fa36a 0 40px, #4e6b40 40px 42px), #7fa36a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2);
+}
+body[data-theme="zen"] .fill::after { width: 15px; height: 7px; right: -11px; top: -7px; border-radius: 0 100%; background: #9cc47f; transform: rotate(-24deg); }
+body[data-theme="zen"] .times { font-family: var(--font-num); }
+body[data-theme="zen"] :is(.w-media .ic, .pb, .ps-btn, .chip-btn) {
+  border-radius: 50% 46% 52% 48% / 56% 50% 50% 44%;
+  background: radial-gradient(circle at 35% 30%, #6e6a65, #3a3835 72%); color: var(--text);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, .45);
+}
+body[data-theme="zen"] :is(.ps-btn, .chip-btn) { border-radius: 40% 46% 42% 48% / 56% 50% 50% 44%; }
+body[data-theme="zen"] .w-media .ic.sm { background: none; box-shadow: none; }
+body[data-theme="zen"] :is(.w-media .ic.play, .pb.main) { background: radial-gradient(circle at 35% 30%, #ea6c4e, #9c2f1a 72%); color: #f6ecdc; }
+body[data-theme="zen"] .ps-btn.danger { color: #f2b4a2; }
+body[data-theme="zen"] .ps-btn.armed { background: radial-gradient(circle at 35% 30%, #ea6c4e, #9c2f1a 72%); color: #fff; }
+/* the volume as a ripple: a thin line of water with a pebble */
+body[data-theme="zen"] input[type=range]::-webkit-slider-runnable-track { height: 2px; border-radius: 1px; background: linear-gradient(to right, var(--gold) var(--p, 50%), rgba(236, 228, 211, .18) var(--p, 50%)); }
+body[data-theme="zen"] input[type=range]::-webkit-slider-thumb {
+  width: 16px; height: 13px; margin-top: -5.5px; border-radius: 50% 46% 52% 48% / 56% 50% 50% 44%;
+  background: radial-gradient(circle at 35% 30%, #c9c3b7, #6d6863 75%);
+  box-shadow: 0 0 0 4px rgba(201, 164, 92, .12), 0 0 0 8px rgba(201, 164, 92, .06), 0 2px 3px rgba(0, 0, 0, .5);
+}
+body[data-theme="zen"] .vb { background: var(--track); border-radius: 3px; }
+body[data-theme="zen"] .vb i { background: linear-gradient(90deg, rgba(201, 164, 92, .55), var(--gold)); }
+body[data-theme="zen"] .vol-val { font-family: var(--font-num); }
+body[data-theme="zen"] .offline-msg { background: rgba(23, 22, 27, .9); }
+
+/* widgets with a colour of their own take one from the garden */
+body[data-theme="zen"] .w-progress { --c: var(--gold); }
+body[data-theme="zen"] .w-checklist { --c: var(--moss); }
+body[data-theme="zen"] .w-checklist.all .w-sub { color: var(--moss); }
+body[data-theme="zen"] :is(.w-stopwatch, .w-counter, .w-timer) { --q: var(--vermilion); }
+body[data-theme="zen"] .w-pomodoro { --q: var(--vermilion); }
+body[data-theme="zen"] .w-pomodoro.brk { --q: var(--moss); }
+body[data-theme="zen"] .w-pomodoro.long { --q: #90b2c6; }
+body[data-theme="zen"] .cmd-o.big { font-family: var(--font-num); }
+
+/* ---------- keys, deck controls and the rest of the pages ---------- */
+body[data-theme="zen"] .key {
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(40, 37, 42, .78), rgba(24, 23, 27, .84));
+  border: 1px solid rgba(236, 228, 211, .12);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--k) 70%, transparent), 0 8px 18px -14px rgba(0, 0, 0, .8);
+}
+body[data-theme="zen"] .key .k-label { color: var(--text); letter-spacing: .04em; }
+body[data-theme="zen"] .key.toggle.on::before { background: var(--vermilion); box-shadow: 0 0 8px var(--vermilion); }
+body[data-theme="zen"] .key.toggle.on { filter: none; border-color: rgba(217, 72, 43, .45); }
+body[data-theme="zen"] :is(.deck-button, .deck-hold, .radio-card, .obs-pill, .obs-sc, .dc-btn, .dc-server, .dc-chan, .ha-tile, .ap-tile, .dk-btn, .cl-i, .ru-row, .pl-i, .ib-i, .pi, .sq-now, .deck-channel) { border-radius: var(--radius-sm); }
+body[data-theme="zen"] :is(.deck-button:active, .deck-hold.held) { background: var(--vermilion); color: #f6ecdc; }
+body[data-theme="zen"] :is(.deck-button.selected, .deck-button[aria-pressed=true]) { border-color: var(--vermilion); background: rgba(217, 72, 43, .16); }
+body[data-theme="zen"] .deck-slider { accent-color: var(--gold); }
+body[data-theme="zen"] .deck-meter { border-radius: 1px; }
+body[data-theme="zen"] .deck-meter i { background: linear-gradient(90deg, var(--moss), var(--gold) 75%, var(--vermilion)); }
+body[data-theme="zen"] .radio-card { background: var(--surface); border-color: var(--surface-line); }
+body[data-theme="zen"] .radio-carousel .radio-card { background: linear-gradient(180deg, rgba(40, 37, 42, .92), rgba(22, 21, 25, .96)); border-color: rgba(236, 228, 211, .12); }
+body[data-theme="zen"] .radio-card.is-playing, body[data-theme="zen"] .radio-carousel .radio-card.is-playing {
+  border-color: var(--vermilion); background: linear-gradient(180deg, rgba(217, 72, 43, .2), rgba(217, 72, 43, .06)); box-shadow: 0 0 0 1px rgba(217, 72, 43, .35);
+}
+body[data-theme="zen"] .radio-card.is-playing .radio-name { color: #f2b4a2; }
+body[data-theme="zen"] .radio-carousel .radio-card.is-playing::after, body[data-theme="zen"] .radio-eq i { background: var(--vermilion); box-shadow: none; }
+body[data-theme="zen"] .radio-logo-box { border-radius: 50%; background: #efe4cb; }
+body[data-theme="zen"] .radio-nav { background: rgba(24, 22, 27, .85); border-color: var(--line); color: var(--text); border-radius: 3px; }
+body[data-theme="zen"] .obs-sc.cur, body[data-theme="zen"] .dc-chan.cur { background: rgba(201, 164, 92, .18); border-color: rgba(201, 164, 92, .5); }
+body[data-theme="zen"] .ha-tile.on { background: rgba(201, 164, 92, .16); border-color: rgba(201, 164, 92, .4); }
+body[data-theme="zen"] .ha-tile.on .ha-state { color: #f0d9a6; }
+body[data-theme="zen"] .ap-letter, body[data-theme="zen"] .dc-ico { background: rgba(201, 164, 92, .2); border-radius: 50%; }
+body[data-theme="zen"] .ap-search { border-radius: var(--radius-sm); }
+body[data-theme="zen"] .cl-box { border-radius: 50%; }
+body[data-theme="zen"] .cl-i.done .cl-box { background: var(--moss); border-color: var(--moss); }
+/* today: a vermilion brush circle, round whatever shape the day's cell has */
+body[data-theme="zen"] .cal-d.today { color: var(--text); background: radial-gradient(circle closest-side, transparent 74%, var(--vermilion) 78% 90%, transparent 94%); }
+body[data-theme="zen"] .cal .we { color: #e8a594; }
+body[data-theme="zen"] .w-note { border-radius: var(--radius); background: linear-gradient(170deg, rgba(239, 228, 205, .1), rgba(239, 228, 205, .04)); border: 1px solid rgba(236, 228, 211, .14); }
+body[data-theme="zen"] .note-t { color: var(--text); font-family: var(--font-num); }
+body[data-theme="zen"] .qt-mark { color: rgba(217, 72, 43, .28); font-family: var(--font-num); }
+body[data-theme="zen"] .qt-q { font-family: var(--font-num); font-weight: 300; }
+body[data-theme="zen"] .br-ball { background: radial-gradient(circle at 40% 35%, rgba(236, 228, 211, .32), rgba(236, 228, 211, .06) 70%); box-shadow: 0 0 0 1px rgba(236, 228, 211, .14), 0 0 40px rgba(236, 228, 211, .08); }
+body[data-theme="zen"] .analog .face { fill: rgba(236, 228, 211, .04); }
+body[data-theme="zen"] .analog .tk { stroke: rgba(236, 228, 211, .25); }
+body[data-theme="zen"] .analog .tk.b { stroke: rgba(236, 228, 211, .7); }
+body[data-theme="zen"] .analog text { font-family: var(--font-num); }
+body[data-theme="zen"] .analog .sh { stroke: var(--vermilion); }
+body[data-theme="zen"] .analog .hub { fill: var(--vermilion); }
+body[data-theme="zen"] .wc-main .hr { color: var(--vermilion); font-weight: 500; }
+body[data-theme="zen"] .sa-fg { stroke: var(--gold); }
+body[data-theme="zen"] .sa-sun { fill: #efe4cb; filter: drop-shadow(0 0 5px rgba(239, 228, 203, .6)); }
+body[data-theme="zen"] .mo-lit { fill: #efe4cb; }
+body[data-theme="zen"] .mo-dark { fill: #222026; }
+body[data-theme="zen"] .w-onair.on .oa-sign { background: var(--vermilion); border-color: #f2b4a2; color: #f6ecdc; }
+body[data-theme="zen"] .ru-pause { background: var(--surface); border: 1px solid var(--surface-line); border-radius: var(--radius-sm); }
+body[data-theme="zen"] .ru-row.on { background: rgba(201, 164, 92, .14); }
+body[data-theme="zen"] .ru-row.on .ru-dot { background: var(--gold); box-shadow: 0 0 6px var(--gold); }
+body[data-theme="zen"] .w-image, body[data-theme="zen"] .w.pf { background: #111014; }
+body[data-theme="zen"] .ag-row.now { background: rgba(201, 164, 92, .12); }
+
+/* ---------- page dots as pebbles, the seal on the current page, and the panels that open over the pages ---------- */
+body[data-theme="zen"] #dots i { width: 5px; height: 5px; border-radius: 50%; background: rgba(236, 228, 211, .3); }
+body[data-theme="zen"] #dots i.on { width: 9px; height: 9px; border-radius: 2px; background: var(--vermilion); }
+body[data-theme="zen"] #ptitle { background: var(--overlay); border-color: rgba(201, 164, 92, .4); border-radius: 3px; font-family: var(--font-num); font-weight: 400; letter-spacing: .14em; }
+body[data-theme="zen"] :where(.toast, #navCard, .p-sheet, .ap-card, .session-panel) {
+  background: linear-gradient(180deg, rgba(34, 32, 37, .98), rgba(22, 21, 25, .98)); border: 1px solid rgba(201, 164, 92, .35);
+  border-radius: 6px; box-shadow: 0 16px 40px rgba(0, 0, 0, .6);
+}
+body[data-theme="zen"] .session-panel-head { background: #222025; }
+body[data-theme="zen"] .ap-card { border-color: rgba(217, 72, 43, .55); box-shadow: 0 0 0 4px rgba(217, 72, 43, .1), 0 20px 60px rgba(0, 0, 0, .6); }
+body[data-theme="zen"] .ap-tool { font-family: var(--font-num); font-weight: 400; }
+body[data-theme="zen"] .ap-detail { background: #111014; border-radius: 3px; }
+body[data-theme="zen"] .ap-btn { border-radius: 4px; }
+body[data-theme="zen"] .ap-btn.allow { background: var(--moss); color: #15200f; }
+body[data-theme="zen"] #overview { background: rgba(18, 17, 21, .96); }
+body[data-theme="zen"] .ov-tile { border-radius: var(--radius); }
+body[data-theme="zen"] #night { background: #000; }
+body[data-theme="zen"] #nClock { color: rgba(236, 228, 211, .8); }
+body[data-theme="zen"] #nDate { font-family: var(--font-num); color: rgba(236, 228, 211, .5); letter-spacing: .1em; }
+body[data-theme="zen"] #dots.paused { border-color: rgba(201, 164, 92, .5); background: rgba(24, 22, 27, .85); }
+body[data-theme="zen"] #dots.paused i.on, body[data-theme="zen"] .page-pause.on { color: var(--gold); }
+body[data-theme="zen"] #dots.paused i.on { background: var(--gold); }
