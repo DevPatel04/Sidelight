@@ -1,0 +1,213 @@
+/* ================================================================ Rainy city
+   A city at night in the rain: cards of wet glass with drops on them, sodium-lamp amber and neon pink and teal, the
+   clock as a lit street sign with rain running down it and its reflection in the street. The sign digits and the
+   tower block, traffic light, rain gauge and skyline are drawn by widgets/rainy.js; this sheet lights and frames them.
+   No real frosting: a blur over the moving city costs an old phone too much, so the glass is gradients and a drop
+   texture that never changes. */
+:root[data-theme="rainy"] {
+  --cpu: #ffc46b; --gpu: #ff4f8b; --ram: #5ee0ff; --net: #b79bff; --up: #ff8fb8; --ok: #5dffb0;
+}
+body[data-theme="rainy"] {
+  --bg: #070a16;
+  --card: rgba(16, 20, 40, .66); --card-hi: rgba(44, 50, 84, .72); --line: rgba(190, 210, 255, .15);
+  --text: #eef1f7; --muted: rgba(214, 222, 242, .7); --dim: rgba(214, 222, 242, .44);
+  --amber: #ffc46b; --pink: #ff4f8b; --teal: #5ee0ff;
+  --sign: "Roboto Condensed", sans-serif-condensed, "Arial Narrow", "Liberation Sans Narrow", sans-serif;
+  --font: Roboto, "Segoe UI", system-ui, sans-serif;
+  --font-num: var(--sign);
+  /* drops on the glass: three offset grids of small highlights, so the pattern does not read as a grid */
+  --drops:
+    radial-gradient(circle at 40% 35%, rgba(235, 244, 255, .2) 0 .8px, rgba(235, 244, 255, .05) 1.4px, transparent 2.2px) 0 0 / 37px 43px,
+    radial-gradient(circle at 40% 35%, rgba(235, 244, 255, .16) 0 1.1px, rgba(235, 244, 255, .04) 1.8px, transparent 2.8px) 13px 21px / 59px 53px,
+    radial-gradient(circle at 40% 35%, rgba(235, 244, 255, .12) 0 .6px, transparent 1.6px) 29px 7px / 23px 31px;
+  --card-bg:
+    var(--drops),
+    linear-gradient(100deg, transparent 30%, rgba(190, 210, 255, .035) 31% 33%, transparent 34% 70%, rgba(190, 210, 255, .03) 71% 72%, transparent 73%),
+    linear-gradient(180deg, rgba(24, 28, 54, .66), rgba(9, 11, 24, .8));
+  --card-border: 1px solid rgba(190, 210, 255, .14);
+  --card-shadow: inset 0 1px 0 rgba(235, 244, 255, .09), inset 0 -1px 0 rgba(255, 196, 107, .1), 0 10px 24px -14px rgba(0, 0, 0, .85);
+  --radius: clamp(10px, 6cqmin, 16px);
+  --radius-sm: 8px;
+  --surface: rgba(170, 190, 255, .07);
+  --surface-hi: rgba(255, 196, 107, .18);
+  --surface-line: rgba(190, 210, 255, .16);
+  --track: rgba(190, 210, 255, .15);
+  --overlay: rgba(12, 14, 30, .97);
+  --on-accent: #1a1020;
+}
+
+/* ---------- the clock: a lit street sign ---------- */
+.sign7 { height: 1em; width: auto; aspect-ratio: 44 / 134; display: block; overflow: visible; }
+.sign7 path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.sign7 .halo { stroke: rgba(255, 196, 107, .2); stroke-width: 15; }
+.sign7 .tube { stroke: #fff4e0; stroke-width: 7; }
+.sign7 .tube.dark { stroke: rgba(255, 244, 224, .1); }
+.sign7 .refl path { stroke: rgba(255, 196, 107, .3); stroke-width: 9; }
+.sign7 .wet { stroke: var(--bg, #070a16); stroke-width: 2.2; stroke-dasharray: 9 4 14 3; opacity: .8; }
+.sign7 .drop path { fill: rgba(196, 228, 255, .95); stroke: rgba(7, 10, 22, .75); stroke-width: 1; }
+/* a drop runs down the sign, gathers speed and is gone at the bottom of the tube */
+.sign7 .drop { animation: rain-run var(--dd, 4s) cubic-bezier(.55, 0, 1, 1) infinite; animation-delay: var(--dl, 0s); }
+@keyframes rain-run { 0% { transform: translateY(0); opacity: 0; } 10% { opacity: 1; } 85% { opacity: 1; } 100% { transform: translateY(90px); opacity: 0; } }
+.lamps { height: 1em; width: auto; aspect-ratio: 14 / 134; display: block; }
+.lamps .glow { fill: rgba(255, 196, 107, .22); }
+.lamps .lamp { fill: #ffd9a0; }
+.lamps .refl circle { fill: rgba(255, 196, 107, .3); }
+body[data-theme="rainy"] .clock.sign { align-items: flex-start; gap: .035em; letter-spacing: 0; margin-left: 0; }
+body[data-theme="rainy"] .clock.sign :is(.hh, .mm) { display: flex; gap: .04em; }
+body[data-theme="rainy"] .clock.sign .colon { opacity: 1; animation: none; margin: 0 .01em; }
+/* the seconds in a pink neon sign; AM/PM in a smaller teal one */
+body[data-theme="rainy"] .clock.sign .sec {
+  align-self: flex-start; margin: .12em 0 0 .22em; padding: .14em .22em .08em; font: 400 .2em/1 var(--sign); letter-spacing: .04em;
+  color: #ffe0ec; border: .06em solid var(--pink); border-radius: .22em;
+  text-shadow: 0 0 .3em var(--pink); box-shadow: 0 0 .5em rgba(255, 79, 139, .45), inset 0 0 .35em rgba(255, 79, 139, .3);
+}
+body[data-theme="rainy"] .clock.sign .ap { align-self: flex-start; margin: .62em 0 0 .22em; font: 400 .14em/1 var(--sign); letter-spacing: .1em; color: #d9f8ff; text-shadow: 0 0 .4em var(--teal); }
+body[data-theme="rainy"] .date { font-family: var(--sign); letter-spacing: .06em; color: #f2e6d3; }
+body[data-theme="rainy"] .status { font-family: var(--sign); letter-spacing: .06em; color: rgba(238, 241, 247, .78); }
+body[data-theme="rainy"] .status b { color: var(--amber); }
+body[data-theme="rainy"] .status .smini {
+  color: #ffe0ec; padding: 0 5px; border: 1px solid rgba(255, 79, 139, .75); border-radius: 4px;
+  text-shadow: 0 0 6px var(--pink); box-shadow: 0 0 8px rgba(255, 79, 139, .45); animation: rain-neon 4s infinite;
+}
+/* a tired neon tube: mostly on, with a stutter now and then (slow, so it never strobes) */
+@keyframes rain-neon { 0%, 90%, 100% { opacity: 1; } 92% { opacity: .45; } 94% { opacity: 1; } 96% { opacity: .6; } }
+body[data-theme="rainy"] .dot.on { background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+body[data-theme="rainy"] :is(.wx-temp, .wc-t, .q-pct, .q-ov-val) { font-family: var(--sign); }
+body[data-theme="rainy"] .wx-temp { color: #fff4e0; text-shadow: 0 0 14px rgba(255, 196, 107, .35); }
+
+/* ---------- tower block, traffic light, rain gauge and skyline ---------- */
+.tower .block { fill: #141a2e; stroke: rgba(238, 241, 247, .16); stroke-width: .8; }
+.tower .side { fill: #0c1020; }
+.tower .mast, .skyline .mast { stroke: #5a6278; stroke-width: 1.4; }
+.tower .beacon, .skyline .beacon { fill: #ff4f5e; animation: rain-beacon 2.4s steps(1) infinite; }
+@keyframes rain-beacon { 50% { opacity: .15; } }
+.tower .wn { fill: #222a44; transition: fill .6s; }
+.tower .wn.on { fill: #ffc46b; }
+.tower.hot .wn.on { fill: #ff7a5c; }
+.tower .kerb { stroke: rgba(255, 196, 107, .35); stroke-width: 1; }
+.signal .pole { stroke: #3a4158; stroke-width: 3; }
+.signal .hood { fill: #10141f; stroke: #3a4158; }
+.signal .lt { fill: #232937; transition: fill .4s; }
+.signal .halo { fill: transparent; transition: fill .4s; }
+.signal .puddle { fill: rgba(190, 210, 255, .08); transition: fill .4s; }
+.signal[data-k="go"] .lt.go { fill: #5dffb0; } .signal[data-k="go"] .halo.go { fill: rgba(93, 255, 176, .2); } .signal[data-k="go"] .puddle { fill: rgba(93, 255, 176, .35); }
+.signal[data-k="wait"] .lt.wait { fill: #ffc46b; } .signal[data-k="wait"] .halo.wait { fill: rgba(255, 196, 107, .22); } .signal[data-k="wait"] .puddle { fill: rgba(255, 196, 107, .35); }
+.signal[data-k="stop"] .lt.stop { fill: #ff4f5e; } .signal[data-k="stop"] .halo.stop { fill: rgba(255, 79, 94, .24); } .signal[data-k="stop"] .puddle { fill: rgba(255, 79, 94, .38); }
+.raingauge .glass { fill: rgba(238, 241, 247, .06); }
+.raingauge .rim { fill: none; stroke: rgba(238, 241, 247, .45); }
+.raingauge .lvl { transition: transform 1.2s ease; }
+.raingauge .water { fill: rgba(94, 224, 255, .5); transition: fill .6s; }
+.raingauge.hot .water { fill: rgba(255, 79, 139, .55); }
+.raingauge .wv { animation: rain-wave 2.4s linear infinite; }
+.raingauge .wv path { fill: none; stroke: #bff4ff; stroke-width: 1; }
+@keyframes rain-wave { to { transform: translateX(-24px); } }
+.raingauge .tk { stroke: rgba(238, 241, 247, .5); stroke-width: .8; }
+.raingauge .funnel { fill: #3a4158; }
+.raingauge .fall path { fill: #bff4ff; }
+.raingauge .fall { animation: rain-fall 1.6s cubic-bezier(.5, 0, 1, 1) infinite; }
+@keyframes rain-fall { 0% { transform: translateY(0); opacity: 1; } 70% { opacity: 1; } 100% { transform: translateY(16px); opacity: 0; } }
+.skyline .bd { fill: #1b2240; transition: y .8s, height .8s; }
+.skyline .bw { fill: url(#pbRainWin); transition: y .8s, height .8s; }
+.skyline .b:last-of-type .bd { fill: #2a3354; }
+.skyline .pw { fill: #ffc46b; opacity: .8; }
+body[data-theme="rainy"] :is(.g-art, .t-art) svg { width: 100%; height: 100%; display: block; }
+/* the drawings stand on the street with room under them for the reading */
+body[data-theme="rainy"] .g-dial.art-dial .g-art { bottom: 24%; }
+body[data-theme="rainy"] .g-dial.art-dial .g-val { font: 400 min(13cqh, 18cqw)/1 var(--sign); color: #fff4e0; text-shadow: 0 0 8px rgba(255, 196, 107, .45); }
+body[data-theme="rainy"] .w-stat .t-art { right: 3%; height: 86cqh; max-width: 38cqw; aspect-ratio: 80 / 92; }
+body[data-theme="rainy"] .w-stat canvas { width: 60%; opacity: .5; }
+
+/* ---------- readouts: shop-sign lettering ---------- */
+body[data-theme="rainy"] :is(.t-label, .g-label, .s-label, .w-title) { font-family: var(--sign); letter-spacing: .16em; }
+body[data-theme="rainy"] .w-title { color: var(--c, var(--amber)); }
+body[data-theme="rainy"] :is(.t-val, .s-main) b { font-family: var(--sign); font-weight: 400; }
+body[data-theme="rainy"] .t-val b { color: #fff4e0; }
+body[data-theme="rainy"] :is(.t-val, .s-main) small { font-family: var(--sign); }
+body[data-theme="rainy"] .w-stat :is(.t-val, .t-sub) { text-shadow: 0 1px 6px rgba(0, 0, 0, .9); }
+body[data-theme="rainy"] :is(.g-dial, .q-dial) .bg { stroke: var(--track); }
+body[data-theme="rainy"] :is(.g-dial, .q-dial) .fg { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--qc, var(--q)) 70%, transparent)); }
+body[data-theme="rainy"] .chip { background: rgba(10, 12, 26, .7); border: 1px solid rgba(255, 196, 107, .35); color: #ffe2b0; border-radius: 4px; font-family: var(--sign); letter-spacing: .04em; }
+body[data-theme="rainy"] :is(.proc, .sess) { background: var(--surface); border-color: var(--surface-line); border-radius: var(--radius-sm); }
+/* process rows stand straight on the page, over the lit city: they get the dark glass of a card */
+body[data-theme="rainy"] .proc { background: var(--drops), linear-gradient(180deg, rgba(20, 24, 48, .86), rgba(10, 12, 26, .9)); }
+body[data-theme="rainy"] .sess.waiting { border-color: rgba(255, 79, 139, .7); background: rgba(255, 79, 139, .1); box-shadow: 0 0 10px rgba(255, 79, 139, .3), inset 0 0 8px rgba(255, 79, 139, .15); }
+body[data-theme="rainy"] .sess.waiting .st { background: var(--pink); box-shadow: 0 0 10px var(--pink); }
+body[data-theme="rainy"] .sess.busy .st { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+
+/* ---------- music: the cover seen through a rainy window, a tram on its wire for progress ---------- */
+body[data-theme="rainy"] .art-wrap {
+  border-radius: 3px; box-shadow: 0 0 0 4px #2a1d14, 0 0 0 5px #3a2a1e, 0 0 22px 4px rgba(255, 159, 107, .25);
+}
+/* the window bars and the drops on the pane sit over the cover */
+body[data-theme="rainy"] .w-media .art-wrap::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    linear-gradient(90deg, transparent calc(50% - 2px), #2a1d14 calc(50% - 2px) calc(50% + 2px), transparent calc(50% + 2px)),
+    linear-gradient(180deg, transparent calc(46% - 2px), #2a1d14 calc(46% - 2px) calc(46% + 2px), transparent calc(46% + 2px)),
+    var(--drops),
+    linear-gradient(180deg, rgba(20, 30, 60, .1), rgba(20, 30, 60, .3));
+}
+body[data-theme="rainy"] .m-app { color: var(--amber); font-family: var(--sign); letter-spacing: .14em; }
+body[data-theme="rainy"] .m-title { font-family: var(--sign); font-weight: 400; letter-spacing: .02em; }
+body[data-theme="rainy"] .times { font-family: var(--sign); }
+/* the overhead wire, the lit trail behind the tram and the tram itself */
+body[data-theme="rainy"] .w-media .bar { height: 22px; align-items: flex-end; padding-bottom: 3px; }
+body[data-theme="rainy"] .w-media .bar::before { height: 1px; top: 3px; border-radius: 0; background: rgba(238, 241, 247, .4); }
+body[data-theme="rainy"] .w-media .bar::after { content: ""; position: absolute; left: 0; right: 0; bottom: 3px; height: 2px; background: rgba(238, 241, 247, .14); }
+body[data-theme="rainy"] .w-media .fill { height: 2px; border-radius: 0; background: var(--amber); box-shadow: 0 0 6px rgba(255, 196, 107, .6); z-index: 1; }
+body[data-theme="rainy"] .w-media .fill::after {
+  right: -15px; top: -17px; width: 30px; height: 19px; border-radius: 0;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 19'%3E%3Cpath d='M12 9L16 0L19 9' fill='none' stroke='%238b93a8' stroke-width='1'/%3E%3Ccircle cx='16' cy='.8' r='1.4' fill='%23bff4ff'/%3E%3Crect x='1' y='8' width='28' height='9' rx='2.5' fill='%23d94b4b'/%3E%3Crect x='4' y='10' width='5' height='3.4' fill='%23ffd9a0'/%3E%3Crect x='12.5' y='10' width='5' height='3.4' fill='%23ffd9a0'/%3E%3Crect x='21' y='10' width='5' height='3.4' fill='%23ffd9a0'/%3E%3Ccircle cx='7' cy='17.6' r='1.4' fill='%2311151f'/%3E%3Ccircle cx='23' cy='17.6' r='1.4' fill='%2311151f'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+body[data-theme="rainy"] .w-media .ic { color: var(--amber); background: radial-gradient(circle at 40% 30%, rgba(255, 255, 255, .14), rgba(255, 255, 255, .03)); box-shadow: inset 0 0 0 1px rgba(255, 196, 107, .38); }
+body[data-theme="rainy"] .w-media .ic.play { background: var(--amber); color: #1a1020; box-shadow: 0 0 18px rgba(255, 196, 107, .5); }
+body[data-theme="rainy"] input[type=range]::-webkit-slider-runnable-track { height: 3px; background: linear-gradient(to right, var(--teal) var(--p, 50%), var(--track) var(--p, 50%)); }
+body[data-theme="rainy"] input[type=range]::-webkit-slider-thumb { width: 14px; height: 14px; margin-top: -5.5px; background: #d9f8ff; box-shadow: 0 0 0 3px rgba(94, 224, 255, .25), 0 0 10px rgba(94, 224, 255, .6); }
+body[data-theme="rainy"] .vol-val { font-family: var(--sign); color: var(--teal); }
+
+/* ---------- keys, buttons and deck controls: lit shop fronts ---------- */
+body[data-theme="rainy"] .key {
+  border-radius: var(--radius-sm);
+  background: var(--drops), linear-gradient(180deg, color-mix(in srgb, var(--k) 18%, rgba(14, 16, 34, .8)), rgba(10, 12, 26, .85));
+  border: 1px solid color-mix(in srgb, var(--k) 55%, transparent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--k) 45%, transparent), 0 0 12px -4px color-mix(in srgb, var(--k) 60%, transparent);
+}
+body[data-theme="rainy"] .key .k-label { font-family: var(--sign); letter-spacing: .05em; }
+/* a deck button is a shop front at night: a lit sill along its foot */
+body[data-theme="rainy"] :is(.deck-button, .deck-hold) {
+  background: var(--surface); border-color: var(--surface-line); border-radius: var(--radius-sm); font-family: var(--sign); letter-spacing: .04em;
+  box-shadow: inset 0 -2px 0 rgba(255, 196, 107, .28);
+}
+body[data-theme="rainy"] :is(.deck-button.selected, .deck-button[aria-pressed=true]) { border-color: var(--teal); background: rgba(94, 224, 255, .12); color: #d9f8ff; box-shadow: 0 0 10px rgba(94, 224, 255, .3); }
+body[data-theme="rainy"] :is(.deck-button:active, .deck-hold.held) { background: var(--amber); color: #1a1020; }
+body[data-theme="rainy"] .deck-channel { background: var(--surface); border-color: var(--surface-line); border-radius: var(--radius-sm); }
+body[data-theme="rainy"] .deck-value { font-family: var(--sign); font-weight: 400; color: #fff4e0; }
+body[data-theme="rainy"] .deck-track { font-family: var(--sign); font-weight: 400; }
+body[data-theme="rainy"] .deck-meter { background: var(--track); }
+body[data-theme="rainy"] .deck-meter i { background: linear-gradient(90deg, var(--teal), var(--amber) 75%, var(--pink)); }
+body[data-theme="rainy"] .deck-slider { accent-color: var(--teal); }
+body[data-theme="rainy"] .radio-card.is-playing { border-color: var(--teal); }
+
+/* ---------- page dots, title and the panels that open over the pages ---------- */
+body[data-theme="rainy"] #dots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(238, 241, 247, .25); }
+body[data-theme="rainy"] #dots i.on { width: 7px; height: 7px; background: var(--amber); box-shadow: 0 0 8px var(--amber); }
+body[data-theme="rainy"] #ptitle { font-family: var(--sign); letter-spacing: .08em; background: rgba(12, 14, 30, .94); border-color: rgba(255, 79, 139, .6); color: #ffe0ec; text-shadow: 0 0 6px var(--pink); box-shadow: 0 0 12px rgba(255, 79, 139, .3); }
+body[data-theme="rainy"] :is(.toast, .p-sheet, .ap-card), body[data-theme="rainy"] #navCard {
+  background: var(--drops), linear-gradient(180deg, rgba(24, 28, 54, .97), rgba(10, 12, 26, .98));
+  border: 1px solid rgba(94, 224, 255, .4); border-radius: 14px; box-shadow: 0 0 18px -4px rgba(94, 224, 255, .3), 0 14px 40px rgba(0, 0, 0, .7);
+}
+body[data-theme="rainy"] .toast.err { border-color: rgba(255, 79, 94, .6); }
+body[data-theme="rainy"] .toast.ok { border-color: rgba(93, 255, 176, .5); }
+body[data-theme="rainy"] .toast.warn { border-color: rgba(255, 196, 107, .6); }
+body[data-theme="rainy"] .ap-card { border-color: rgba(255, 79, 139, .6); box-shadow: 0 0 22px -4px rgba(255, 79, 139, .4), 0 20px 60px rgba(0, 0, 0, .7); }
+body[data-theme="rainy"] .nv-btn.go { background: var(--amber); color: #1a1020; }
+body[data-theme="rainy"] #overview { background: var(--drops), linear-gradient(180deg, #0b0e20, #05060c); }
+body[data-theme="rainy"] .ov-tile { background: rgba(16, 20, 40, .8); border-color: var(--line); border-radius: 10px; }
+body[data-theme="rainy"] .ov-tile.on { border-color: var(--amber); box-shadow: 0 0 0 2px rgba(255, 196, 107, .25); }
+body[data-theme="rainy"] .ov-map span { background: rgba(255, 196, 107, .08); border-radius: 2px; }
+body[data-theme="rainy"] #night { color: #6a4a2e; }
+
+/* the rain on the sign, the stuttering neon and the blinking lights stand still for those who ask for less motion */
+@media (prefers-reduced-motion: reduce) {
+  body[data-theme="rainy"] :is(.sign7 .drop, .status .smini, .beacon, .raingauge .wv, .raingauge .fall) { animation: none; }
+}

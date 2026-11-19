@@ -74,8 +74,8 @@ test('cockpit draws the clock on an LCD and gauges as needle dials over the view
   // four digits, and the time is still there for a screen reader
   await expect(page.locator('.clock.lcd .lcd7')).toHaveCount(4);
   await expect(page.locator('.clock.lcd')).toHaveAttribute('aria-label', /^\d{1,2}:\d{2}$/);
-  await expect(page.locator('.w-gauge .needle-dial .needle')).toHaveCount(1);
-  await expect(page.locator('.w-stat .t-dial .needle')).toHaveCount(1);
+  await expect(page.locator('.w-gauge .art-dial .needle')).toHaveCount(1);
+  await expect(page.locator('.w-stat .t-art .needle')).toHaveCount(1);
   // the needle turns away from zero once a reading arrives
   await expect.poll(() => page.locator('.w-gauge .needle').evaluate((n) => n.style.transform)).not.toBe('rotate(135.0deg)');
 });
@@ -104,3 +104,29 @@ test('nature grows the clock from leaves and shows the load as a tree, a campfir
   await expect(page.locator('.w-gauge .g-art .fire')).toHaveCount(1);
   await expect.poll(() => page.locator('.w-stat .t-art .water').evaluate((n) => n.style.transform)).not.toBe('translateY(54px)');
 });
+
+// Every theme the panel lists must reach every page, not only the widgets it redraws: a widget on another page
+// (the AI quota card) takes the theme's surfaces from the tokens, and the theme brings its own background.
+const ALL_THEMES = { glass: 'blobs', cockpit: 'horizon', nature: 'forest', space: 'galaxy', gaming: 'synthwave', paper: 'notebook', zen: 'inkwash', rainy: 'city' };
+for (const [theme, bg] of Object.entries(ALL_THEMES)) {
+  test(`${theme} reaches a page beyond the home screen`, async ({ page }) => {
+    await page.goto('/panel/');
+    await page.evaluate((theme) => {
+      localStorage.clear();
+      localStorage.setItem('pb-demo-config', JSON.stringify({
+        night: { enabled: false }, rules: [], shortcuts: [], display: { idleReturnSec: 0, theme },
+        pages: [{ id: 'ai', title: 'AI', widgets: [{ id: 'q', type: 'quotas', x: 0, y: 0, w: 12, h: 6, options: {} }] }],
+      }));
+    }, theme);
+    await page.reload();
+    await expect(page.locator('body')).toHaveAttribute('data-theme', theme);
+    await expect(page.locator('body')).toHaveAttribute('data-bg', bg);
+    await expect(page.locator('#jsfail')).toBeHidden();
+    // the quota card does not keep the default theme's surface
+    const look = (sel) => page.locator(sel).first().evaluate((n) => { const s = getComputedStyle(n); return s.backgroundColor + s.backgroundImage + s.borderTopColor + s.fontFamily; });
+    const themed = await look('.w-quotas');
+    await page.evaluate(() => { const c = JSON.parse(localStorage.getItem('pb-demo-config')); c.display.theme = 'default'; localStorage.setItem('pb-demo-config', JSON.stringify(c)); });
+    await page.reload();
+    expect(await look('.w-quotas')).not.toBe(themed);
+  });
+}

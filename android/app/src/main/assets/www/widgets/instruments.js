@@ -1,9 +1,6 @@
 // ---------------------------------------------------------------- Cockpit theme: instruments
-// The Cockpit theme draws some widgets as aircraft instruments: the clock on a seven-segment LCD, gauges as needle
-// dials. Widgets ask cockpit() when they are created; the theme is part of the layout key, so switching themes
-// builds them again. Everything here is drawn from numbers only, never from agent text.
-
-export const cockpit = () => document.documentElement.dataset.theme === 'cockpit';
+// The Cockpit theme draws some widgets as aircraft instruments (skin-cockpit.js): the clock on a seven-segment LCD,
+// gauges as needle dials. Everything here is drawn from numbers only, never from agent text.
 
 // seven-segment digits: segment end points in a 60 × 104 cell, and which segments each digit lights
 export const SEG = { a: [12, 8, 48, 8], b: [54, 13, 54, 47], c: [54, 57, 54, 91], d: [12, 96, 48, 96], e: [6, 57, 6, 91], f: [6, 13, 6, 47], g: [12, 52, 48, 52] };

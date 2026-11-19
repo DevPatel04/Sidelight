@@ -1,10 +1,8 @@
 import { DIG, SEG } from './instruments.js';
 
 // ---------------------------------------------------------------- Nature theme: things that grow
-// The Nature theme draws the clock in leaves and gauges as a tree, a campfire and a pond. Widgets ask nature() when
-// they are created (the theme is part of the layout key). Everything here is drawn from numbers only.
-
-export const nature = () => document.documentElement.dataset.theme === 'nature';
+// The Nature theme draws the clock in leaves and gauges as a tree, a campfire and a pond (skin-nature.js).
+// Everything here is drawn from numbers only.
 
 const LEAF = ['#8fd16a', '#6fbf5a', '#a9de7a', '#5fae55', '#9ccf63', '#7cc86b', '#b6e486'];
 const AUTUMN = ['#f2a541', '#e07a3a', '#f2c14e'];
