@@ -109,12 +109,19 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
             AgentSession? s = null;
             try
             {
-                var cwd = _codexCwd.GetOrAdd(f.FullName, ReadCodexCwd);
                 var hasCached = _codexDetails.TryGetValue(f.FullName, out var cached);
-                var details = hasCached && cached.LastWrite == f.LastWriteTimeUtc && cached.Length == f.Length
+                var unchanged = hasCached && cached.LastWrite == f.LastWriteTimeUtc && cached.Length == f.Length;
+                var appended = hasCached && f.Length > cached.Length;
+                if (!_codexCwd.TryGetValue(f.FullName, out var cwd) || cwd.Length == 0 || (!unchanged && !appended))
+                {
+                    cwd = ReadCodexCwd(f.FullName);
+                    if (cwd.Length > 0) _codexCwd[f.FullName] = cwd;
+                    else _codexCwd.TryRemove(f.FullName, out _);
+                }
+                var details = unchanged
                     ? cached.Details : ReadCodexDetails(f.FullName,
-                        hasCached && f.Length > cached.Length ? cached.Details : null,
-                        hasCached && f.Length > cached.Length ? cached.Details.ReadOffset : 0);
+                        appended ? cached.Details : null,
+                        appended ? cached.Details.ReadOffset : 0);
                 _codexDetails[f.FullName] = (f.LastWriteTimeUtc, f.Length, details);
                 var age = DateTime.UtcNow - f.LastWriteTimeUtc;
                 var status = details.Lifecycle == "task_started" && age < TimeSpan.FromMinutes(3) ? "busy" : "idle";
@@ -136,14 +143,37 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log) : BackgroundServ
         }
     }
 
+    // the first record carries the base instructions and tool definitions, so it can be far longer than one read
+    private const int MaxCodexMetaBytes = 4 * 1024 * 1024;
+
+    /// <summary>The project folder from a rollout's first record; "" while that record is still being written.</summary>
     private static string ReadCodexCwd(string path)
     {
         using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var sr = new StreamReader(fs);
-        var first = sr.ReadLine();
-        if (first is null) return "";
-        using var doc = JsonDocument.Parse(first);
-        return doc.RootElement.TryGetProperty("payload", out var p) ? Str(p, "cwd") ?? "" : "";
+        var buf = new byte[64 * 1024];
+        int len = 0, nl = -1;
+        while (nl < 0)
+        {
+            if (len == buf.Length)
+            {
+                if (buf.Length >= MaxCodexMetaBytes) return "";
+                Array.Resize(ref buf, Math.Min(buf.Length * 2, MaxCodexMetaBytes));
+            }
+            var n = fs.Read(buf, len, buf.Length - len);
+            if (n <= 0) return ""; // no complete record yet: the next poll reads it again
+            nl = Array.IndexOf(buf, (byte)'\n', len, n);
+            len += n;
+        }
+        var record = buf.AsMemory(0, nl);
+        // JsonDocument.Parse on bytes refuses a UTF-8 BOM (a StreamReader used to drop it)
+        if (record.Span.StartsWith("﻿"u8)) record = record[3..];
+        if (record.IsEmpty) return "";
+        try
+        {
+            using var doc = JsonDocument.Parse(record);
+            return doc.RootElement.TryGetProperty("payload", out var p) ? Str(p, "cwd") ?? "" : "";
+        }
+        catch (JsonException) { return ""; }
     }
 
     private sealed record CodexDetails(string? Model, string? Effort, long? TotalTokens, long? InputTokens,

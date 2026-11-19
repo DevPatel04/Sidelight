@@ -71,11 +71,7 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
     /// The app console widget the phone names, as "pageId/widgetId" ("pageId/stackId:cardId" in a Smart Stack), if it is
     /// on an enabled page this phone shows. Each widget's own "control" option counts, not another one's.
     /// </summary>
-    public static WidgetConfig? WidgetFor(AgentConfig c, string? deviceId, string? key) => string.IsNullOrEmpty(key) ? null
-        : c.PagesFor(deviceId).Where(p => p.Enabled).SelectMany(p => (p.Widgets ?? []).SelectMany(w =>
-                new[] { (Key: p.Id + "/" + w.Id, W: w) }.Concat(StackWidgets.Children(w).Where(ch => ch.Enabled)
-                    .Select(ch => (Key: p.Id + "/" + w.Id + ":" + ch.Id, W: new WidgetConfig { Id = ch.Id, Type = ch.Type, Options = ch.Options })))))
-            .FirstOrDefault(x => x.W.Type == "app-console" && x.Key == key).W;
+    public static WidgetConfig? WidgetFor(AgentConfig c, string? deviceId, string? key) => PanelWidgets.Find(c, deviceId, key, "app-console");
 
     /// <summary>What the phone may know: the matching profile's id, label and key labels. Never the process name or title.</summary>
     public (int Status, object Body) State(string? deviceId, string? widget)
@@ -124,14 +120,21 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
             for (var t = 0; t < times; t++)
                 foreach (var combo in combos)
                 {
-                    // the switch can be turned off (or the widget removed) while this waits or runs
-                    if (WidgetFor(config.Get(), deviceId, widget)?.Bool("control") != true) return (403, "sending keys was turned off");
-                    // checked again before every combo: a click elsewhere mid-macro must not send the rest there
+                    // checked again before every combo: a click elsewhere mid-macro must not send the rest there.
+                    // Looked up first, so a binding saved while this runs is still seen by the checks below.
                     var app = Focused();
-                    if (app is null || !profile.Matches(app.Process)) return (409, "the focused app changed");
+                    // the switch can be turned off (or the widget removed) while this waits or runs
+                    var current = config.Get();
+                    if (WidgetFor(current, deviceId, widget)?.Bool("control") != true) return (403, "sending keys was turned off");
+                    var currentProfile = current.Console.Profiles.FirstOrDefault(p => p.Id == profileId);
+                    if (currentProfile is null || currentProfile.Spec(slot) != spec) return (409, "the app console binding changed");
+                    // the app the macro started for, as the profile named it then and names it now: a profile moved to
+                    // another app mid-macro doesn't take the rest of the keys with it
+                    if (app is null || !profile.Matches(app.Process) || !currentProfile.Matches(app.Process)) return (409, "the focused app changed");
                     if (app.Elevated && !AgentElevated) return (409, "the focused app runs as administrator, so Windows doesn't let the agent send keys to it");
                     // the checks above take a moment: the same window must still be in front as the keys go out
                     if (app.Window != 0 && ForegroundWindow() != app.Window) return (409, "the focused app changed");
+                    ct.ThrowIfCancellationRequested();
                     if (!SendCombo(combo)) return (500, "Windows refused the key press");
                     if (combos.Count > 1 || times > 1) await Task.Delay(40, ct);
                 }
@@ -174,7 +177,7 @@ public sealed class AppConsole(ConfigStore config, ILogger<AppConsole> log)
 #endif
     }
 
-    private static FocusedApp? FocusedNow()
+    internal static FocusedApp? FocusedNow()
     {
 #if WINDOWS
         var hwnd = GetForegroundWindow();

@@ -1,4 +1,4 @@
-import { $, D, DEFAULT_CFG, LOCALE, cfg, fmtDur, fmtHM, h, t, tick } from '../main.js';
+import { $, D, DEFAULT_CFG, LOCALE, cfg, fmtDur, fmtHM, h, en, t, tick } from '../main.js';
 import { W } from '../registry.js';
 import { cached, every } from './helpers.js';
 
@@ -25,12 +25,24 @@ W.sun = {
     return {
       update() {
         const d = D.weather?.daily;
-        if (!d?.sunrise) { q('.sl').textContent = D.weather === null ? t('w.loading') : t('w.weatherUnavailable'); return; }
+        const rise = new Date(d?.sunrise?.[0] ?? NaN), set = new Date(d?.sunset?.[0] ?? NaN);
+        if (!(set > rise)) {
+          if (shown) {
+            shown = '';
+            fg.style.strokeDashoffset = len;
+            box.classList.remove('night');
+            for (const selector of ['.sr', '.ss', '.w-sub', '.moon']) q(selector).textContent = '';
+          }
+          sun.style.display = 'none';
+          q('.sl').textContent = D.weather === null ? t('w.loading') : t('w.weatherUnavailable');
+          return;
+        }
         const now = new Date();
-        const key = now.getHours() + ':' + now.getMinutes();
+        const key = [Math.floor(now.getTime() / 60_000), rise.getTime(), set.getTime(),
+          d.daylight_duration?.[0], d.uv_index_max?.[0]].join(':');
         if (key === shown) return;
         shown = key;
-        const rise = new Date(d.sunrise[0]), set = new Date(d.sunset[0]);
+        sun.style.display = '';
         const f = Math.max(0, Math.min(1, (now - rise) / (set - rise)));
         fg.style.strokeDashoffset = len * (1 - f);
         const pt = fg.getPointAtLength(len * f);
@@ -54,7 +66,7 @@ W.air = {
   create(box) {
     const city = h('span', 'w-sub');
     const v = h('div', 'aq-v', '—'), cat = h('div', 'aq-c', t('w.loading')), chips = h('div', 'aq-chips');
-    box.append(h('div', 'w-title', 'Air quality', city), h('div', 'aq-main', v, cat), chips);
+    box.append(h('div', 'w-title', en('Air quality'), city), h('div', 'aq-main', v, cat), chips);
     let coordinates, load;
     const clearIndex = (message) => {
       box.style.removeProperty('--c');
