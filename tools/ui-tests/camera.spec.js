@@ -134,10 +134,10 @@ test('a camera on another page is not asked for', async ({ page }) => {
   expect(await page.evaluate(() => window.__camRequests)).toBe(0);
 });
 
-test('settings: a camera added in General can be chosen in the widget, and its address is not shown there', async ({ page }) => {
+test('settings: a camera added in Sources can be chosen in the widget, and its address is not shown there', async ({ page }) => {
   await show(page, { widget: {}, cameras: [] });
   await page.setViewportSize({ width: 1280, height: 1000 });
-  await page.goto('/settings/#general');
+  await page.goto('/settings/#sources');
   await page.locator('#cameraAdd').click();
   const row = page.locator('#cameraList .cam-row').first();
   await row.locator('input').nth(0).fill('Front door');

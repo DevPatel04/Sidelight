@@ -78,7 +78,8 @@ reinstalls it). Step-by-step setup: [RUN.md](../RUN.md) (Linux/macOS) or [RUN-WI
 ```
 
 `phone` rebuilds only the app after `www/` changes; `agent` rebuilds only the agent after `settings.html` or C#
-changes. Also: `start`, `stop`, `status`, `logs`.
+changes. Also: `start`, `stop`, `status`, `logs`, and `test` (release metadata, agent unit tests, Playwright UI
+including i18n — run before push).
 
 On Windows, from the repository root, a full release package is:
 
