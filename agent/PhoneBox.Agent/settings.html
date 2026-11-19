@@ -65,6 +65,25 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); }
 .check { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; margin-right: 14px; }
 .check input { accent-color: var(--accent); width: 16px; height: 16px; }
 
+.theme-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 440px); gap: 16px; align-items: start; }
+.theme-side { position: sticky; top: 76px; }
+@media (max-width: 1000px) { .theme-layout { grid-template-columns: minmax(0, 1fr); } .theme-side { position: static; order: -1; } }
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.theme-card, .bg-chip { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel-2); cursor: pointer; text-align: left; color: var(--text); }
+.theme-card:hover, .bg-chip:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.theme-card[aria-checked="true"], .bg-chip[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent); }
+.theme-card b { font-size: 13.5px; }
+.theme-card small { color: var(--muted); font-size: 12px; line-height: 1.35; }
+/* a tiny panel in each theme's colours: the clock and three cards */
+.tc-mini { position: relative; aspect-ratio: 780 / 360; border-radius: 8px; overflow: hidden; background: var(--m-bg); display: grid; grid-template-columns: 1.1fr 1fr; grid-template-rows: 1.15fr 1fr; gap: 5px; padding: 6px; }
+.tc-mini .clk { font: 200 26px/1 var(--m-font, system-ui); color: var(--m-text); align-self: center; letter-spacing: -1px; }
+.tc-mini i { border-radius: var(--m-r, 6px); background: var(--m-card); border: 1px solid var(--m-line); }
+.tc-mini i:nth-of-type(2), .tc-mini i:nth-of-type(3) { grid-row: 2; }
+.tc-mini i:first-of-type { grid-column: 2; grid-row: 1; }
+.tc-mini i::after { content: ""; display: block; margin: 6px; height: 3px; width: 55%; border-radius: 2px; background: var(--m-accent); box-shadow: 0 0 6px var(--m-accent); }
+.bg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; }
+.bg-chip span { aspect-ratio: 16 / 9; border-radius: 7px; background: var(--sw); }
+.bg-chip b { font-size: 12.5px; font-weight: 600; }
 .bg-thumb { width: 58px; height: 32px; border-radius: 7px; border: 1px solid var(--line); background: center / cover no-repeat var(--panel-2); }
 
 /* Glass theme (Settings › Display): the settings page takes the panel's look while it is chosen */
@@ -93,6 +112,16 @@ body.cockpit .card { background: linear-gradient(180deg, #23282e, #171a1e); bord
 body.cockpit :is(h2, .card h3) { font-family: "Roboto Condensed", "Arial Narrow", sans-serif; letter-spacing: .14em; text-transform: uppercase; }
 body.cockpit :is(input[type=text], input[type=number], input[type=time], select, textarea) { background: #0b0c0e; color: #ffb23f; font-family: ui-monospace, monospace; }
 body.cockpit header { background: rgba(11,13,16,.85); }
+
+/* Nature theme: a forest at golden hour, mossy panels and leaf-green accents */
+body.nature {
+  --bg: #0a1614; --panel: rgba(16,36,29,.82); --panel-2: rgba(10,24,19,.7); --line: rgba(243,234,215,.14); --text: #f3ead7; --muted: rgba(243,234,215,.62);
+  --accent: #8fd16a; --accent-ink: #10240f; --shadow: 0 10px 24px -14px rgba(0,0,0,.7); color-scheme: dark;
+  background: radial-gradient(40% 40% at 70% 45%, rgba(242,193,78,.22), transparent 70%), linear-gradient(180deg, #0a1614 0%, #183428 55%, #3a3220 100%) #0a1614 fixed;
+}
+body.nature .card { border-radius: 22px 8px; }
+body.nature :is(h2, .card h3) { font-family: Georgia, "Noto Serif", serif; font-weight: 500; }
+body.nature header { background: rgba(10,22,20,.7); }
 
 /* switch */
 .switch { position: relative; width: 40px; height: 22px; flex: 0 0 40px; }
@@ -366,6 +395,7 @@ dd { margin: 0; word-break: break-all; }
 <div class="layout">
   <nav id="nav">
     <a href="#pages" class="on" data-i18n="s.nav.pages">Pages</a>
+    <a href="#theme" data-i18n="s.nav.theme">Theme</a>
     <a href="#shortcuts" data-i18n="s.nav.shortcuts">Shortcuts</a>
     <a href="#rules" data-i18n="s.nav.rules">Rules</a>
     <a href="#webhooks" data-i18n="s.nav.webhooks">Webhooks</a>
@@ -392,6 +422,29 @@ dd { margin: 0; word-break: break-all; }
           </div>
           <div id="peRest"></div>
         </div>
+      </div>
+    </section>
+
+    <section id="theme">
+      <h2 data-i18n="s.nav.theme">Theme</h2>
+      <p class="lead" data-i18n="s.theme.lead">How the panel looks. The preview shows your choice with live data before you save; Save sends it to the phone.</p>
+      <div class="theme-layout">
+        <div>
+          <div class="card"><h3 data-i18n="s.display.theme">Theme</h3><div class="theme-grid" id="themeGrid" role="radiogroup"></div></div>
+          <div class="card"><h3 data-i18n="s.display.background">Background</h3><div class="bg-grid" id="bgGrid" role="radiogroup"></div>
+            <div class="row" style="gap:16px;margin:14px 0 4px;align-items:flex-end;flex-wrap:wrap">
+          <div class="field" style="margin:0"><label data-i18n="s.display.bgImage">Picture behind the widgets</label>
+            <div class="row" style="gap:8px"><span class="bg-thumb" id="bgThumb" hidden></span><button type="button" class="btn sm" id="bgPick" data-i18n="s.display.bgPick">Choose a picture…</button><button type="button" class="btn sm danger" id="bgClear" data-i18n="s.display.bgClear" hidden>Remove</button><input type="file" id="bgFile" accept="image/jpeg,image/png,image/webp" hidden></div></div>
+            </div>
+        <p class="hint" style="margin:0 0 12px" data-i18n="s.display.bgHint">The animation pauses on the night screen and when the phone asks for less motion. A picture is scaled down here before it is stored on this computer; it reaches the phone when you save.</p>
+          </div>
+          <div class="card"><h3 data-i18n="s.theme.colour">Colour</h3>
+            <div class="row" style="gap:16px;align-items:center;flex-wrap:wrap">
+              <div class="field" style="margin:0"><label data-i18n="s.display.accent">Accent colour</label><input type="color" data-bind="display.accent" style="width:56px;height:36px;padding:2px"></div>
+              <label class="check"><input type="checkbox" data-bind="display.artTint"> <span data-i18n="s.display.artTint">Tint the background with the album art</span></label>
+            </div></div>
+        </div>
+        <div class="card theme-side"><h3 data-i18n="s.theme.preview">Preview</h3><div class="preview" id="themePreviewBox"></div></div>
       </div>
     </section>
 
@@ -528,18 +581,7 @@ dd { margin: 0; word-break: break-all; }
         <div class="row" style="gap:16px;margin-bottom:12px;align-items:flex-end;flex-wrap:wrap">
           <div class="field" style="margin:0"><label data-i18n="lang.label">Language</label>
             <select data-bind="display.language" id="displayLangSel"></select></div>
-          <div class="field" style="margin:0"><label data-i18n="s.display.theme">Theme</label>
-            <select data-bind="display.theme"><option value="default" data-i18n="s.display.theme.default">Default</option><option value="amoled" data-i18n="s.display.theme.amoled">AMOLED black</option><option value="midnight" data-i18n="s.display.theme.midnight">Midnight blue</option><option value="warm" data-i18n="s.display.theme.warm">Warm</option><option value="graphite" data-i18n="s.display.theme.graphite">Graphite</option><option value="glass" data-i18n="s.display.theme.glass">Glass</option><option value="cockpit" data-i18n="s.display.theme.cockpit">Cockpit</option></select></div>
-          <div class="field" style="margin:0"><label data-i18n="s.display.accent">Accent colour</label><input type="color" data-bind="display.accent" style="width:56px;height:36px;padding:2px"></div>
-          <label class="check" style="margin-bottom:8px"><input type="checkbox" data-bind="display.artTint"> <span data-i18n="s.display.artTint">Tint the background with the album art</span></label>
         </div>
-        <div class="row" style="gap:16px;margin-bottom:4px;align-items:flex-end;flex-wrap:wrap">
-          <div class="field" style="margin:0"><label data-i18n="s.display.background">Background</label>
-            <select data-bind="display.background"><option value="auto" data-i18n="s.display.bg.auto">The theme's own</option><option value="glow" data-i18n="s.display.bg.glow">Accent glow</option><option value="blobs" data-i18n="s.display.bg.blobs">Drifting colour</option><option value="aurora" data-i18n="s.display.bg.aurora">Aurora</option><option value="stars" data-i18n="s.display.bg.stars">Starry sky</option><option value="bubbles" data-i18n="s.display.bg.bubbles">Bubbles</option><option value="rain" data-i18n="s.display.bg.rain">Rain</option><option value="horizon" data-i18n="s.display.bg.horizon">The view ahead</option><option value="none" data-i18n="s.display.bg.none">Plain</option></select></div>
-          <div class="field" style="margin:0"><label data-i18n="s.display.bgImage">Picture behind the widgets</label>
-            <div class="row" style="gap:8px"><span class="bg-thumb" id="bgThumb" hidden></span><button type="button" class="btn sm" id="bgPick" data-i18n="s.display.bgPick">Choose a picture…</button><button type="button" class="btn sm danger" id="bgClear" data-i18n="s.display.bgClear" hidden>Remove</button><input type="file" id="bgFile" accept="image/jpeg,image/png,image/webp" hidden></div></div>
-        </div>
-        <p class="hint" style="margin:0 0 12px" data-i18n="s.display.bgHint">The animation pauses on the night screen and when the phone asks for less motion. A picture is scaled down here before it is stored on this computer; it reaches the phone when you save.</p>
         <div class="field" style="max-width:420px"><label data-i18n="s.display.orientation">Orientation</label>
           <select data-bind="display.orientation"><option value="landscape" data-i18n="s.display.orientation.landscape">Landscape</option><option value="portrait" data-i18n="s.display.orientation.portrait">Portrait</option><option value="auto" data-i18n="s.display.orientation.auto">Follow the phone</option></select>
           <span class="hint">You design pages in landscape; in portrait the panel arranges the widgets by itself, top to bottom. Tablets use the same pages, just bigger.</span></div>
@@ -1108,6 +1150,8 @@ function sendPreview() {
   const config = JSON.parse(JSON.stringify(cfg));
   if (previewFrame && previewReady && stageMode === 'live')
     previewFrame.contentWindow.postMessage({ type: 'phonebox-preview', config, page: selPage }, location.origin);
+  if (themePreviewFrame && themePreviewReady && location.hash === '#theme')
+    themePreviewFrame.contentWindow.postMessage({ type: 'phonebox-preview', config, page: 0 }, location.origin);
   if (appearancePreviewFrame && appearancePreviewReady)
     appearancePreviewFrame.contentWindow.postMessage({ type: 'phonebox-preview', config, page: Number($('appearancePreviewPage')?.value || 0) }, location.origin);
 }
@@ -1117,6 +1161,7 @@ window.addEventListener('message', (e) => {
   if (e.origin !== location.origin || e.data?.type !== 'phonebox-preview-ready') return;
   if (e.source === previewFrame?.contentWindow) previewReady = true;
   if (e.source === appearancePreviewFrame?.contentWindow) appearancePreviewReady = true;
+  if (e.source === themePreviewFrame?.contentWindow) themePreviewReady = true;
   sendPreview();
 });
 for (const b of $('stageSeg').children) b.onclick = () => setStage(b.dataset.v);
@@ -2578,7 +2623,59 @@ function renderBackground() {
   $('bgThumb').hidden = $('bgClear').hidden = !ok;
   document.body.classList.toggle('glass', cfg.display?.theme === 'glass');
   document.body.classList.toggle('cockpit', cfg.display?.theme === 'cockpit');
+  document.body.classList.toggle('nature', cfg.display?.theme === 'nature');
 }
+// ---------------------------------------------------------------- Theme page
+// Each theme as a small picture of the panel in its own colours; the backgrounds as swatches. Picking one changes the
+// settings like any other field (Save sends it to the phone), and the preview beside them shows it with live data.
+const THEMES = [
+  { id: 'default', bg: 'radial-gradient(70% 90% at 80% 20%, #12403b, #06080b 70%)', card: 'rgba(255,255,255,.06)', line: 'rgba(255,255,255,.1)', text: '#eef2f6', accent: '#2dd4bf' },
+  { id: 'amoled', bg: '#000', card: 'rgba(255,255,255,.05)', line: 'rgba(255,255,255,.08)', text: '#fff', accent: '#2dd4bf' },
+  { id: 'midnight', bg: 'radial-gradient(70% 90% at 80% 20%, #14234d, #060a17 70%)', card: 'rgba(120,150,255,.1)', line: 'rgba(140,170,255,.18)', text: '#e8edff', accent: '#7c9cff' },
+  { id: 'warm', bg: 'radial-gradient(70% 90% at 80% 20%, #3a2214, #0e0907 70%)', card: 'rgba(255,196,150,.08)', line: 'rgba(255,196,150,.14)', text: '#f6ede5', accent: '#f59e0b' },
+  { id: 'graphite', bg: '#16181c', card: 'rgba(255,255,255,.08)', line: 'rgba(255,255,255,.12)', text: '#eef2f6', accent: '#94a3b8' },
+  { id: 'glass', bg: 'radial-gradient(45% 60% at 20% 25%, #ff5fa2, transparent 70%), radial-gradient(45% 60% at 80% 20%, #7c5cff, transparent 70%), radial-gradient(50% 60% at 55% 95%, #24d4ff, transparent 70%) #120c2a', card: 'linear-gradient(145deg, rgba(255,255,255,.3), rgba(255,255,255,.1))', line: 'rgba(255,255,255,.35)', text: '#fff', accent: '#fff', r: '9px' },
+  { id: 'nature', bg: 'linear-gradient(180deg, #0a1614 0%, #183428 40%, #9c6a3c 66%, #17322b 67%, #0c1f1a)', card: 'rgba(12,30,24,.7)', line: 'rgba(243,234,215,.2)', text: '#f3ead7', accent: '#8fd16a', font: 'Georgia, serif', r: '12px 4px' },
+  { id: 'cockpit', bg: 'linear-gradient(180deg, #0b1020 0%, #2a2440 45%, #d9814a 62%, #120f0d 63%, #050606)', card: 'linear-gradient(180deg, #2a3037, #16191d)', line: '#3a424b', text: '#ffb23f', accent: '#5dff9a', font: 'ui-monospace, monospace', r: '3px' },
+];
+const BACKGROUNDS = [
+  { id: 'auto', sw: 'conic-gradient(from 200deg, #ff5fa2, #7c5cff, #24d4ff, #ffb347, #ff5fa2)' },
+  { id: 'glow', sw: 'radial-gradient(70% 90% at 75% 30%, rgba(45,212,191,.55), #06080b 70%)' },
+  { id: 'blobs', sw: 'radial-gradient(45% 60% at 25% 30%, #ff5fa2, transparent 70%), radial-gradient(45% 60% at 75% 25%, #7c5cff, transparent 70%), radial-gradient(50% 60% at 55% 95%, #24d4ff, transparent 70%) #120c2a' },
+  { id: 'aurora', sw: 'linear-gradient(170deg, transparent 30%, rgba(45,212,191,.7) 42%, transparent 55%), linear-gradient(185deg, transparent 40%, rgba(124,92,255,.6) 50%, transparent 62%) #05080d' },
+  { id: 'stars', sw: 'radial-gradient(1.5px 1.5px at 20% 30%, #fff, transparent), radial-gradient(1.5px 1.5px at 70% 20%, #fff, transparent), radial-gradient(1px 1px at 45% 65%, #fff, transparent), radial-gradient(1px 1px at 85% 70%, #fff, transparent), radial-gradient(1.5px 1.5px at 30% 85%, #fff, transparent) #060a17' },
+  { id: 'bubbles', sw: 'radial-gradient(circle at 25% 60%, rgba(255,255,255,.35) 0 7%, transparent 8%), radial-gradient(circle at 65% 35%, rgba(36,212,255,.4) 0 10%, transparent 11%), radial-gradient(circle at 80% 75%, rgba(255,255,255,.3) 0 5%, transparent 6%) #071822' },
+  { id: 'rain', sw: 'repeating-linear-gradient(105deg, transparent 0 9px, rgba(200,215,255,.35) 9px 10px) #0b0f1c' },
+  { id: 'horizon', sw: 'linear-gradient(180deg, #0b1020 0%, #2a2440 45%, #d9814a 60%, #120f0d 61%, #050606)' },
+  { id: 'forest', sw: 'linear-gradient(170deg, transparent 52%, #17322b 53%), linear-gradient(190deg, transparent 60%, #0c1f1a 61%), radial-gradient(30% 40% at 65% 55%, #ffd67888, transparent 70%), linear-gradient(180deg, #0a1614, #183428 45%, #9c6a3c)' },
+  { id: 'none', sw: 'var(--bg)' },
+];
+function renderThemePage() {
+  const d = cfg.display || {};
+  const theme = THEMES.some((x) => x.id === d.theme) ? d.theme : 'default';
+  const bg = BACKGROUNDS.some((x) => x.id === d.background) ? d.background : 'auto';
+  const pick = (key, value) => () => { cfg.display[key] = value; renderThemePage(); renderBackground(); changed(); };
+  // custom properties need setProperty (h() assigns style keys, which skips them)
+  const vars = (el, map) => { for (const [k, v] of Object.entries(map)) if (v) el.style.setProperty(k, v); return el; };
+  $('themeGrid').replaceChildren(...THEMES.map((x) => {
+    const mini = vars(h('span', { class: 'tc-mini' }, h('span', { class: 'clk' }, '10:42'), h('i'), h('i'), h('i')),
+      { '--m-bg': x.bg, '--m-card': x.card, '--m-line': x.line, '--m-text': x.text, '--m-accent': x.accent, '--m-font': x.font, '--m-r': x.r });
+    return h('button', { type: 'button', class: 'theme-card', role: 'radio', 'aria-checked': String(x.id === theme), onclick: pick('theme', x.id) },
+      mini, h('b', { 'data-i18n': 's.display.theme.' + x.id }, t('s.display.theme.' + x.id)), h('small', { 'data-i18n': 's.theme.desc.' + x.id }, t('s.theme.desc.' + x.id)));
+  }));
+  $('bgGrid').replaceChildren(...BACKGROUNDS.map((x) => h('button', { type: 'button', class: 'bg-chip', role: 'radio', 'aria-checked': String(x.id === bg), onclick: pick('background', x.id) },
+    vars(h('span'), { '--sw': x.sw }), h('b', { 'data-i18n': 's.display.bg.' + x.id }, t('s.display.bg.' + x.id)))));
+}
+let themePreviewFrame = null, themePreviewReady = false;
+function openThemePreview() {
+  if (themePreviewFrame) { queuePreview(); return; }
+  themePreviewFrame = h('iframe', { src: '../panel/?preview=1', title: 'Live preview of the panel' });
+  $('themePreviewBox').appendChild(themePreviewFrame);
+  const fit = () => { themePreviewFrame.style.transform = `scale(${$('themePreviewBox').clientWidth / 780})`; };
+  new ResizeObserver(fit).observe($('themePreviewBox'));
+  fit();
+}
+
 $('bgPick').onclick = () => $('bgFile').click();
 $('bgFile').onchange = async () => {
   const file = $('bgFile').files[0];
@@ -2616,12 +2713,12 @@ function bindForm() {
       setPath(cfg, p, val);
       $('nbv').textContent = Math.round(cfg.night.brightness * 100) + '%';
       if (p === 'charge.method') renderCharge();
-      if (p === 'display.theme') renderBackground();
       changed();
     };
   });
   bindCodexBar();
   renderBackground();
+  renderThemePage();
   $('nbv').textContent = Math.round(cfg.night.brightness * 100) + '%';
 }
 
@@ -2852,6 +2949,7 @@ function route() {
   document.querySelectorAll('section').forEach((s) => s.classList.toggle('on', s.id === id));
   document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
   if (id === 'webhooks') loadPushed();
+  if (id === 'theme') openThemePreview();
 }
 window.addEventListener('hashchange', route);
 route();
