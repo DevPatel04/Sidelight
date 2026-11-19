@@ -7,19 +7,22 @@ name: release
 # key as repository secrets: PHONEBOX_KEYSTORE_BASE64 (base64 of the .jks / .keystore file), PHONEBOX_STORE_PASSWORD,
 # PHONEBOX_KEY_ALIAS and PHONEBOX_KEY_PASSWORD. Without them the workflow stops before publishing anything.
 #
-# Every push to the test branch also runs it and publishes a pre-release numbered <version>.<run> (0.9.14.57) for
-# agents on the "test" update channel. Those sort after the release they build on and before the next one, keep the
-# APK's versionCode (so adb installs them over the release and the next release over them), and never touch the
-# Scoop/winget manifests.
+# Automation for this repository (DevPatel04/phonebox):
+#  - push to main  → stable GitHub release from the version in the project files (bump first; duplicate tags fail)
+#  - push to test  → pre-release numbered <version>.<run> (0.9.22.57) for the Testing update channel
+#  - workflow_dispatch → same as a push to the chosen branch; set draft=true to review assets before publishing
+#
+# Test builds sort after the release they build on and before the next one, keep the APK's versionCode (so adb
+# installs them over the release and the next release over them), and never touch the Scoop/winget manifests.
 on:
   push:
-    branches: [test]
+    branches: [main, test]
   workflow_dispatch:
     inputs:
       draft:
-        description: Create the release as a draft
+        description: Create the release as a draft (stable/main only; ignored for test pre-releases)
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: read
@@ -189,30 +192,38 @@ jobs:
           cat >> notes.md <<'EOF'
 
           ---
-          [Code signing policy](https://github.com/ersinkoc/phonebox#code-signing-policy) · [Privacy policy](https://github.com/ersinkoc/phonebox/blob/main/PRIVACY.md)
+          [Code signing policy](https://github.com/${{ github.repository }}#code-signing-policy) · [Privacy policy](https://github.com/${{ github.repository }}/blob/main/PRIVACY.md)
           EOF
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           v="${{ needs.version.outputs.version }}"
-          gh release create "v$v" dist/* --title "PhoneBox $v" --notes-file notes.md --target "${{ github.sha }}" ${{ inputs.draft && '--draft' || '' }} ${{ github.ref == 'refs/heads/test' && '--prerelease --latest=false' || '' }}
+          draft_flag=''
+          if [ "${{ github.ref }}" = 'refs/heads/main' ] && [ '${{ inputs.draft }}' = 'true' ]; then draft_flag='--draft'; fi
+          pre_flag=''
+          if [ "${{ github.ref }}" = 'refs/heads/test' ]; then pre_flag='--prerelease --latest=false'; fi
+          gh release create "v$v" dist/* --title "PhoneBox $v" --notes-file notes.md --target "${{ github.sha }}" $draft_flag $pre_flag
       # a draft's downloads are not public yet, so the package manifests follow only published releases
       - name: Update the Scoop bucket and the winget manifests
-        if: ${{ !inputs.draft && github.ref != 'refs/heads/test' }}
+        if: ${{ github.ref == 'refs/heads/main' && inputs.draft != true }}
         run: |
           v="${{ needs.version.outputs.version }}"
           sha=$(sha256sum "dist/PhoneBoxAgent-$v-win-x64.zip" | cut -d' ' -f1)
-          python3 - "$v" "$sha" <<'PY'
+          repo='${{ github.repository }}'
+          python3 - "$v" "$sha" "$repo" <<'PY'
           import json, sys
-          v, sha = sys.argv[1], sys.argv[2]
+          v, sha, repo = sys.argv[1], sys.argv[2], sys.argv[3]
           p = 'bucket/phonebox.json'
           m = json.load(open(p, encoding='utf-8'))
           m['version'] = v
-          m['architecture']['64bit']['url'] = f'https://github.com/ersinkoc/phonebox/releases/download/v{v}/PhoneBoxAgent-{v}-win-x64.zip'
+          m['homepage'] = f'https://github.com/{repo}'
+          m['architecture']['64bit']['url'] = f'https://github.com/{repo}/releases/download/v{v}/PhoneBoxAgent-{v}-win-x64.zip'
           m['architecture']['64bit']['hash'] = sha
           # the agent is self-contained since 0.9.7: no .NET runtime to suggest
           m.get('suggest', {}).pop('.NET Desktop Runtime 10', None)
+          if 'autoupdate' in m:
+              m['autoupdate']['architecture']['64bit']['url'] = f'https://github.com/{repo}/releases/download/v$version/PhoneBoxAgent-$version-win-x64.zip'
           open(p, 'w', encoding='utf-8').write(json.dumps(m, indent=4, ensure_ascii=False) + '\n')
           PY
           python3 packaging/winget/make-manifests.py "$v" "$sha"

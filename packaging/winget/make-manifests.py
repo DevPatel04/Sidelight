@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Writes the winget manifests for a release:  python packaging/winget/make-manifests.py 0.6.3 <sha256 of the win-x64 zip>
 
-They land in packaging/winget/manifests/e/ersinkoc/PhoneBox/<version>/ (the layout of microsoft/winget-pkgs). Check them
+They land in packaging/winget/manifests/d/DevPatel04/PhoneBox/<version>/ (the layout of microsoft/winget-pkgs). Check them
 with `winget validate --manifest <folder>` and submit them with `wingetcreate submit <folder>` (or a pull request to
 microsoft/winget-pkgs). The release workflow runs this script and attaches the result to the release.
 """
@@ -11,8 +11,9 @@ from pathlib import Path
 if len(sys.argv) != 3:
     sys.exit(__doc__)
 version, sha = sys.argv[1], sys.argv[2].upper()
-pkg = 'ersinkoc.PhoneBox'
-out = Path(__file__).resolve().parent / 'manifests' / 'e' / 'ersinkoc' / 'PhoneBox' / version
+pkg = 'DevPatel04.PhoneBox'
+repo = 'DevPatel04/phonebox'
+out = Path(__file__).resolve().parent / 'manifests' / 'd' / 'DevPatel04' / 'PhoneBox' / version
 out.mkdir(parents=True, exist_ok=True)
 schema = '1.6.0'
 header = '# yaml-language-server: $schema=https://aka.ms/winget-manifest.{kind}.' + schema + '.schema.json\n'
@@ -38,7 +39,7 @@ Dependencies:
   - PackageIdentifier: Google.PlatformTools
 Installers:
 - Architecture: x64
-  InstallerUrl: https://github.com/ersinkoc/phonebox/releases/download/v{version}/PhoneBoxAgent-{version}-win-x64.zip
+  InstallerUrl: https://github.com/{repo}/releases/download/v{version}/PhoneBoxAgent-{version}-win-x64.zip
   InstallerSha256: {sha}
 ManifestType: installer
 ManifestVersion: {schema}
@@ -48,13 +49,13 @@ ManifestVersion: {schema}
 PackageIdentifier: {pkg}
 PackageVersion: {version}
 PackageLocale: en-US
-Publisher: ersinkoc
-PublisherUrl: https://github.com/ersinkoc
+Publisher: DevPatel04
+PublisherUrl: https://github.com/DevPatel04
 PackageName: PhoneBox
-PackageUrl: https://github.com/ersinkoc/phonebox
+PackageUrl: https://github.com/{repo}
 License: MIT
-LicenseUrl: https://github.com/ersinkoc/phonebox/blob/main/LICENSE
-ReleaseNotesUrl: https://github.com/ersinkoc/phonebox/releases/tag/v{version}
+LicenseUrl: https://github.com/{repo}/blob/main/LICENSE
+ReleaseNotesUrl: https://github.com/{repo}/releases/tag/v{version}
 ShortDescription: Turn an old Android phone into a desk panel for your PC.
 Description: |-
   PhoneBox has two parts: an Android app that runs full screen on an old phone, and this agent, which lives in the

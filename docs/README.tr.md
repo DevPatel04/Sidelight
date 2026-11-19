@@ -153,7 +153,7 @@ python tools/demo-server.py
 
 - **Windows ajanı:** SignPath Foundation başvurusu beklemededir; onaylanana kadar sürümler imzasızdır.
 - **Android uygulaması:** Sürüm APK'ları SignPath'ten bağımsız olarak projenin kendi imzalama anahtarını kullanır.
-- **Ekip rolleri:** Commit, inceleme ve imzalama onaylayıcısı: [ersinkoc](https://github.com/ersinkoc).
+- **Ekip rolleri:** Commit, inceleme ve imzalama onaylayıcısı: [DevPatel04](https://github.com/DevPatel04).
 - **Gizlilik:** Bkz. [gizlilik politikası](../PRIVACY.md).
 
 ## Sponsor
