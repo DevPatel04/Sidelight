@@ -394,7 +394,7 @@ test('the settings page loads and its sections open', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
   await page.goto('/settings/#pages');
   await expect(page.locator('#pageTabs .ptab')).not.toHaveCount(0);
-  for (const section of ['Shortcuts', 'Rules', 'Webhooks', 'General', 'Advanced', 'Pages']) {
+  for (const section of ['Shortcuts', 'Rules', 'Webhooks', 'Display', 'Sources', 'Integrations', 'Assistants', 'Connection', 'Advanced', 'Pages']) {
     await page.locator('#nav a', { hasText: section }).click();
     await expect(page.locator('section.on h2')).toHaveText(section);
   }
@@ -404,7 +404,7 @@ test('the settings page loads and its sections open', async ({ page }) => {
 test('pairing over Wi-Fi shows both QR codes and cancels the code when closed', async ({ page }) => {
   const errors = watchErrors(page);
   await page.setViewportSize({ width: 1280, height: 860 });
-  await page.goto('/settings/#general');
+  await page.goto('/settings/#connection');
   // the demo answers the API inside the page, so watch the page's own fetch calls
   await page.evaluate(() => {
     window.__calls = [];
@@ -469,7 +469,7 @@ test('rule options and page switching settings are there', async ({ page }) => {
   await expect(rule.locator('.day.on')).toHaveCount(5);
   await rule.locator('.day', { hasText: 'Sa' }).click();
   await expect(rule.locator('.day.on')).toHaveCount(6);
-  await page.goto('/settings/#general');
+  await page.goto('/settings/#display');
   await expect(page.locator('#homePageSel option')).not.toHaveCount(0);
   await expect(page.locator('[data-bind="display.switchCountdownSec"]')).toHaveValue(/\d/);
 });

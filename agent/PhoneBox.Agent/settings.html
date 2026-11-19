@@ -42,17 +42,25 @@ header .ver { color: var(--muted); font-size: 12px; }
 .ico.m { margin-right: 0.35em; }
 .icon-btn:disabled { opacity: .3; cursor: default; }
 
-.layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 24px; max-width: 1400px; margin: 0 auto; padding: 24px; }
-nav { position: sticky; top: 76px; align-self: start; display: flex; flex-direction: column; gap: 2px; }
+.layout { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 24px; max-width: 1400px; margin: 0 auto; padding: 24px; }
+nav { position: sticky; top: 76px; align-self: start; display: flex; flex-direction: column; gap: 2px; max-height: calc(100vh - 100px); overflow: auto; }
+nav .nav-search { margin: 0 0 10px; }
+nav .nav-search input { width: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; outline: none; }
+nav .nav-search input:focus { border-color: var(--accent); }
+nav .nav-group { margin: 12px 0 4px; padding: 0 12px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+nav .nav-group:first-of-type { margin-top: 2px; }
 nav a { padding: 8px 12px; border-radius: 8px; color: var(--text); text-decoration: none; }
 nav a:hover { background: var(--panel-2); }
 nav a.on { background: var(--panel); box-shadow: var(--shadow); font-weight: 600; border: 1px solid var(--line); }
+nav a[hidden], nav .nav-group[hidden] { display: none; }
 section { display: none; }
 section.on { display: block; }
+section .card[hidden] { display: none; }
 h2 { font-size: 20px; margin: 0 0 4px; }
 .lead { color: var(--muted); margin: 0 0 18px; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 14px; }
 .card h3 { margin: 0 0 12px; font-size: 15px; }
+.card.nav-hit { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), var(--shadow); }
 .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; min-width: 0; }
 .field label { font-size: 12.5px; color: var(--muted); font-weight: 600; }
@@ -446,12 +454,23 @@ dd { margin: 0; word-break: break-all; }
 
 <div class="layout">
   <nav id="nav">
+    <div class="nav-search"><input type="search" id="navSearch" data-i18n-placeholder="s.nav.search" placeholder="Search settings…" autocomplete="off" spellcheck="false"></div>
+    <div class="nav-group" data-i18n="s.nav.group.panel">Panel</div>
     <a href="#pages" class="on" data-i18n="s.nav.pages">Pages</a>
     <a href="#theme" data-i18n="s.nav.theme">Theme</a>
     <a href="#shortcuts" data-i18n="s.nav.shortcuts">Shortcuts</a>
     <a href="#rules" data-i18n="s.nav.rules">Rules</a>
+    <div class="nav-group" data-i18n="s.nav.group.phone">Phone</div>
+    <a href="#display" data-i18n="s.nav.display">Display</a>
+    <a href="#connection" data-i18n="s.nav.phone">Connection</a>
+    <div class="nav-group" data-i18n="s.nav.group.data">Data</div>
+    <a href="#sources" data-i18n="s.nav.sources">Sources</a>
+    <a href="#integrations" data-i18n="s.nav.integrations">Integrations</a>
+    <div class="nav-group" data-i18n="s.nav.group.ai">AI</div>
+    <a href="#ai" data-i18n="s.nav.ai">Assistants</a>
+    <div class="nav-group" data-i18n="s.nav.group.automate">Automate</div>
     <a href="#webhooks" data-i18n="s.nav.webhooks">Webhooks</a>
-    <a href="#general" data-i18n="s.nav.general">General</a>
+    <div class="nav-group" data-i18n="s.nav.group.system">System</div>
     <a href="#advanced" data-i18n="s.nav.advanced">Advanced</a>
   </nav>
 
@@ -517,17 +536,86 @@ dd { margin: 0; word-break: break-all; }
         <div class="presets" id="rulePresets"></div>
       </div>
       <div class="card row" style="gap:10px;align-items:center">
-        <span id="rulesPausedState" class="hint" style="flex:1" data-i18n="s.rules.countdown">Page switches count down on the phone and wait while you use it (General › Page switching).</span>
+        <span id="rulesPausedState" class="hint" style="flex:1" data-i18n="s.rules.countdown">Page switches count down on the phone and wait while you use it (Display › Page switching).</span>
         <button class="btn sm" id="rulesPauseBtn" data-i18n="s.rules.pause1h">Pause all rules for 1 hour</button>
       </div>
       <div id="ruleList"></div>
     </section>
 
-    <section id="general">
-      <h2 data-i18n="s.nav.general">General</h2>
+    <section id="display">
+      <h2 data-i18n="s.nav.display">Display</h2>
+      <p class="lead" data-i18n="s.display.lead">How the phone screen behaves: language, night mode, page switching and kiosk options.</p>
       <div class="card" id="appearanceSettings"></div>
-      <div class="card" id="controlSettings"></div>
-      <p class="lead" data-i18n="s.general.lead">Weather, night mode, display behaviour and the phone connection.</p>
+
+      <div class="card">
+        <h3 data-i18n="s.night.title">Night mode</h3>
+        <div class="row" style="margin-bottom:12px"><label class="switch"><input type="checkbox" data-bind="night.enabled"><span></span></label> <span data-i18n="s.night.enable">Dim the screen at night and show only the clock</span></div>
+        <div class="grid2">
+          <div class="row" style="gap:10px">
+            <div class="field" style="flex:1"><label data-i18n="s.night.from">From</label><input type="time" data-bind="night.start"></div>
+            <div class="field" style="flex:1"><label data-i18n="s.night.to">To</label><input type="time" data-bind="night.end"></div>
+          </div>
+          <div class="field"><label><span data-i18n="s.night.brightness">Night brightness: </span><span id="nbv"></span></label><input type="range" min="0.01" max="0.3" step="0.01" data-bind="night.brightness" data-type="num"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 data-i18n="s.display.title">Display</h3>
+        <div class="row" style="gap:16px;margin-bottom:12px;align-items:flex-end;flex-wrap:wrap">
+          <div class="field" style="margin:0"><label data-i18n="lang.label">Language</label>
+            <select data-bind="display.language" id="displayLangSel"></select></div>
+        </div>
+        <div class="field" style="max-width:420px"><label data-i18n="s.display.orientation">Orientation</label>
+          <select data-bind="display.orientation"><option value="landscape" data-i18n="s.display.orientation.landscape">Landscape</option><option value="portrait" data-i18n="s.display.orientation.portrait">Portrait</option><option value="auto" data-i18n="s.display.orientation.auto">Follow the phone</option></select>
+          <span class="hint" data-i18n="s.display.orientationHint">You design pages in landscape; in portrait the panel arranges the widgets by itself, top to bottom. Tablets use the same pages, just bigger.</span></div>
+        <div class="field" style="max-width:420px"><label data-i18n="s.display.timeFormat">Time format</label>
+          <select data-bind="display.hour12" data-type="hour12"><option value="false" data-i18n="s.display.h24">24-hour (14:05)</option><option value="true" data-i18n="s.display.h12">12-hour (2:05 PM)</option><option value="auto" data-i18n="s.display.orientation.auto">Follow the phone</option></select></div>
+        <label class="check"><input type="checkbox" data-bind="display.showSeconds"> <span data-i18n="s.display.showSeconds">Show seconds on the clock</span></label>
+        <label class="check"><input type="checkbox" data-bind="display.vibrate"> <span data-i18n="s.display.vibrate">Vibrate when a session finishes or needs input</span></label>
+        <label class="check"><input type="checkbox" data-bind="display.volumeKeys"> <span data-i18n="s.display.volumeKeys">The phone's volume keys switch pages</span></label>
+        <label class="check"><input type="checkbox" data-bind="display.autoBrightness"> <span data-i18n="s.display.autoBrightness">Brightness follows the room (light sensor)</span></label>
+        <label class="check"><input type="checkbox" data-bind="display.nightWhenDark"> <span data-i18n="s.display.nightWhenDark">Show the night screen whenever the room is dark</span></label>
+        <label class="check"><input type="checkbox" data-bind="display.proximityWake"> <span data-i18n="s.display.proximityWake">A hand near the phone wakes the night screen</span></label>
+        <label class="check"><input type="checkbox" data-bind="display.controlsTop"> <span data-i18n="s.display.controlsTop">Page dots and the Allow / Deny buttons at the top of the screen</span></label>
+      </div>
+
+      <div class="card">
+        <h3 data-i18n="s.oled.title">OLED burn-in protection</h3>
+        <p class="hint" style="margin:0 0 12px" data-i18n="s.oled.lead">For OLED screens that show the same page for hours. The AMOLED black theme and the night screen help too.</p>
+        <label class="check"><input type="checkbox" data-bind="display.pixelShift"> <span data-i18n="s.oled.pixelShift">Move the panel by a few pixels every 2 minutes, and the night clock around the screen</span></label>
+        <div class="field" style="max-width:420px;margin-top:8px"><label data-i18n="s.oled.idleDim">Dim the panel after (minutes without a touch, 0 = never)</label><input type="number" min="0" max="1440" data-bind="display.idleDimMin" data-type="int">
+          <span class="hint" data-i18n="s.oled.idleDimHint">A touch brightens it again without pressing anything; so do a page switch, a notification and a permission prompt.</span></div>
+      </div>
+
+      <div class="card">
+        <h3 data-i18n="s.pageSwitch.title">Page switching</h3>
+        <p class="hint" style="margin:0 0 12px" data-i18n="s.pageSwitch.lead">How rules, webhooks and the idle return change the page. Instead of jumping, the phone shows “Claude needs me — switching to AI in 3…” with Stay and Go now, then fades over. It never pulls a page away while you are using the panel, and rules that fire one after another wait their turn instead of bouncing the screen back and forth.</p>
+        <div class="grid2">
+          <div class="field"><label data-i18n="s.pageSwitch.homePage">Home page</label><select id="homePageSel" onchange="cfg.display.homePage = this.value || null; changed(); renderPageEditor()"></select>
+            <span class="hint" data-i18n="s.pageSwitch.homePageHint">Where the idle return and the Back key go.</span></div>
+          <div class="field"><label data-i18n="s.pageSwitch.backHome">Back home after (seconds without a touch, 0 = never)</label><input type="number" min="0" max="3600" data-bind="display.idleReturnSec" data-type="int">
+            <span class="hint" data-i18n="s.pageSwitch.backHomePerPage">Each page can override this (page editor › Back home after).</span></div>
+          <div class="field"><label data-i18n="s.pageSwitch.countdown">Countdown before switching (seconds, 0 = at once)</label><input type="number" min="0" max="30" data-bind="display.switchCountdownSec" data-type="int"></div>
+          <div class="field"><label data-i18n="s.pageSwitch.grace">Don't interrupt for (seconds after I touch the panel)</label><input type="number" min="0" max="600" data-bind="display.touchGraceSec" data-type="int"></div>
+          <div class="field"><label data-i18n="s.pageSwitch.minDwell">At least (seconds between two automatic switches)</label><input type="number" min="0" max="600" data-bind="display.minDwellSec" data-type="int"></div>
+          <div class="field"><label data-i18n="s.pageSwitch.holdMax">A rule keeps its page at most (minutes, 0 = while it lasts)</label><input type="number" min="0" max="1440" data-bind="display.holdMaxMin" data-type="int">
+            <span class="hint" data-i18n="s.pageSwitch.holdMaxHint">After that the panel goes home when nobody touches it.</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 data-i18n="s.kiosk.title">Kiosk</h3>
+        <p class="hint" style="margin:0 0 12px" data-i18n="s.kiosk.lead">Keep the phone on the panel. Neither needs root.</p>
+        <label class="check"><input type="checkbox" data-bind="display.pin"> <span data-i18n="s.kiosk.pin">Pin the panel: Home and Recents stay on it (Android asks once; hold Back and Overview together to unpin)</span></label>
+        <label class="check"><input type="checkbox" data-bind="display.homeScreen"> <span data-i18n="s.kiosk.homeScreen">Use the panel as the phone's home screen: it starts after a reboot and Home returns to it (turn off to get your launcher back)</span></label>
+        <label class="check"><input type="checkbox" data-bind="display.keepAwake"> <span data-i18n="s.kiosk.keepAwake">Keep the phone awake: turn off Android's screen saver (it starts on the charger) and keep the screen on while plugged in (set over USB)</span></label>
+        <label class="check" id="followComputerLockOption" style="display:none"><input type="checkbox" data-bind="display.followComputerLock"> <span data-i18n="s.kiosk.followLock">Follow the computer lock: turn the phone screen off when macOS locks; wake it and open PhoneBox when macOS unlocks (ADB required; unlock phones secured by a PIN or password manually)</span></label>
+      </div>
+    </section>
+
+    <section id="sources">
+      <h2 data-i18n="s.nav.sources">Sources</h2>
+      <p class="lead" data-i18n="s.sources.lead">Data the widgets read: weather, calendars, photos, feeds, cameras and the app console.</p>
 
       <div class="card">
         <h3 data-i18n="s.weather.title">Weather</h3>
@@ -594,6 +682,12 @@ dd { margin: 0; word-break: break-all; }
         <div id="consoleList"></div>
         <button class="btn sm" id="consoleAdd" data-i18n="s.console.add">＋ Add an app</button>
       </div>
+    </section>
+
+    <section id="integrations">
+      <h2 data-i18n="s.nav.integrations">Integrations</h2>
+      <p class="lead" data-i18n="s.integrations.lead">Connect Home Assistant, Discord, OBS and the Control Deck to this computer.</p>
+      <div class="card" id="controlSettings"></div>
 
       <div class="card">
         <h3 data-i18n="s.ha.title">Home Assistant</h3>
@@ -627,90 +721,11 @@ dd { margin: 0; word-break: break-all; }
         </div>
         <div class="row"><button class="btn sm" id="obsTest" data-i18n="s.test">Test</button><span class="hint" id="obsState"></span></div>
       </div>
+    </section>
 
-      <div class="card">
-        <h3 data-i18n="s.night.title">Night mode</h3>
-        <div class="row" style="margin-bottom:12px"><label class="switch"><input type="checkbox" data-bind="night.enabled"><span></span></label> <span data-i18n="s.night.enable">Dim the screen at night and show only the clock</span></div>
-        <div class="grid2">
-          <div class="row" style="gap:10px">
-            <div class="field" style="flex:1"><label data-i18n="s.night.from">From</label><input type="time" data-bind="night.start"></div>
-            <div class="field" style="flex:1"><label data-i18n="s.night.to">To</label><input type="time" data-bind="night.end"></div>
-          </div>
-          <div class="field"><label><span data-i18n="s.night.brightness">Night brightness: </span><span id="nbv"></span></label><input type="range" min="0.01" max="0.3" step="0.01" data-bind="night.brightness" data-type="num"></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3 data-i18n="s.display.title">Display</h3>
-        <div class="row" style="gap:16px;margin-bottom:12px;align-items:flex-end;flex-wrap:wrap">
-          <div class="field" style="margin:0"><label data-i18n="lang.label">Language</label>
-            <select data-bind="display.language" id="displayLangSel"></select></div>
-        </div>
-        <div class="field" style="max-width:420px"><label data-i18n="s.display.orientation">Orientation</label>
-          <select data-bind="display.orientation"><option value="landscape" data-i18n="s.display.orientation.landscape">Landscape</option><option value="portrait" data-i18n="s.display.orientation.portrait">Portrait</option><option value="auto" data-i18n="s.display.orientation.auto">Follow the phone</option></select>
-          <span class="hint" data-i18n="s.display.orientationHint">You design pages in landscape; in portrait the panel arranges the widgets by itself, top to bottom. Tablets use the same pages, just bigger.</span></div>
-        <div class="field" style="max-width:420px"><label data-i18n="s.display.timeFormat">Time format</label>
-          <select data-bind="display.hour12" data-type="hour12"><option value="false" data-i18n="s.display.h24">24-hour (14:05)</option><option value="true" data-i18n="s.display.h12">12-hour (2:05 PM)</option><option value="auto" data-i18n="s.display.orientation.auto">Follow the phone</option></select></div>
-        <label class="check"><input type="checkbox" data-bind="display.showSeconds"> <span data-i18n="s.display.showSeconds">Show seconds on the clock</span></label>
-        <label class="check"><input type="checkbox" data-bind="display.vibrate"> <span data-i18n="s.display.vibrate">Vibrate when a session finishes or needs input</span></label>
-        <label class="check"><input type="checkbox" data-bind="display.volumeKeys"> <span data-i18n="s.display.volumeKeys">The phone's volume keys switch pages</span></label>
-        <label class="check"><input type="checkbox" data-bind="display.autoBrightness"> <span data-i18n="s.display.autoBrightness">Brightness follows the room (light sensor)</span></label>
-        <label class="check"><input type="checkbox" data-bind="display.nightWhenDark"> <span data-i18n="s.display.nightWhenDark">Show the night screen whenever the room is dark</span></label>
-        <label class="check"><input type="checkbox" data-bind="display.proximityWake"> <span data-i18n="s.display.proximityWake">A hand near the phone wakes the night screen</span></label>
-        <label class="check"><input type="checkbox" data-bind="display.controlsTop"> <span data-i18n="s.display.controlsTop">Page dots and the Allow / Deny buttons at the top of the screen</span></label>
-      </div>
-
-      <div class="card">
-        <h3 data-i18n="s.oled.title">OLED burn-in protection</h3>
-        <p class="hint" style="margin:0 0 12px" data-i18n="s.oled.lead">For OLED screens that show the same page for hours. The AMOLED black theme and the night screen help too.</p>
-        <label class="check"><input type="checkbox" data-bind="display.pixelShift"> <span data-i18n="s.oled.pixelShift">Move the panel by a few pixels every 2 minutes, and the night clock around the screen</span></label>
-        <div class="field" style="max-width:420px;margin-top:8px"><label data-i18n="s.oled.idleDim">Dim the panel after (minutes without a touch, 0 = never)</label><input type="number" min="0" max="1440" data-bind="display.idleDimMin" data-type="int">
-          <span class="hint" data-i18n="s.oled.idleDimHint">A touch brightens it again without pressing anything; so do a page switch, a notification and a permission prompt.</span></div>
-      </div>
-
-      <div class="card">
-        <h3 data-i18n="s.pageSwitch.title">Page switching</h3>
-        <p class="hint" style="margin:0 0 12px" data-i18n="s.pageSwitch.lead">How rules, webhooks and the idle return change the page. Instead of jumping, the phone shows “Claude needs me — switching to AI in 3…” with Stay and Go now, then fades over. It never pulls a page away while you are using the panel, and rules that fire one after another wait their turn instead of bouncing the screen back and forth.</p>
-        <div class="grid2">
-          <div class="field"><label data-i18n="s.pageSwitch.homePage">Home page</label><select id="homePageSel" onchange="cfg.display.homePage = this.value || null; changed(); renderPageEditor()"></select>
-            <span class="hint" data-i18n="s.pageSwitch.homePageHint">Where the idle return and the Back key go.</span></div>
-          <div class="field"><label data-i18n="s.pageSwitch.backHome">Back home after (seconds without a touch, 0 = never)</label><input type="number" min="0" max="3600" data-bind="display.idleReturnSec" data-type="int">
-            <span class="hint" data-i18n="s.pageSwitch.backHomePerPage">Each page can override this (page editor › Back home after).</span></div>
-          <div class="field"><label data-i18n="s.pageSwitch.countdown">Countdown before switching (seconds, 0 = at once)</label><input type="number" min="0" max="30" data-bind="display.switchCountdownSec" data-type="int"></div>
-          <div class="field"><label data-i18n="s.pageSwitch.grace">Don't interrupt for (seconds after I touch the panel)</label><input type="number" min="0" max="600" data-bind="display.touchGraceSec" data-type="int"></div>
-          <div class="field"><label data-i18n="s.pageSwitch.minDwell">At least (seconds between two automatic switches)</label><input type="number" min="0" max="600" data-bind="display.minDwellSec" data-type="int"></div>
-          <div class="field"><label data-i18n="s.pageSwitch.holdMax">A rule keeps its page at most (minutes, 0 = while it lasts)</label><input type="number" min="0" max="1440" data-bind="display.holdMaxMin" data-type="int">
-            <span class="hint" data-i18n="s.pageSwitch.holdMaxHint">After that the panel goes home when nobody touches it.</span></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3 data-i18n="s.kiosk.title">Kiosk</h3>
-        <p class="hint" style="margin:0 0 12px" data-i18n="s.kiosk.lead">Keep the phone on the panel. Neither needs root.</p>
-        <label class="check"><input type="checkbox" data-bind="display.pin"> <span data-i18n="s.kiosk.pin">Pin the panel: Home and Recents stay on it (Android asks once; hold Back and Overview together to unpin)</span></label>
-        <label class="check"><input type="checkbox" data-bind="display.homeScreen"> <span data-i18n="s.kiosk.homeScreen">Use the panel as the phone's home screen: it starts after a reboot and Home returns to it (turn off to get your launcher back)</span></label>
-        <label class="check"><input type="checkbox" data-bind="display.keepAwake"> <span data-i18n="s.kiosk.keepAwake">Keep the phone awake: turn off Android's screen saver (it starts on the charger) and keep the screen on while plugged in (set over USB)</span></label>
-        <label class="check" id="followComputerLockOption" style="display:none"><input type="checkbox" data-bind="display.followComputerLock"> <span data-i18n="s.kiosk.followLock">Follow the computer lock: turn the phone screen off when macOS locks; wake it and open PhoneBox when macOS unlocks (ADB required; unlock phones secured by a PIN or password manually)</span></label>
-      </div>
-
-      <div class="card">
-        <h3 data-i18n="s.battery.title">Battery care</h3>
-        <p class="hint" style="margin:0 0 12px"><span data-i18n="s.battery.leadHead">A phone that is plugged in all the time wears its battery out. PhoneBox can keep it between two</span>
-          <span data-i18n="s.battery.leadMid">levels by switching the phone's power on and off. Phones cannot stop charging by themselves without root, so the power is switched</span>
-          <span data-i18n-html="s.battery.leadTail">where it comes from: a <b>smart plug in Home Assistant</b> (the phone on its own charger), or two <b>shortcuts</b>, for example
-          <code>uhubctl</code> for a USB hub with switchable ports. Without USB power the panel keeps running over Wi-Fi.</span></p>
-        <div class="row" style="margin-bottom:12px"><label class="switch"><input type="checkbox" data-bind="charge.enabled"><span></span></label> <span data-i18n="s.battery.keepBetween">Keep the battery between</span>
-          <input type="number" min="5" max="95" data-bind="charge.min" data-type="int" style="width:70px"> % and
-          <input type="number" min="10" max="100" data-bind="charge.max" data-type="int" style="width:70px"> %</div>
-        <div class="grid2">
-          <div class="field"><label data-i18n="s.battery.method">Switch the power with</label><select data-bind="charge.method"><option value="ha" data-i18n="s.battery.methodHa">a Home Assistant switch (smart plug)</option><option value="shortcuts" data-i18n="s.battery.methodShortcuts">two shortcuts (power on / power off)</option></select></div>
-          <div class="field" id="chargeHa"><label data-i18n="s.battery.entity">Switch entity</label><input type="text" data-bind="charge.entity" placeholder="switch.phone_charger" spellcheck="false"></div>
-          <div class="field" id="chargeOn" hidden><label data-i18n="s.battery.onShortcut">Shortcut: power on</label><select id="chargeOnSel" onchange="cfg.charge.onShortcut = this.value || null; changed()"></select></div>
-          <div class="field" id="chargeOff" hidden><label data-i18n="s.battery.offShortcut">Shortcut: power off</label><select id="chargeOffSel" onchange="cfg.charge.offShortcut = this.value || null; changed()"></select></div>
-        </div>
-        <div class="row" style="gap:8px"><button class="btn sm" onclick="chargeTest('off')" data-i18n="s.battery.testOff">Test: power off</button><button class="btn sm" onclick="chargeTest('on')" data-i18n="s.battery.testOn">Test: power on</button>
-          <span class="hint" id="chargeState"></span></div>
-      </div>
+    <section id="ai">
+      <h2 data-i18n="s.nav.ai">Assistants</h2>
+      <p class="lead" data-i18n="s.ai.lead">Permission prompts on the phone for coding agents, and which AI quotas the panel tracks.</p>
 
       <div class="card">
         <h3 data-i18n="s.claude.title">Claude Code permission prompts</h3>
@@ -768,6 +783,11 @@ dd { margin: 0; word-break: break-all; }
           <div class="field" style="max-width:240px"><label data-i18n="s.quotas.rotateInterval">Rotate every (seconds)</label><input type="number" min="2" max="300" data-bind="codexBar.rotateInterval" data-type="int"><span class="hint" data-i18n="s.quotas.rotateIntervalHint">e.g. 5, 8, 15 seconds</span></div>
         </div>
       </div>
+    </section>
+
+    <section id="connection">
+      <h2 data-i18n="s.nav.phone">Connection</h2>
+      <p class="lead" data-i18n="s.phone.lead">USB and Wi-Fi pairing, which phone to use, battery care and updates.</p>
 
       <div class="card">
         <h3 data-i18n="s.conn.title">Phone connection</h3>
@@ -797,6 +817,24 @@ dd { margin: 0; word-break: break-all; }
           <div class="field"><label data-i18n="s.wifi.addresses">Addresses offered to the phone</label><div id="lanHosts" class="hint">—</div></div>
         </div>
         <div class="row"><button class="btn primary" id="lanPair" data-i18n="s.wifi.pair">Pair a phone over Wi-Fi</button><button class="btn" id="lanRegen" data-i18n="s.wifi.newKey">New key (unpair phones)</button><span class="hint" id="lanStatus"></span></div>
+      </div>
+      <div class="card">
+        <h3 data-i18n="s.battery.title">Battery care</h3>
+        <p class="hint" style="margin:0 0 12px"><span data-i18n="s.battery.leadHead">A phone that is plugged in all the time wears its battery out. PhoneBox can keep it between two</span>
+          <span data-i18n="s.battery.leadMid">levels by switching the phone's power on and off. Phones cannot stop charging by themselves without root, so the power is switched</span>
+          <span data-i18n-html="s.battery.leadTail">where it comes from: a <b>smart plug in Home Assistant</b> (the phone on its own charger), or two <b>shortcuts</b>, for example
+          <code>uhubctl</code> for a USB hub with switchable ports. Without USB power the panel keeps running over Wi-Fi.</span></p>
+        <div class="row" style="margin-bottom:12px"><label class="switch"><input type="checkbox" data-bind="charge.enabled"><span></span></label> <span data-i18n="s.battery.keepBetween">Keep the battery between</span>
+          <input type="number" min="5" max="95" data-bind="charge.min" data-type="int" style="width:70px"> % and
+          <input type="number" min="10" max="100" data-bind="charge.max" data-type="int" style="width:70px"> %</div>
+        <div class="grid2">
+          <div class="field"><label data-i18n="s.battery.method">Switch the power with</label><select data-bind="charge.method"><option value="ha" data-i18n="s.battery.methodHa">a Home Assistant switch (smart plug)</option><option value="shortcuts" data-i18n="s.battery.methodShortcuts">two shortcuts (power on / power off)</option></select></div>
+          <div class="field" id="chargeHa"><label data-i18n="s.battery.entity">Switch entity</label><input type="text" data-bind="charge.entity" placeholder="switch.phone_charger" spellcheck="false"></div>
+          <div class="field" id="chargeOn" hidden><label data-i18n="s.battery.onShortcut">Shortcut: power on</label><select id="chargeOnSel" onchange="cfg.charge.onShortcut = this.value || null; changed()"></select></div>
+          <div class="field" id="chargeOff" hidden><label data-i18n="s.battery.offShortcut">Shortcut: power off</label><select id="chargeOffSel" onchange="cfg.charge.offShortcut = this.value || null; changed()"></select></div>
+        </div>
+        <div class="row" style="gap:8px"><button class="btn sm" onclick="chargeTest('off')" data-i18n="s.battery.testOff">Test: power off</button><button class="btn sm" onclick="chargeTest('on')" data-i18n="s.battery.testOn">Test: power on</button>
+          <span class="hint" id="chargeState"></span></div>
       </div>
       <div class="card">
         <h3 data-i18n="s.updates.title">Updates</h3>
@@ -1982,7 +2020,7 @@ $('consoleAdd').onclick = () => {
   cfg.console.profiles.push({ label: '', apps: '', keys: [] });
   renderConsole(); changed();
 };
-// ---------------------------------------------------------------- network adapters (Settings › General › Ping)
+// ---------------------------------------------------------------- network adapters (Settings › Sources › Ping)
 async function renderNetAdapters() {
   cfg.ping ??= {};
   cfg.ping.adapters ??= [];
@@ -2876,6 +2914,7 @@ function applyLanguageUi(langPref) {
   if ($('langSel')) $('langSel').value = I18n.getPref();
   if ($('displayLangSel')) $('displayLangSel').value = I18n.getPref();
   I18n.applyDom();
+  if ($('navSearch')) filterSettingsNav($('navSearch').value);
 }
 
 function bindLanguage() {
@@ -3287,13 +3326,56 @@ $('applyJson').onclick = () => {
 document.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (!$('save').disabled) save(); } });
 window.addEventListener('beforeunload', (e) => { if (!$('save').disabled) { e.preventDefault(); e.returnValue = ''; } });
 
+// Older bookmarks and docs used #general; send them to Display.
+const LEGACY_HASH = { general: 'display', phone: 'connection' };
+
+function filterSettingsNav(q) {
+  const query = (q || '').trim().toLowerCase();
+  const nav = $('nav');
+  const links = [...nav.querySelectorAll('a[href^="#"]')];
+  const groups = [...nav.querySelectorAll('.nav-group')];
+  for (const a of links) {
+    const label = (a.textContent || '').toLowerCase();
+    const section = document.getElementById(a.getAttribute('href').slice(1));
+    const body = section ? (section.textContent || '').toLowerCase() : '';
+    a.hidden = !!query && !label.includes(query) && !body.includes(query);
+  }
+  for (const g of groups) {
+    let next = g.nextElementSibling;
+    let any = false;
+    while (next && !next.classList.contains('nav-group')) {
+      if (next.matches('a[href^="#"]') && !next.hidden) any = true;
+      next = next.nextElementSibling;
+    }
+    g.hidden = !!query && !any;
+  }
+  for (const card of document.querySelectorAll('main section > .card')) {
+    card.hidden = false;
+    card.classList.remove('nav-hit');
+  }
+  const active = document.querySelector('section.on');
+  if (active && query) {
+    for (const card of active.querySelectorAll(':scope > .card')) {
+      const hit = (card.textContent || '').toLowerCase().includes(query);
+      card.hidden = !hit;
+      card.classList.toggle('nav-hit', hit);
+    }
+  }
+}
+
 function route() {
-  const id = (location.hash || '#pages').slice(1);
+  let id = (location.hash || '#pages').slice(1);
+  if (LEGACY_HASH[id]) {
+    id = LEGACY_HASH[id];
+    history.replaceState(null, '', '#' + id);
+  }
   document.querySelectorAll('section').forEach((s) => s.classList.toggle('on', s.id === id));
   document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('on', a.getAttribute('href') === '#' + id));
   if (id === 'webhooks') loadPushed();
   if (id === 'theme') openThemePreview();
+  filterSettingsNav($('navSearch')?.value);
 }
+$('navSearch').addEventListener('input', () => filterSettingsNav($('navSearch').value));
 window.addEventListener('hashchange', route);
 route();
 applyLanguageUi(window.PhoneBoxI18n?.getPref() || 'auto');

@@ -5,7 +5,7 @@ test('radio import preserves path and query case while deduplicating hosts', asy
   await page.evaluate(() => localStorage.setItem('pb-demo-config', JSON.stringify({
     display: { language: 'en' }, pages: [], controls: { actions: [], profiles: [] },
   })));
-  await page.goto('/settings/#general');
+  await page.goto('/settings/#integrations');
   await page.evaluate(() => {
     const demoFetch = window.fetch;
     const countries = [{ code: 'TR', name: 'Türkiye', stationCount: 4 }];

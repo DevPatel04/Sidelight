@@ -181,7 +181,7 @@ test('both settings language selectors stay in sync and Revert restores the save
     config.controls.profiles = [];
     localStorage.setItem('pb-demo-config', JSON.stringify(config));
   });
-  await page.goto('/settings/#general');
+  await page.goto('/settings/#display');
   await expect(page.locator('#langSel')).toHaveValue('en');
   await page.locator('#displayLangSel').selectOption('tr');
   await expect(page.locator('#langSel')).toHaveValue('tr');
