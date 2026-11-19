@@ -83,6 +83,17 @@ body.glass :is(.card, nav a.on) { -webkit-backdrop-filter: blur(18px) saturate(1
 body.glass .btn.primary { background: linear-gradient(90deg, #5ef0ff, #c49bff, #ff7ad9); }
 body.glass select option { background: #241650; }
 
+/* Cockpit theme: an instrument panel of dark metal with amber readouts */
+body.cockpit {
+  --bg: #0b0d10; --panel: #1c2025; --panel-2: #121519; --line: #333a42; --text: #e3e7eb; --muted: #9aa3ac;
+  --accent: #ffb23f; --accent-ink: #1a1000; --shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 6px 14px rgba(0,0,0,.45); color-scheme: dark;
+  background: radial-gradient(80% 60% at 70% 0%, rgba(217,129,74,.18), transparent 70%), #0b0d10 fixed;
+}
+body.cockpit .card { background: linear-gradient(180deg, #23282e, #171a1e); border-radius: 10px; }
+body.cockpit :is(h2, .card h3) { font-family: "Roboto Condensed", "Arial Narrow", sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+body.cockpit :is(input[type=text], input[type=number], input[type=time], select, textarea) { background: #0b0c0e; color: #ffb23f; font-family: ui-monospace, monospace; }
+body.cockpit header { background: rgba(11,13,16,.85); }
+
 /* switch */
 .switch { position: relative; width: 40px; height: 22px; flex: 0 0 40px; }
 .switch input { opacity: 0; width: 0; height: 0; }
@@ -518,13 +529,13 @@ dd { margin: 0; word-break: break-all; }
           <div class="field" style="margin:0"><label data-i18n="lang.label">Language</label>
             <select data-bind="display.language" id="displayLangSel"></select></div>
           <div class="field" style="margin:0"><label data-i18n="s.display.theme">Theme</label>
-            <select data-bind="display.theme"><option value="default" data-i18n="s.display.theme.default">Default</option><option value="amoled" data-i18n="s.display.theme.amoled">AMOLED black</option><option value="midnight" data-i18n="s.display.theme.midnight">Midnight blue</option><option value="warm" data-i18n="s.display.theme.warm">Warm</option><option value="graphite" data-i18n="s.display.theme.graphite">Graphite</option><option value="glass" data-i18n="s.display.theme.glass">Glass</option></select></div>
+            <select data-bind="display.theme"><option value="default" data-i18n="s.display.theme.default">Default</option><option value="amoled" data-i18n="s.display.theme.amoled">AMOLED black</option><option value="midnight" data-i18n="s.display.theme.midnight">Midnight blue</option><option value="warm" data-i18n="s.display.theme.warm">Warm</option><option value="graphite" data-i18n="s.display.theme.graphite">Graphite</option><option value="glass" data-i18n="s.display.theme.glass">Glass</option><option value="cockpit" data-i18n="s.display.theme.cockpit">Cockpit</option></select></div>
           <div class="field" style="margin:0"><label data-i18n="s.display.accent">Accent colour</label><input type="color" data-bind="display.accent" style="width:56px;height:36px;padding:2px"></div>
           <label class="check" style="margin-bottom:8px"><input type="checkbox" data-bind="display.artTint"> <span data-i18n="s.display.artTint">Tint the background with the album art</span></label>
         </div>
         <div class="row" style="gap:16px;margin-bottom:4px;align-items:flex-end;flex-wrap:wrap">
           <div class="field" style="margin:0"><label data-i18n="s.display.background">Background</label>
-            <select data-bind="display.background"><option value="auto" data-i18n="s.display.bg.auto">The theme's own</option><option value="glow" data-i18n="s.display.bg.glow">Accent glow</option><option value="blobs" data-i18n="s.display.bg.blobs">Drifting colour</option><option value="aurora" data-i18n="s.display.bg.aurora">Aurora</option><option value="stars" data-i18n="s.display.bg.stars">Starry sky</option><option value="bubbles" data-i18n="s.display.bg.bubbles">Bubbles</option><option value="rain" data-i18n="s.display.bg.rain">Rain</option><option value="none" data-i18n="s.display.bg.none">Plain</option></select></div>
+            <select data-bind="display.background"><option value="auto" data-i18n="s.display.bg.auto">The theme's own</option><option value="glow" data-i18n="s.display.bg.glow">Accent glow</option><option value="blobs" data-i18n="s.display.bg.blobs">Drifting colour</option><option value="aurora" data-i18n="s.display.bg.aurora">Aurora</option><option value="stars" data-i18n="s.display.bg.stars">Starry sky</option><option value="bubbles" data-i18n="s.display.bg.bubbles">Bubbles</option><option value="rain" data-i18n="s.display.bg.rain">Rain</option><option value="horizon" data-i18n="s.display.bg.horizon">The view ahead</option><option value="none" data-i18n="s.display.bg.none">Plain</option></select></div>
           <div class="field" style="margin:0"><label data-i18n="s.display.bgImage">Picture behind the widgets</label>
             <div class="row" style="gap:8px"><span class="bg-thumb" id="bgThumb" hidden></span><button type="button" class="btn sm" id="bgPick" data-i18n="s.display.bgPick">Choose a picture…</button><button type="button" class="btn sm danger" id="bgClear" data-i18n="s.display.bgClear" hidden>Remove</button><input type="file" id="bgFile" accept="image/jpeg,image/png,image/webp" hidden></div></div>
         </div>
@@ -2566,6 +2577,7 @@ function renderBackground() {
   $('bgThumb').style.backgroundImage = ok ? `url("/api/config/background/${id}")` : '';
   $('bgThumb').hidden = $('bgClear').hidden = !ok;
   document.body.classList.toggle('glass', cfg.display?.theme === 'glass');
+  document.body.classList.toggle('cockpit', cfg.display?.theme === 'cockpit');
 }
 $('bgPick').onclick = () => $('bgFile').click();
 $('bgFile').onchange = async () => {

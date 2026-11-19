@@ -55,3 +55,27 @@ test('a picture id that is not one is never requested', async ({ page }) => {
   await expect(page.locator('body')).not.toHaveClass(/has-bg-image/);
   expect(asked).toEqual([]);
 });
+
+test('cockpit draws the clock on an LCD and gauges as needle dials over the view ahead', async ({ page }) => {
+  await page.goto('/panel/');
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem('pb-demo-config', JSON.stringify({
+      night: { enabled: false }, rules: [], shortcuts: [], display: { idleReturnSec: 0, theme: 'cockpit' },
+      pages: [{ id: 'one', title: 'One', widgets: [
+        { id: 'ck', type: 'clock', x: 0, y: 0, w: 6, h: 3, options: {} },
+        { id: 'ga', type: 'gauge', x: 6, y: 0, w: 3, h: 3, options: { metric: 'cpu' } },
+        { id: 'st', type: 'stat', x: 9, y: 0, w: 3, h: 3, options: { metric: 'ram' } },
+      ] }],
+    }));
+  });
+  await page.reload();
+  await expect(page.locator('body')).toHaveAttribute('data-bg', 'horizon');
+  // four digits, and the time is still there for a screen reader
+  await expect(page.locator('.clock.lcd .lcd7')).toHaveCount(4);
+  await expect(page.locator('.clock.lcd')).toHaveAttribute('aria-label', /^\d{1,2}:\d{2}$/);
+  await expect(page.locator('.w-gauge .needle-dial .needle')).toHaveCount(1);
+  await expect(page.locator('.w-stat .t-dial .needle')).toHaveCount(1);
+  // the needle turns away from zero once a reading arrives
+  await expect.poll(() => page.locator('.w-gauge .needle').evaluate((n) => n.style.transform)).not.toBe('rotate(135.0deg)');
+});

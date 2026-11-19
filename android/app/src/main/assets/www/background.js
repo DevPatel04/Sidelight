@@ -5,11 +5,12 @@ import { API, PANEL_HEADERS } from './main.js';
 // Old phones run this for hours, so the canvas is drawn at a fraction of the screen's pixels (the soft shapes do not
 // need more), at a capped frame rate, and not at all on the night screen, in a hidden WebView, or when the system
 // asks for reduced motion (then one still frame is drawn).
-const MODES = ['glow', 'blobs', 'aurora', 'stars', 'bubbles', 'rain', 'none'];
+const MODES = ['glow', 'blobs', 'aurora', 'stars', 'bubbles', 'rain', 'horizon', 'none'];
 // the drawing scale against CSS pixels and frames per second: blurred shapes are fine small and slow
 const SPEC = {
   blobs: { scale: 0.2, fps: 20 }, aurora: { scale: 0.25, fps: 20 },
   stars: { scale: 1, fps: 24 }, bubbles: { scale: 0.75, fps: 30 }, rain: { scale: 0.75, fps: 30 },
+  horizon: { scale: 0.5, fps: 20 },
 };
 // the colour sets the animations draw in; glass brings its own, the other themes follow the accent colour
 const GLASS = ['255,95,162', '124,92,255', '36,212,255', '255,179,71', '46,230,166'];
@@ -144,6 +145,52 @@ const DRAW = {
   },
 };
 
+// the view through a windscreen at dusk: a low sun, clouds, the ground streaming towards you, a gentle bank
+DRAW.horizon = (t) => {
+  seeds ||= seeded(7);
+  const bank = Math.sin(t * 0.00018) * 0.035, horizon = hgt * 0.6;
+  ctx.save();
+  ctx.translate(w / 2, hgt / 2);
+  ctx.rotate(bank);
+  ctx.translate(-w / 2, -hgt / 2);
+  // drawn wider than the screen, so the corners stay covered while it banks
+  const x0 = -w * 0.2, x1 = w * 1.2, y0 = -hgt * 0.3, y1 = hgt * 1.3;
+  const sky = ctx.createLinearGradient(0, y0, 0, horizon);
+  sky.addColorStop(0, '#050b18'); sky.addColorStop(0.55, '#1a2140'); sky.addColorStop(0.88, '#7a4038'); sky.addColorStop(1, '#d9814a');
+  ctx.fillStyle = sky; ctx.fillRect(x0, y0, x1 - x0, horizon - y0);
+  const sx = w * 0.68, sun = ctx.createRadialGradient(sx, horizon, 0, sx, horizon, hgt * 0.45);
+  sun.addColorStop(0, 'rgba(255,190,110,.75)'); sun.addColorStop(0.25, 'rgba(255,150,80,.25)'); sun.addColorStop(1, 'rgba(255,120,60,0)');
+  ctx.fillStyle = sun; ctx.fillRect(x0, y0, x1 - x0, horizon - y0);
+  for (const [cx, cy, cw, ph] of seeds) {
+    const x = ((cx * 1.6 * w - t * 0.004 * (0.5 + ph)) % (w * 1.6) + w * 1.6) % (w * 1.6) - w * 0.3;
+    const y = horizon * (0.35 + cy * 0.5), rw = w * (0.08 + cw * 0.12);
+    ctx.fillStyle = `rgba(22,20,40,${(0.35 + ph * 0.3).toFixed(2)})`;
+    ctx.beginPath(); ctx.ellipse(x, y, rw, rw * 0.16, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,150,90,.18)';
+    ctx.beginPath(); ctx.ellipse(x + rw * 0.1, y + rw * 0.07, rw * 0.8, rw * 0.06, 0, 0, 7); ctx.fill();
+  }
+  const ground = ctx.createLinearGradient(0, horizon, 0, y1);
+  ground.addColorStop(0, '#2a1d17'); ground.addColorStop(0.3, '#120f0d'); ground.addColorStop(1, '#050606');
+  ctx.fillStyle = ground; ctx.fillRect(x0, horizon, x1 - x0, y1 - horizon);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255,178,63,.1)';
+  ctx.beginPath();
+  for (let i = -10; i <= 10; i++) { ctx.moveTo(w / 2, horizon); ctx.lineTo(w / 2 + i * w * 0.16, y1); }
+  ctx.stroke();
+  for (let k = 0; k < 12; k++) {
+    const z = (k + ((t * 0.00035) % 1)) / 12, y = horizon + (y1 - horizon) * z * z;
+    ctx.strokeStyle = `rgba(255,178,63,${(z * 0.22).toFixed(3)})`;
+    ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+  }
+  ctx.restore();
+  // the windscreen frame does not bank with the world
+  ctx.fillStyle = '#0a0c0f';
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(w, 0); ctx.lineTo(w, hgt * 0.05);
+  ctx.quadraticCurveTo(w / 2, hgt * 0.1, 0, hgt * 0.05); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(w * 0.05, 0); ctx.lineTo(w * 0.015, hgt); ctx.lineTo(0, hgt); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(w, 0); ctx.lineTo(w * 0.95, 0); ctx.lineTo(w * 0.985, hgt); ctx.lineTo(w, hgt); ctx.fill();
+};
+
 function frame(now) {
   raf = 0;
   const s = SPEC[mode];
@@ -198,7 +245,8 @@ export function applyBackground(display, theme, accent) {
   layers();
   const id = typeof display.backgroundImage === 'string' && /^[0-9a-f]{16}$/.test(display.backgroundImage) ? display.backgroundImage : '';
   // with a picture of their own, "the theme's own" background is that picture, untinted; a chosen animation plays over it
-  const want = MODES.includes(display.background) ? display.background : id ? 'none' : theme === 'glass' ? 'blobs' : 'glow';
+  const own = { glass: 'blobs', cockpit: 'horizon' }[theme] || 'glow';
+  const want = MODES.includes(display.background) ? display.background : id ? 'none' : own;
   palette = theme === 'glass' ? GLASS : accentPalette(accent);
   if (want !== mode) seeds = null;
   mode = want;

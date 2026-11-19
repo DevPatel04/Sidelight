@@ -18,6 +18,7 @@ public class BackgroundImageTests
     [Theory]
     [InlineData("\"BLOBS\"", "blobs")]
     [InlineData("\" rain \"", "rain")]
+    [InlineData("\"horizon\"", "horizon")]
     [InlineData("\"fireworks\"", "auto")] // a background the panel does not have
     [InlineData("null", "auto")]
     public void AnUnknownBackgroundFallsBackToTheThemesOwn(string json, string expected)
