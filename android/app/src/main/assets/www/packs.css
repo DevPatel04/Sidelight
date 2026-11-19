@@ -1,0 +1,197 @@
+/* ---------- page background (background.js) ---------- */
+#bgImage, #bgFx { position: fixed; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+#bgImage { background: center / cover no-repeat; transition: opacity .6s ease; }
+/* the picture is darkened a little so white text stays readable on a bright photo */
+body.has-bg-image #bgImage::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; left: 0; background: rgba(4, 6, 12, .38); }
+body:not(.has-bg-image) #bgImage { opacity: 0; }
+/* the accent glow is the "glow" background; with any other one it would tint the animation */
+body:not([data-bg="glow"])::before { display: none; }
+body.night :is(#bgFx, #bgImage) { visibility: hidden; }
+
+/* ================================================================ Glass
+   Frosted cards floating over drifting colour: thin numerals, glowing gradient progress, soft rings. */
+:root[data-theme="glass"] {
+  --cpu: #5ef0ff; --gpu: #ff7ad9; --ram: #ffd36b; --net: #5dffb0; --up: #8fb4ff; --ok: #5dffb0;
+}
+body[data-theme="glass"] {
+  --bg: #120c2a;
+  --card: rgba(255, 255, 255, .1); --card-hi: rgba(255, 255, 255, .2); --line: rgba(255, 255, 255, .2);
+  --text: #ffffff; --muted: rgba(255, 255, 255, .72); --dim: rgba(255, 255, 255, .45);
+  --glass: linear-gradient(145deg, rgba(255, 255, 255, .19), rgba(255, 255, 255, .06));
+  --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .38), 0 12px 30px -14px rgba(10, 0, 40, .6);
+  --glass-grad: linear-gradient(90deg, #5ef0ff, #c49bff, #ff7ad9);
+}
+body[data-theme="glass"] .w.card {
+  background: var(--glass);
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: clamp(14px, 9cqmin, 26px);
+  box-shadow: var(--glass-edge);
+}
+/* Real frosting only where there is something sharp behind the card (a picture, stars, rain or bubbles): over the
+   soft colour of the other backgrounds a blur looks the same, and skipping it saves an old phone a lot of work. */
+body[data-theme="glass"]:is(.has-bg-image, [data-bg="stars"], [data-bg="rain"], [data-bg="bubbles"]) .w.card {
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+}
+
+/* clock: airy numerals, the seconds in a frosted pill */
+body[data-theme="glass"] .clock { text-shadow: 0 6px 30px rgba(20, 0, 60, .35); }
+body[data-theme="glass"] .clock .colon { opacity: .75; }
+body[data-theme="glass"] .clock .sec {
+  color: #fff; font-weight: 500; font-size: .17em; padding: .2em .55em; margin: .7em 0 0 .5em;
+  border-radius: 999px; background: rgba(255, 255, 255, .18); border: 1px solid rgba(255, 255, 255, .3);
+}
+body[data-theme="glass"] .clock .ap { color: rgba(255, 255, 255, .8); }
+body[data-theme="glass"] .date { color: rgba(255, 255, 255, .9); font-weight: 500; }
+body[data-theme="glass"] .status { color: rgba(255, 255, 255, .8); }
+body[data-theme="glass"] .status .sep { color: rgba(255, 255, 255, .35); }
+body[data-theme="glass"] .status .smini { color: #ffb8ea; }
+body[data-theme="glass"] .dot.on { background: #5dffb0; box-shadow: 0 0 8px #5dffb0; }
+
+/* music: glowing cover, gradient progress with a lit knob, frosted round buttons */
+body[data-theme="glass"] .art-wrap { box-shadow: 0 14px 30px -10px rgba(var(--ambient), .7), 0 0 0 1px rgba(255, 255, 255, .18); }
+body[data-theme="glass"] .m-app { color: rgba(255, 255, 255, .78); }
+body[data-theme="glass"] .m-title { font-weight: 700; }
+body[data-theme="glass"] .bar::before { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .18); }
+body[data-theme="glass"] .fill { height: 6px; border-radius: 3px; background: var(--glass-grad); }
+body[data-theme="glass"] .fill::after {
+  width: 14px; height: 14px; right: -7px; top: -4px; background: #fff;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .22), 0 0 12px rgba(255, 255, 255, .8);
+}
+body[data-theme="glass"] .w-media .ic:not(.play) {
+  background: rgba(255, 255, 255, .14); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), inset 0 0 0 1px rgba(255, 255, 255, .18);
+}
+body[data-theme="glass"] .ic.play { background: rgba(255, 255, 255, .94); color: #2a1650; box-shadow: 0 8px 22px -8px rgba(255, 255, 255, .7); }
+body[data-theme="glass"] input[type=range]::-webkit-slider-runnable-track {
+  height: 5px; border-radius: 3px;
+  background: linear-gradient(to right, #fff var(--p, 50%), rgba(255, 255, 255, .2) var(--p, 50%));
+}
+body[data-theme="glass"] input[type=range]::-webkit-slider-thumb { margin-top: -5.5px; box-shadow: 0 0 10px rgba(255, 255, 255, .8); }
+
+/* metrics: rings and charts in each metric's own colour, with a soft glow */
+body[data-theme="glass"] :is(.g-dial, .q-dial) .bg { stroke: rgba(255, 255, 255, .14); }
+body[data-theme="glass"] :is(.g-dial, .q-dial) .fg { filter: drop-shadow(0 0 7px color-mix(in srgb, var(--qc, var(--q)) 75%, transparent)); }
+body[data-theme="glass"] :is(.t-label, .g-label, .s-label) { color: rgba(255, 255, 255, .85); letter-spacing: .1em; }
+body[data-theme="glass"] .t-label::before, body[data-theme="glass"] .s-label::before {
+  content: ""; display: inline-block; width: .6em; height: .6em; margin-right: .45em; border-radius: 50%;
+  background: var(--c); box-shadow: 0 0 8px var(--c); vertical-align: .05em;
+}
+body[data-theme="glass"] .w-stat canvas { opacity: .85; }
+body[data-theme="glass"] .w-stat :is(.t-val, .t-sub) { text-shadow: 0 1px 8px rgba(20, 0, 60, .5); }
+body[data-theme="glass"] :is(.t-val, .s-main) b { font-weight: 600; }
+body[data-theme="glass"] .chip { background: rgba(255, 255, 255, .14); color: #fff; }
+body[data-theme="glass"] :is(.proc, .sess) { background: rgba(255, 255, 255, .1); border-color: rgba(255, 255, 255, .16); }
+
+/* page dots and the panels that open over the pages */
+body[data-theme="glass"] #dots i { background: rgba(255, 255, 255, .35); }
+body[data-theme="glass"] #dots i.on { width: 20px; background: #fff; box-shadow: 0 0 8px rgba(255, 255, 255, .6); }
+body[data-theme="glass"] :is(.toast, #navCard, .p-sheet, .ap-card) {
+  background: rgba(36, 22, 80, .72); border-color: rgba(255, 255, 255, .24); box-shadow: var(--glass-edge);
+  -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%);
+}
+body[data-theme="glass"] #overview { background: rgba(18, 12, 42, .78); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+
+/* ================================================================ Cockpit
+   An instrument panel: screwed metal plates, an amber seven-segment clock, needle dials, a radio unit, LED lights.
+   The LCD digits and dials are drawn by widgets/instruments.js; this sheet lights and frames them. */
+:root[data-theme="cockpit"] {
+  --cpu: #ffb23f; --gpu: #5dff9a; --ram: #6cc7ff; --net: #ff8c5a; --up: #c3a6ff; --ok: #5dff9a;
+}
+body[data-theme="cockpit"] {
+  --bg: #08090b;
+  --card: #1c2025; --card-hi: #2a3037; --line: #333a42;
+  --text: #e3e7eb; --muted: #9aa3ac; --dim: #5f6870;
+  --amber: #ffb23f; --green: #5dff9a;
+  --mono: ui-monospace, "Roboto Mono", "Droid Sans Mono", "Cascadia Mono", monospace;
+  --screw: radial-gradient(circle, #6d757e 0 1.5px, #2a2f35 2.2px, transparent 2.8px);
+  font-family: "Roboto Condensed", sans-serif-condensed, "Arial Narrow", Roboto, sans-serif;
+}
+/* four screws in the corners and a brushed plate, all in the background so no pseudo-element is taken */
+body[data-theme="cockpit"] .w.card {
+  background:
+    var(--screw) 3px 3px / 12px 12px no-repeat, var(--screw) right 3px top 3px / 12px 12px no-repeat,
+    var(--screw) left 3px bottom 3px / 12px 12px no-repeat, var(--screw) right 3px bottom 3px / 12px 12px no-repeat,
+    linear-gradient(180deg, #252a30, #16191d);
+  border: 1px solid #333a42; border-radius: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07), inset 0 -2px 0 rgba(0, 0, 0, .45), 0 6px 14px rgba(0, 0, 0, .5);
+}
+
+/* the seven-segment LCD */
+.lcd7 { height: .8em; width: auto; aspect-ratio: 64 / 104; display: block; }
+.lcd7 .on { fill: var(--amber, #ffb23f); filter: drop-shadow(0 0 .04em rgba(255, 178, 63, .85)); }
+.lcd7 .off { fill: rgba(255, 178, 63, .07); }
+body[data-theme="cockpit"] .clock.lcd {
+  align-items: center; align-self: flex-start; gap: .04em; letter-spacing: 0;
+  padding: .06em .14em; margin: .04em 0 .06em; border-radius: .06em;
+  background: #0b0c0e; border: 1px solid #2c3238; box-shadow: inset 0 0 .3em rgba(0, 0, 0, .8);
+}
+body[data-theme="cockpit"] .clock.lcd :is(.hh, .mm) { display: flex; gap: .05em; }
+body[data-theme="cockpit"] .clock.lcd .colon { color: var(--amber); font-size: .6em; text-shadow: 0 0 .1em var(--amber); margin: 0 .02em; }
+body[data-theme="cockpit"] .clock.lcd :is(.sec, .ap) {
+  align-self: flex-end; margin: 0 0 .1em .2em; font: 500 .22em/1 var(--mono); color: var(--amber); opacity: .85;
+}
+body[data-theme="cockpit"] .date { font-family: var(--mono); text-transform: uppercase; letter-spacing: .08em; color: #aab3bc; font-size: clamp(10px, 6.5cqh, 16px); }
+body[data-theme="cockpit"] .status { font-family: var(--mono); text-transform: uppercase; letter-spacing: .04em; color: #8b939c; }
+body[data-theme="cockpit"] .status b { color: var(--amber); }
+body[data-theme="cockpit"] .status .smini { color: #1a1000; background: var(--amber); padding: 0 4px; border-radius: 2px; animation: blink 1s steps(1) infinite; }
+body[data-theme="cockpit"] .dot { border-radius: 1px; }
+body[data-theme="cockpit"] .dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+body[data-theme="cockpit"] .wx-temp { font-family: var(--mono); color: var(--amber); }
+
+/* needle dials */
+.dial .bezel { fill: #0d0f12; stroke: #3a424b; stroke-width: 2.5; }
+.dial .band { fill: none; stroke-width: 3.5; }
+.dial .band.ok { stroke: #3ddc84; } .dial .band.warn { stroke: #ffb23f; } .dial .band.hot { stroke: #ff4f4f; }
+.dial .tick { stroke: #c8ced4; stroke-width: 1; } .dial .tick.major { stroke-width: 2; }
+.dial .needle { transform-box: view-box; transform-origin: 50px 50px; transition: transform .9s cubic-bezier(.3, 1.4, .5, 1); }
+.dial .needle path { fill: #ff8c2e; filter: drop-shadow(0 0 2px rgba(255, 140, 46, .7)); }
+.dial .hub { fill: #2a3036; stroke: #59616a; }
+body[data-theme="cockpit"] .g-dial.needle-dial svg { transform: none; }
+body[data-theme="cockpit"] .g-dial.needle-dial .g-val { top: auto; bottom: 6%; height: auto; font: 500 min(11cqh, 16cqw)/1 var(--mono); color: var(--amber); text-shadow: 0 0 6px rgba(255, 178, 63, .5); }
+body[data-theme="cockpit"] .g-dial:not(.needle-dial) .bg { stroke: #2a2f35; }
+body[data-theme="cockpit"] .g-dial:not(.needle-dial) .fg { stroke-linecap: butt; }
+body[data-theme="cockpit"] .w-stat .t-dial { position: absolute; right: 6%; top: 50%; transform: translateY(-50%); height: 80cqh; max-width: 42cqw; aspect-ratio: 1; }
+body[data-theme="cockpit"] .w-stat .t-dial svg { width: 100%; height: 100%; display: block; }
+body[data-theme="cockpit"] .w-stat canvas { width: 55%; opacity: .7; }
+
+/* readouts */
+body[data-theme="cockpit"] :is(.t-label, .g-label, .s-label) { color: #aab3bc; letter-spacing: .2em; font-weight: 700; }
+body[data-theme="cockpit"] :is(.t-val, .s-main) b { font-family: var(--mono); font-weight: 500; color: var(--amber); text-shadow: 0 0 6px rgba(255, 178, 63, .45); }
+body[data-theme="cockpit"] :is(.t-val, .s-main) small { font-family: var(--mono); }
+body[data-theme="cockpit"] :is(.t-sub, .g-sub, .s-name) { font-family: var(--mono); color: #8b939c; }
+body[data-theme="cockpit"] .w-stat :is(.t-val, .t-sub) { text-shadow: none; }
+body[data-theme="cockpit"] .chip { font-family: var(--mono); background: #0d0f12; border: 1px solid #2c3238; color: var(--amber); border-radius: 2px; }
+body[data-theme="cockpit"] :is(.proc, .sess) { background: #121519; border-color: #2c3238; border-radius: 4px; }
+
+/* music: a radio unit with an LCD screen and hardware keys */
+body[data-theme="cockpit"] .art-wrap { border-radius: 4px; box-shadow: 0 0 0 3px #0d0f12, 0 0 0 4px #3a424b; }
+body[data-theme="cockpit"] .m-text {
+  align-self: stretch; padding: 6px 10px; border-radius: 4px; flex: 1;
+  background: #0b0c0e; border: 1px solid #2c3238; box-shadow: inset 0 0 12px rgba(0, 0, 0, .8);
+}
+body[data-theme="cockpit"] .m-app { color: var(--green); font-family: var(--mono); letter-spacing: .1em; }
+body[data-theme="cockpit"] .m-title { font-family: var(--mono); font-weight: 500; color: var(--amber); text-shadow: 0 0 6px rgba(255, 178, 63, .45); }
+body[data-theme="cockpit"] .m-artist { font-family: var(--mono); color: #c48a35; }
+body[data-theme="cockpit"] .times { font-family: var(--mono); color: #8b939c; }
+body[data-theme="cockpit"] .bar::before { height: 6px; border-radius: 1px; background: repeating-linear-gradient(90deg, #3a424b 0 1px, #0d0f12 1px 8px); border: 1px solid #2c3238; }
+body[data-theme="cockpit"] .fill { height: 6px; border-radius: 1px; background: var(--amber); box-shadow: 0 0 6px rgba(255, 178, 63, .6); }
+body[data-theme="cockpit"] .fill::after { width: 4px; height: 14px; right: -2px; top: -4px; border-radius: 1px; background: #fff; }
+body[data-theme="cockpit"] .w-media .ic {
+  border-radius: 8px; color: #d8dde2;
+  background: linear-gradient(180deg, #3a4148, #22272c); border: 1px solid #14171a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 2px 0 #0a0b0d;
+}
+body[data-theme="cockpit"] .w-media .ic:active { transform: translateY(2px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .1); }
+body[data-theme="cockpit"] .w-media .ic.play { color: var(--green); }
+body[data-theme="cockpit"] .w-media .ic.play svg { filter: drop-shadow(0 0 4px rgba(93, 255, 154, .8)); }
+body[data-theme="cockpit"] input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 1px; background: linear-gradient(to right, var(--amber) var(--p, 50%), #2c3238 var(--p, 50%)); }
+body[data-theme="cockpit"] input[type=range]::-webkit-slider-thumb { width: 12px; height: 18px; margin-top: -7px; border-radius: 3px; background: linear-gradient(180deg, #d8dde2, #8b939c); }
+body[data-theme="cockpit"] .vol-val { font-family: var(--mono); color: var(--amber); }
+
+/* page dots as indicator LEDs, and the panels that open over the pages */
+body[data-theme="cockpit"] #dots i { width: 9px; height: 4px; border-radius: 1px; background: #2c3238; }
+body[data-theme="cockpit"] #dots i.on { width: 9px; background: var(--green); box-shadow: 0 0 6px var(--green); }
+body[data-theme="cockpit"] :is(.toast, #navCard, .p-sheet, .ap-card) {
+  background: linear-gradient(180deg, #23282e, #14171a); border: 1px solid #ffb23f88; border-radius: 8px; box-shadow: 0 10px 30px rgba(0, 0, 0, .7);
+}
+body[data-theme="cockpit"] #overview { background: rgba(8, 9, 11, .94); }
