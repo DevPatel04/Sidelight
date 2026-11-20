@@ -31,7 +31,7 @@
 .radio-carousel-track{flex:1;height:100%;min-width:0;display:flex;align-items:center;gap:10px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;scroll-snap-type:x proximity;scrollbar-width:none;padding:3px 4px}
 .radio-carousel-track::-webkit-scrollbar{display:none}
 .radio-carousel-track.is-dragging{scroll-snap-type:none;cursor:grabbing}
-.radio-carousel .radio-card{flex:0 0 auto;scroll-snap-align:center;width:112px;height:100%;max-height:190px;padding:10px 8px 9px;gap:7px;border-radius:16px;background:linear-gradient(180deg,rgba(24,34,48,.94),rgba(12,18,27,.97));border:1px solid rgba(255,255,255,.1);box-shadow:0 6px 16px rgba(0,0,0,.32)}
+.radio-carousel .radio-card{flex:0 0 auto;scroll-snap-align:center;width:112px;height:100%;max-height:190px;padding:10px 8px 9px;gap:7px;border-radius:16px;background:linear-gradient(180deg,rgba(24,34,48,.94),rgba(12,18,27,.97));border:1px solid var(--surface-line);box-shadow:0 6px 16px rgba(0,0,0,.32)}
 .radio-carousel .radio-card::after{content:'';position:absolute;left:24%;right:24%;bottom:0;height:2.5px;border-radius:3px 3px 0 0;background:transparent;transition:background .2s ease,box-shadow .2s ease}
 .radio-carousel .radio-card.is-playing{border-color:#00c2d1;background:linear-gradient(180deg,rgba(14,48,62,.96),rgba(9,24,34,.98));box-shadow:0 0 0 1px rgba(0,194,209,.45),0 8px 22px rgba(0,194,209,.24)}
 .radio-carousel .radio-card.is-playing::after{background:#00e5f5;box-shadow:0 0 8px #00e5f5}
@@ -44,7 +44,7 @@
   .radio-carousel .radio-name{font-size:clamp(9.5px,7.5cqh,12px)}
 }
 
-.radio-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:2;width:24px;height:40px;border-radius:8px;border:1px solid rgba(255,255,255,.16);background:rgba(10,15,24,.78);backdrop-filter:blur(6px);color:#e2e8f0;font-size:18px;line-height:1;display:none;place-items:center;cursor:pointer;padding:0;touch-action:manipulation;transition:opacity .15s ease}
+.radio-nav{position:absolute;top:50%;transform:translateY(-50%);z-index:2;width:24px;height:40px;border-radius:8px;border:1px solid var(--surface-line);background:var(--overlay);backdrop-filter:blur(6px);color:var(--text);font-size:18px;line-height:1;display:none;place-items:center;cursor:pointer;padding:0;touch-action:manipulation;transition:opacity .15s ease}
 .radio-carousel.can-scroll .radio-nav{display:grid}
 .radio-nav:disabled{opacity:0;pointer-events:none}
 .radio-nav-prev{left:2px}
