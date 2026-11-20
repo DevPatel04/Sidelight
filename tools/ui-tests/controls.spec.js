@@ -386,7 +386,7 @@ test('Control Deck settings update on input without blur and Smart Stack canvas 
     const stackEl = document.querySelector('#canvas .wb');
     const drop = (type) => {
       const dt = new DataTransfer();
-      dt.setData('application/phonebox-widget-type', type);
+      dt.setData('application/sidelight-widget-type', type);
       stackEl.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
     };
     drop('pomodoro');

@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-  Installs (or updates) PhoneBox on this computer and, optionally, on the connected phone.
+  Installs (or updates) Sidelight on this computer and, optionally, on the connected phone.
 
 .DESCRIPTION
   1. Publishes the agent to a temporary staging folder.
-  2. Stops a running agent and installs the staged build in %LOCALAPPDATA%\PhoneBox\app.
+  2. Stops a running agent and installs the staged build in %LOCALAPPDATA%\Sidelight\app.
   3. Optionally adds a Start-with-Windows shortcut.
   4. Optionally installs the panel APK on the connected phone: the newest of dist\ and the last build, rebuilt
      first when the app's sources are newer (or with -BuildApk).
@@ -23,21 +23,21 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
 . (Join-Path $PSScriptRoot 'install-apk.ps1')
-$app = Join-Path $env:LOCALAPPDATA 'PhoneBox\app'
-$exe = Join-Path $app 'PhoneBoxAgent.exe'
+$app = Join-Path $env:LOCALAPPDATA 'Sidelight\app'
+$exe = Join-Path $app 'SidelightAgent.exe'
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw '.NET 10 SDK is required: winget install Microsoft.DotNet.SDK.10' }
-$stage = Join-Path ([IO.Path]::GetTempPath()) ('phonebox-publish-' + [guid]::NewGuid().ToString('N'))
+$stage = Join-Path ([IO.Path]::GetTempPath()) ('sidelight-publish-' + [guid]::NewGuid().ToString('N'))
 try {
     Write-Host '==> Publishing agent'
-    dotnet publish (Join-Path $root 'agent\PhoneBox.Agent') -c Release -f net10.0-windows10.0.19041.0 -o $stage --nologo -v q --disable-build-servers
+    dotnet publish (Join-Path $root 'agent\Sidelight.Agent') -c Release -f net10.0-windows10.0.19041.0 -o $stage --nologo -v q --disable-build-servers
     if ($LASTEXITCODE) { throw "dotnet publish failed (exit code $LASTEXITCODE); the installed agent was not updated" }
-    if (-not (Test-Path -LiteralPath (Join-Path $stage 'PhoneBoxAgent.exe') -PathType Leaf)) {
+    if (-not (Test-Path -LiteralPath (Join-Path $stage 'SidelightAgent.exe') -PathType Leaf)) {
         throw 'publish failed: staged agent executable not found'
     }
 
     Write-Host '==> Stopping running agent'
-    Get-Process PhoneBoxAgent, DeskAgent -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process SidelightAgent, DeskAgent -ErrorAction SilentlyContinue | Stop-Process -Force
     Start-Sleep -Milliseconds 500
 
     Write-Host "==> Installing to $app"
@@ -49,17 +49,17 @@ try {
     Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# Leftover shortcut from the pre-PhoneBox "DeskAgent" prototype.
+# Leftover shortcut from the pre-Sidelight "DeskAgent" prototype.
 $startup = [Environment]::GetFolderPath('Startup')
 Remove-Item (Join-Path $startup 'DeskAgent.lnk') -ErrorAction SilentlyContinue
 
 if ($Autostart) {
     Write-Host '==> Adding Start-with-Windows shortcut'
     $shell = New-Object -ComObject WScript.Shell
-    $lnk = $shell.CreateShortcut((Join-Path $startup 'PhoneBox.lnk'))
+    $lnk = $shell.CreateShortcut((Join-Path $startup 'Sidelight.lnk'))
     $lnk.TargetPath = $exe
     $lnk.WorkingDirectory = $app
-    $lnk.Description = 'PhoneBox agent'
+    $lnk.Description = 'Sidelight agent'
     $lnk.Save()
 }
 
@@ -70,8 +70,8 @@ $launchError = $null
 try { Start-Process $exe -WorkingDirectory $app } catch { $launchError = $_ }
 if (-not $launchError) {
     Start-Sleep 2
-    try { Invoke-RestMethod http://127.0.0.1:8765/api/info -TimeoutSec 5 | Out-Null; Write-Host 'PhoneBox is running. Settings: http://127.0.0.1:8765  (or the tray icon)' }
-    catch { Write-Warning "The agent did not respond; see $env:LOCALAPPDATA\PhoneBox\agent.log" }
+    try { Invoke-RestMethod http://127.0.0.1:8765/api/info -TimeoutSec 5 | Out-Null; Write-Host 'Sidelight is running. Settings: http://127.0.0.1:8765  (or the tray icon)' }
+    catch { Write-Warning "The agent did not respond; see $env:LOCALAPPDATA\Sidelight\agent.log" }
 }
 
 if ($Apk) {
@@ -85,7 +85,7 @@ if ($Apk) {
     if (-not $adb) { throw 'adb not found: winget install Google.PlatformTools' }
 
     $built = Join-Path $root 'android\app\build\outputs\apk\release\app-release.apk'
-    $apkFile = @(Get-ChildItem (Join-Path $root 'dist') -Filter 'PhoneBox-*.apk' -ErrorAction SilentlyContinue) +
+    $apkFile = @(Get-ChildItem (Join-Path $root 'dist') -Filter 'Sidelight-*.apk' -ErrorAction SilentlyContinue) +
         @(Get-Item $built -ErrorAction SilentlyContinue) | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if (Test-Path (Join-Path $root 'android\gradlew.bat')) {
         # in a source checkout, an APK from an older release must not win over newer app sources
@@ -106,9 +106,9 @@ if ($Apk) {
     }
     Write-Host "==> Installing $($apkFile.Name) on $Serial"
     $target = @('-s', $Serial)
-    $out = Install-PhoneBoxApk -Adb $adb -ApkPath $apkFile.FullName -Serial $Serial
+    $out = Install-SidelightApk -Adb $adb -ApkPath $apkFile.FullName -Serial $Serial
     $out | Select-Object -Last 1
-    & $adb @target shell am start -n net.oxog.phonebox.deskpanel/.MainActivity | Out-Null
+    & $adb @target shell am start -n io.github.devpatel04.sidelight/.MainActivity | Out-Null
 }
 
 # the agent could not be started (see above): the phone step ran, the install still failed

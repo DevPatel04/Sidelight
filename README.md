@@ -1,49 +1,39 @@
-<p align="center"><img src="agent/PhoneBox.Agent/phonebox.ico" width="72" alt="PhoneBox icon"></p>
+<p align="center"><img src="agent/Sidelight.Agent/sidelight.ico" width="72" alt="Sidelight icon"></p>
 
-<h1 align="center">PhoneBox</h1>
-
-<p align="center">
-  <b>English</b> ·
-  <a href="docs/README.tr.md">Türkçe</a> ·
-  <a href="docs/README.de.md">Deutsch</a> ·
-  <a href="docs/README.fr.md">Français</a> ·
-  <a href="docs/README.es.md">Español</a> ·
-  <a href="docs/README.it.md">Italiano</a> ·
-  <a href="docs/README.pt.md">Português</a> ·
-  <a href="docs/README.nl.md">Nederlands</a> ·
-  <a href="docs/README.pl.md">Polski</a> ·
-  <a href="docs/README.ru.md">Русский</a> ·
-  <a href="docs/README.vi.md">Tiếng Việt</a> ·
-  <a href="docs/README.zh.md">中文 (简体)</a>
-</p>
+<h1 align="center">Sidelight</h1>
 
 <p align="center"><b>Turn an old Android phone into a desk panel for your computer.</b><br>
 PC stats, AI coding sessions, music and touch controls over USB or Wi-Fi.<br>
-Windows, Linux and macOS. No root, PhoneBox account or cloud service required.</p>
+Windows, Linux and macOS. No root, Sidelight account or cloud service required.</p>
 
 <p align="center">
-  <a href="https://devpatel04.github.io/phonebox/"><b>Try the live demo</b></a> ·
-  <a href="https://github.com/DevPatel04/phonebox/releases/latest"><b>Download</b></a> ·
+  <a href="https://devpatel04.github.io/sidelight/"><b>Try the live demo</b></a> ·
+  <a href="https://github.com/DevPatel04/sidelight/releases/latest"><b>Download</b></a> ·
   <a href="#quick-start"><b>Quick start</b></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/DevPatel04/phonebox/actions/workflows/build.yml"><img src="https://github.com/DevPatel04/phonebox/actions/workflows/build.yml/badge.svg" alt="Build status"></a>
-  <a href="https://github.com/DevPatel04/phonebox/releases/latest"><img src="https://img.shields.io/github/v/release/DevPatel04/phonebox?label=release" alt="Latest release"></a>
+  <a href="https://github.com/DevPatel04/sidelight/actions/workflows/build.yml"><img src="https://github.com/DevPatel04/sidelight/actions/workflows/build.yml/badge.svg" alt="Build status"></a>
+  <a href="https://github.com/DevPatel04/sidelight/releases/latest"><img src="https://img.shields.io/github/v/release/DevPatel04/sidelight?label=release" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/Windows%20%C2%B7%20Linux%20%C2%B7%20macOS-.NET%2010-512bd4" alt="Windows, Linux, macOS; .NET 10">
   <img src="https://img.shields.io/badge/Android-5%2B-3ddc84" alt="Android 5+">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
 </p>
 
-<p align="center"><img src="docs/hero-0.6.png" width="900" alt="PhoneBox on three phones showing automation, home and planner pages"><br>
+<p align="center"><img src="docs/hero-0.6.png" width="900" alt="Sidelight on three phones showing automation, home and planner pages"><br>
 <sub>Example layouts with demo data.</sub></p>
+
+> **Fork notice:** Sidelight is a fork of PhoneBox ([ersinkoc/phonebox](https://github.com/ersinkoc/phonebox)) by
+> Ersin KOÇ, used under the [MIT License](LICENSE). It is maintained separately by
+> [DevPatel04](https://github.com/DevPatel04) and is not affiliated with or endorsed by the original author.
+> See [NOTICE.md](NOTICE.md) for attribution and what this fork changes.
 
 > **Updates:** agents follow two channels (**Settings → General → Updates**). **Stable** installs releases from
 > `main`; **Testing** installs pre-releases from every push to `test`. Default repository is
-> `DevPatel04/phonebox`. While developing from source, turn automatic updates off so a published APK does not
+> `DevPatel04/sidelight`. While developing from source, turn automatic updates off so a published APK does not
 > replace your debug build.
 
-PhoneBox pairs a full-screen **Android app** with a small **desktop agent**. Build your panel in a browser-based
+Sidelight pairs a full-screen **Android app** with a small **desktop agent**. Build your panel in a browser-based
 visual editor: **123 widgets**, **30 templates**, multiple pages and a live preview. Pick a panel theme (glass,
 cockpit, nature, space and others) under **Settings → Display**. Connect several phones with their own layouts, or
 switch one phone between paired computers.
@@ -62,7 +52,7 @@ Tap an AI session for its model, timing and token details. Opt in to Claude Code
 prompts to answer **Allow** or **Deny** from the phone. Optional [CodexBar integration](docs/GUIDE.md#widgets) adds quota providers
 and a cost overview.
 
-<p align="center"><a href="docs/tour-0.6.mp4"><img src="docs/tour-0.6.gif" width="780" alt="PhoneBox tour showing notifications, a Claude Code permission prompt and automatic page switching"></a><br>
+<p align="center"><a href="docs/tour-0.6.mp4"><img src="docs/tour-0.6.gif" width="780" alt="Sidelight tour showing notifications, a Claude Code permission prompt and automatic page switching"></a><br>
 <sub>A tour with demo data: notifications, permission prompts and automatic page switching. <a href="docs/tour-0.6.mp4">Watch the MP4</a></sub></p>
 
 ## Quick start
@@ -75,20 +65,20 @@ works without either. Release agents include .NET, so you do not need to install
 **Windows 10/11 x64** — paste into a normal PowerShell window:
 
 ```powershell
-irm https://raw.githubusercontent.com/DevPatel04/phonebox/main/setup.ps1 | iex
+irm https://raw.githubusercontent.com/DevPatel04/sidelight/main/setup.ps1 | iex
 ```
 
 **Linux or macOS** — run as your own user:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/DevPatel04/phonebox/main/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/DevPatel04/sidelight/main/setup.sh | bash
 ```
 
 Setup downloads the latest release, checks its SHA-256 checksum, offers missing dependencies and start-at-login,
 and opens the settings at <http://127.0.0.1:8765>. It can also install the Android app over USB.
 Run setup again to update or repair the installation while keeping settings and pairings.
 
-> **Windows signing:** release agents are currently unsigned while the SignPath Foundation application is pending.
+> **Windows signing:** release agents from this fork are not code-signed.
 > SmartScreen or antivirus software may warn or block them. See the [code signing policy](#code-signing-policy)
 > and [installation warnings](docs/SETUP.md#quick-start). USB debugging should be authorized only on computers you trust.
 
@@ -99,7 +89,7 @@ The [installation guide](docs/SETUP.md) covers options, dependencies, install pa
 
 | USB | Wi-Fi only |
 |---|---|
-| Enable **Developer options → USB debugging**, connect a data cable and accept the phone's authorization prompt. Let setup install the app, or use **Settings → General → Install the phone app**. | Install the APK from the [latest release](https://github.com/DevPatel04/phonebox/releases/latest). Wi-Fi is off by default: open the settings page (tray icon, or `http://127.0.0.1:8765`), turn on **General → Wi-Fi & Tailscale → Let the phone connect without the USB cable**, click **Save**, then **Restart to apply** at the top. Choose **Pair a phone over Wi-Fi**, scan the pairing QR code and confirm the matching check code. |
+| Enable **Developer options → USB debugging**, connect a data cable and accept the phone's authorization prompt. Let setup install the app, or use **Settings → General → Install the phone app**. | Install the APK from the [latest release](https://github.com/DevPatel04/sidelight/releases/latest). Wi-Fi is off by default: open the settings page (tray icon, or `http://127.0.0.1:8765`), turn on **General → Wi-Fi & Tailscale → Let the phone connect without the USB cable**, click **Save**, then **Restart to apply** at the top. Choose **Pair a phone over Wi-Fi**, scan the pairing QR code and confirm the matching check code. |
 | Wakes and opens the panel on connection; supports app updates over adb. | No adb or developer options needed; install app updates manually unless you later configure USB. |
 
 The phone app is not in any app store; it comes only from this repository's releases. It runs on Android 5.0 and
@@ -117,13 +107,13 @@ Swipe, tap the page dots or use the phone's volume keys to move between pages.
 <details>
 <summary><b>Other installation methods</b></summary>
 
-- **Manual download:** unzip the agent for your system from the [release page](https://github.com/DevPatel04/phonebox/releases/latest)
+- **Manual download:** unzip the agent for your system from the [release page](https://github.com/DevPatel04/sidelight/releases/latest)
   and run it. Install the APK on the phone. Checksums and build provenance accompany the release assets.
 - **Scoop (Windows):**
 
   ```powershell
-  scoop bucket add phonebox https://github.com/DevPatel04/phonebox
-  scoop install main/adb phonebox/phonebox
+  scoop bucket add sidelight https://github.com/DevPatel04/sidelight
+  scoop install main/adb sidelight/sidelight
   ```
 
 - **From source:** [RUN.md](RUN.md) (Linux/macOS) or [RUN-WINDOWS.md](RUN-WINDOWS.md) (Windows), plus the
@@ -186,7 +176,7 @@ The desktop settings server listens on `127.0.0.1:8765`; USB reaches it through 
 Optional Wi-Fi uses HTTPS on port 8766 with a pinned certificate and a paired key. Settings and pairing endpoints
 stay local. The phone requests configured actions by ID; commands and integration credentials stay on the computer.
 
-PhoneBox has no telemetry, analytics or accounts of its own. Optional widgets and integrations contact external
+Sidelight has no telemetry, analytics or accounts of its own. Optional widgets and integrations contact external
 services for weather, quotas, GitHub and other data, and the agent checks GitHub for updates.
 Supported public feeds can fall back through the agent over USB when the phone has no internet.
 The [privacy policy](PRIVACY.md) lists outbound connections and how to disable them.
@@ -223,50 +213,40 @@ Contributions are welcome; start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Code signing policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
-[SignPath Foundation](https://signpath.org/).
-
-- **Windows agent:** the SignPath Foundation application is pending; releases are unsigned until approved.
-  The intended signing target is `PhoneBoxAgent.exe` in the `win-x64` release zip, built by the
-  [release workflow](.github/workflows/release.yml). Every signing request requires manual approval.
-  Bundled runtime and library notices are in [THIRD-PARTY-NOTICES.txt](agent/PhoneBox.Agent/THIRD-PARTY-NOTICES.txt).
-- **Android app:** release APKs use the project's own signing key, independently of SignPath.
-- **Team roles:** committer, reviewer and signing approver for this repository: [DevPatel04](https://github.com/DevPatel04).
+- **Windows agent:** releases from this fork are **not code-signed**, so SmartScreen or antivirus software may warn
+  about them. The SignPath Foundation signing arrangement described in the
+  [upstream project](https://github.com/ersinkoc/phonebox#code-signing-policy) covers upstream releases only.
+  Bundled runtime and library notices are in [THIRD-PARTY-NOTICES.txt](agent/Sidelight.Agent/THIRD-PARTY-NOTICES.txt).
+- **Android app:** release APKs are signed with this fork's own key, so they install over each other but not over
+  the upstream app (uninstall that first).
+- **Team roles:** committer, reviewer and release approver for this repository: [DevPatel04](https://github.com/DevPatel04).
   Pull requests from other contributors are reviewed before merging.
 - **Privacy:** see the [privacy policy](PRIVACY.md).
 
 ## Thanks
 
-People who tested PhoneBox on their own hardware:
+People who tested Sidelight on their own hardware:
 
-- [anandyakshit](https://github.com/anandyakshit): Android 7 support, on an Android 7.1.1 phone ([#73](https://github.com/DevPatel04/phonebox/issues/73)).
+- [anandyakshit](https://github.com/anandyakshit): Android 7 support, on an Android 7.1.1 phone ([ersinkoc/phonebox#73](https://github.com/ersinkoc/phonebox/issues/73)).
 
-## Sponsor
+## Credits
 
-<!-- sponsor: WrongStack -->
-<p align="center">
-  <a href="https://wrongstack.com">
-    <img src="docs/sponsors/wrongstack.svg" width="900" alt="Sponsored by WrongStack — open-source AI coding with durable memory and multi-agent workflows. Explore wrongstack.com.">
-  </a>
-</p>
-<p align="center">
-  <strong>Supported by <a href="https://wrongstack.com">WrongStack</a></strong> ·
-  An open-source AI coding agent that remembers your codebase.<br>
-  <a href="https://wrongstack.com"><strong>Explore WrongStack →</strong></a> ·
-  <a href="https://github.com/wrongstack/wrongstack"><strong>View on GitHub &amp; give it a star ★</strong></a>
-</p>
-<!-- /sponsor: WrongStack -->
+Sidelight is based on PhoneBox, created by [Ersin KOÇ](https://github.com/ersinkoc) ([ersinkoc/phonebox](https://github.com/ersinkoc/phonebox)).
+This fork builds on that work; the upstream project's history, contributors and sponsors are on its repository.
+This fork was renamed to Sidelight and has its own icon.
 
 ## Star History
 
-<a href="https://www.star-history.com/#DevPatel04/phonebox&Date">
+<a href="https://www.star-history.com/#DevPatel04/sidelight&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=DevPatel04/phonebox&type=Date&theme=dark">
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=DevPatel04/phonebox&type=Date">
-    <img alt="Star history of DevPatel04/phonebox" src="https://api.star-history.com/svg?repos=DevPatel04/phonebox&type=Date">
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=DevPatel04/sidelight&type=Date&theme=dark">
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=DevPatel04/sidelight&type=Date">
+    <img alt="Star history of DevPatel04/sidelight" src="https://api.star-history.com/svg?repos=DevPatel04/sidelight&type=Date">
   </picture>
 </a>
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Copyright (c) 2026 Ersin KOÇ (original work) and DevPatel04 and contributors
+(modifications). Third-party components: [THIRD-PARTY-NOTICES.txt](agent/Sidelight.Agent/THIRD-PARTY-NOTICES.txt).
+Attribution details: [NOTICE.md](NOTICE.md).

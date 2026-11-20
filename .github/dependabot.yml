@@ -15,7 +15,7 @@ updates:
       browser-tests:
         patterns: ['*']
   - package-ecosystem: nuget
-    directory: /agent/PhoneBox.Agent.Tests
+    directory: /agent/Sidelight.Agent.Tests
     schedule:
       interval: weekly
     groups:
