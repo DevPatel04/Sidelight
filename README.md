@@ -2,21 +2,6 @@
 
 <h1 align="center">PhoneBox</h1>
 
-<p align="center">
-  <b>English</b> ·
-  <a href="docs/README.tr.md">Türkçe</a> ·
-  <a href="docs/README.de.md">Deutsch</a> ·
-  <a href="docs/README.fr.md">Français</a> ·
-  <a href="docs/README.es.md">Español</a> ·
-  <a href="docs/README.it.md">Italiano</a> ·
-  <a href="docs/README.pt.md">Português</a> ·
-  <a href="docs/README.nl.md">Nederlands</a> ·
-  <a href="docs/README.pl.md">Polski</a> ·
-  <a href="docs/README.ru.md">Русский</a> ·
-  <a href="docs/README.vi.md">Tiếng Việt</a> ·
-  <a href="docs/README.zh.md">中文 (简体)</a>
-</p>
-
 <p align="center"><b>Turn an old Android phone into a desk panel for your computer.</b><br>
 PC stats, AI coding sessions, music and touch controls over USB or Wi-Fi.<br>
 Windows, Linux and macOS. No root, PhoneBox account or cloud service required.</p>
