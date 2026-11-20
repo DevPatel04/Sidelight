@@ -540,7 +540,7 @@ test('the pairing page hands a checked link to the app and clears it from the ad
   await expect(page.locator('#check')).toHaveText('ABAB ABAB');
   const href = await page.locator('#open').getAttribute('href');
   expect(href).toBe(`intent://pair?v=1&pc=Desk%20PC&fp=${fp}&port=8766&h=192.168.1.10%2C100.64.0.7&c=${'A'.repeat(22)}`
-    + '#Intent;scheme=sidelight;package=io.github.devpatel04.sidelight;S.browser_fallback_url=https%3A%2F%2Fgithub.com%2FDevPatel04%2Fsidelight%2Freleases%2Flatest;end');
+    + '#Intent;scheme=sidelight;package=io.github.devpatel04.sidelight;S.browser_fallback_url=https%3A%2F%2Fgithub.com%2FDevPatel04%2Fphonebox%2Freleases%2Flatest;end');
   // the button stays pinned to the app's package; the plain link is a separate choice for browsers that open a store (#175)
   await expect(page.locator('#plainWrap')).toBeVisible();
   expect(await page.locator('#plain').getAttribute('href')).toBe(`sidelight://pair?v=1&pc=Desk%20PC&fp=${fp}&port=8766&h=192.168.1.10%2C100.64.0.7&c=${'A'.repeat(22)}`);
