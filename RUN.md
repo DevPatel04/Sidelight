@@ -1,4 +1,4 @@
-# Running PhoneBox locally (Linux)
+# Running Sidelight locally (Linux)
 
 On Windows, follow [RUN-WINDOWS.md](RUN-WINDOWS.md) instead.
 
@@ -57,12 +57,12 @@ It should list one device as `device` (not `unauthorized` or empty).
 
 ### First install of the app
 
-If the phone has PhoneBox from somewhere else (the original ersinkoc/phonebox release, or a release APK), it is
+If the phone has Sidelight from somewhere else (a release APK, or a debug build from another computer), it is
 signed with another key and must be removed once. This deletes the app's data on the phone (pairings, not your
 layouts, which live on the PC):
 
 ```bash
-adb shell pm uninstall net.oxog.phonebox.deskpanel
+adb shell pm uninstall io.github.devpatel04.sidelight
 ```
 
 ## 2. Run it (the easy way)
@@ -97,14 +97,14 @@ only after the app is rebuilt and reinstalled.
 ./scripts/dev.sh test     # release metadata + agent + Playwright UI (incl. i18n) before push
 ```
 
-The agent's output is written to `~/.local/state/phonebox-dev/agent.log`.
+The agent's output is written to `~/.local/state/sidelight-dev/agent.log`.
 
 ## 3. Run it by hand (what the script does)
 
 Agent, in its own terminal (stop with Ctrl+C):
 
 ```bash
-dotnet run --project agent/PhoneBox.Agent -f net10.0
+dotnet run --project agent/Sidelight.Agent -f net10.0
 ```
 
 Phone app, in another terminal:
@@ -133,7 +133,7 @@ Before push, run the same local suite CI covers for metadata, agent and browser 
 Or by hand:
 
 ```bash
-dotnet test agent/PhoneBox.Agent.Tests
+dotnet test agent/Sidelight.Agent.Tests
 ```
 
 ```bash
@@ -160,7 +160,7 @@ Then open <http://127.0.0.1:8790/panel/>.
 
 ## 5. Updates while developing
 
-In **Settings → General → Updates**, keep **Repository** set to `DevPatel04/phonebox` and turn **automatic updates
+In **Settings → General → Updates**, keep **Repository** set to `DevPatel04/sidelight` and turn **automatic updates
 off** while you work. Otherwise the agent may install a published release over the app you are testing. "Check now"
 returns 404 until the repository is public and has a release.
 
@@ -170,9 +170,9 @@ returns 404 until the repository is public and has a release.
 |---|---|
 | `adb: command not found` | Run `source ~/.bashrc` or open a new terminal. `dev.sh` finds adb by itself. |
 | `adb devices` shows nothing | Use a data cable, pick **File transfer** on the phone, re-plug, accept the debugging prompt. |
-| `INSTALL_FAILED_UPDATE_INCOMPATIBLE ... signatures do not match` | The installed app has another signing key: `adb shell pm uninstall net.oxog.phonebox.deskpanel`, then install again. |
-| `adb uninstall` says `DELETE_FAILED_INTERNAL_ERROR` (vivo) | Use `adb shell pm uninstall net.oxog.phonebox.deskpanel` instead. |
-| `address already in use` on port 8765 | An agent is still running: `./scripts/dev.sh stop` (or `pkill -f PhoneBoxAgent`). |
+| `INSTALL_FAILED_UPDATE_INCOMPATIBLE ... signatures do not match` | The installed app has another signing key: `adb shell pm uninstall io.github.devpatel04.sidelight`, then install again. |
+| `adb uninstall` says `DELETE_FAILED_INTERNAL_ERROR` (vivo) | Use `adb shell pm uninstall io.github.devpatel04.sidelight` instead. |
+| `address already in use` on port 8765 | An agent is still running: `./scripts/dev.sh stop` (or `pkill -f SidelightAgent`). |
 | Ctrl+C or `stop` takes about 10 seconds | The agent is slow to shut down; `dev.sh` force-stops it after 10 seconds. |
 | `gradlew` complains about `JAVA_HOME` | Install `openjdk-17-jdk` and add the `JAVA_HOME` line above to `~/.bashrc`. |
 | Phone shows "Waiting for agent" | Check `./scripts/dev.sh status`; if the agent runs, `adb reverse tcp:8765 tcp:8765`. |

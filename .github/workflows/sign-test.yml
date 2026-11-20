@@ -1,7 +1,7 @@
 name: signing test
 
 # A trial run of the SignPath signing that release.yml uses, with the test certificate: it builds the Windows agent,
-# signs PhoneBoxAgent.exe and keeps the signed file as a workflow artifact for a week. Nothing is released.
+# signs SidelightAgent.exe and keeps the signed file as a workflow artifact for a week. Nothing is released.
 
 on:
   workflow_dispatch:
@@ -31,21 +31,21 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - name: Publish (self-contained, single file)
-        run: dotnet publish agent/PhoneBox.Agent -c Release -f net10.0-windows10.0.19041.0 -r win-x64 --self-contained true -p:PublishSingleFile=true -o out --nologo
+        run: dotnet publish agent/Sidelight.Agent -c Release -f net10.0-windows10.0.19041.0 -r win-x64 --self-contained true -p:PublishSingleFile=true -o out --nologo
       - uses: ./.github/actions/sign-windows-agent
         with:
-          exe: out/PhoneBoxAgent.exe
+          exe: out/SidelightAgent.exe
           signing-policy: ${{ inputs.signing-policy }}
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           trusted: ${{ inputs.signing-policy == 'release-signing' }}
       - name: Smoke-test the signed agent
         shell: pwsh
         run: |
-          $v = ([xml](Get-Content agent/PhoneBox.Agent/PhoneBox.Agent.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
-          python tools/smoke-agent.py out/PhoneBoxAgent.exe --version $v
+          $v = ([xml](Get-Content agent/Sidelight.Agent/Sidelight.Agent.csproj)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          python tools/smoke-agent.py out/SidelightAgent.exe --version $v
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: signed-PhoneBoxAgent-${{ inputs.signing-policy }}
-          path: out/PhoneBoxAgent.exe
+          name: signed-SidelightAgent-${{ inputs.signing-policy }}
+          path: out/SidelightAgent.exe
           retention-days: 7
