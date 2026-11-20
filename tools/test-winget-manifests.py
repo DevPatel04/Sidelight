@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory() as tmp:
     directory = pathlib.Path(tmp, 'manifests/d/DevPatel04/Sidelight', version)
     locale = (directory / 'DevPatel04.Sidelight.locale.en-US.yaml').read_text(encoding='utf-8')
     installer = (directory / 'DevPatel04.Sidelight.installer.yaml').read_text(encoding='utf-8')
-    notes = f'ReleaseNotesUrl: https://github.com/DevPatel04/sidelight/releases/tag/v{version}'
+    notes = f'ReleaseNotesUrl: https://github.com/DevPatel04/phonebox/releases/tag/v{version}'
     assert notes in locale.splitlines(), 'WinGet default locale must carry the release notes URL'
     assert notes not in installer.splitlines(), 'WinGet installer has no release notes field'
     print('PASS: WinGet release notes live in the default locale')

@@ -65,7 +65,7 @@ public sealed class PairingTests
         var uri = new Uri(link);
         Assert.Equal("https", uri.Scheme);
         Assert.Equal("devpatel04.github.io", uri.Host);
-        Assert.Equal("/sidelight/pair/", uri.AbsolutePath);
+        Assert.Equal("/phonebox/pair/", uri.AbsolutePath);
         Assert.Equal("", uri.Query); // nothing a web server would receive
         Assert.Equal("#v=1&pc=Desk%20PC%20%26%20co&fp=ab12&port=8766&h=192.168.1.10,100.64.0.7&c=CODE_x-1", uri.Fragment);
     }
