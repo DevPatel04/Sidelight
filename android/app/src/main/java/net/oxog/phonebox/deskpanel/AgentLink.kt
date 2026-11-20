@@ -308,6 +308,7 @@ class AgentLink(private val context: Context) {
         companion object {
             private val FINGERPRINT = Regex("^[0-9a-f]{64}$")
             private val CODE = Regex("^[A-Za-z0-9_-]{16,64}$")
+            private val PAIR_HOSTS = setOf("devpatel04.github.io", "ersinkoc.github.io")
 
             /**
              * Only the addresses the agent offers: private network (10/8, 172.16/12, 192.168/16) and Tailscale
@@ -321,14 +322,15 @@ class AgentLink(private val context: Context) {
             }
 
             /**
-             * Reads https://ersinkoc.github.io/phonebox/pair/#v=1&... (the QR code; the data is in the fragment so it
+             * Reads https://devpatel04.github.io/phonebox/pair/#v=1&... (the QR code; the data is in the fragment so it
              * never reaches a web server) or phonebox://pair?v=1&... (the "Open in PhoneBox" button on that page).
              * Anything malformed returns null.
              */
             fun parse(uri: Uri?): PairLink? {
                 if (uri == null) return null
                 val raw = when {
-                    uri.scheme == "https" && uri.host == "ersinkoc.github.io" && uri.path?.startsWith("/phonebox/pair") == true -> uri.encodedFragment
+                    // ersinkoc.github.io: QR codes from agents released before the move to DevPatel04/phonebox
+                    uri.scheme == "https" && uri.host in PAIR_HOSTS && uri.path?.startsWith("/phonebox/pair") == true -> uri.encodedFragment
                     uri.scheme == "phonebox" && uri.host == "pair" -> uri.encodedQuery
                     else -> null
                 } ?: return null
