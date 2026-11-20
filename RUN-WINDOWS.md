@@ -1,4 +1,4 @@
-# Running PhoneBox locally on Windows 10/11
+# Running Sidelight locally on Windows 10/11
 
 Step by step: install the tools, get the code, run the desktop agent, and build and install the phone app (APK).
 Run every command in **PowerShell** (not as administrator unless a step says so). For Linux see [RUN.md](RUN.md).
@@ -69,8 +69,8 @@ The agent also looks for adb in `%LOCALAPPDATA%\Android\Sdk\platform-tools`, so 
 
 ```powershell
 cd $HOME
-git clone https://github.com/DevPatel04/phonebox.git
-cd phonebox
+git clone https://github.com/DevPatel04/sidelight.git
+cd sidelight
 ```
 
 The repository is private: Git opens a browser window to sign in to GitHub the first time.
@@ -83,7 +83,7 @@ git switch test
 ## Step 4: Check that it builds
 
 ```powershell
-dotnet test agent\PhoneBox.Agent.Tests
+dotnet test agent\Sidelight.Agent.Tests
 ```
 
 All tests should pass.
@@ -135,19 +135,19 @@ only after the app is rebuilt and reinstalled.
 .\scripts\dev.ps1 test     # release metadata + agent + Playwright UI (incl. i18n) before push
 ```
 
-The agent's log is `%LOCALAPPDATA%\PhoneBox\agent.log`.
+The agent's log is `%LOCALAPPDATA%\Sidelight\agent.log`.
 
 If the phone install fails with **`INSTALL_FAILED_UPDATE_INCOMPATIBLE ... signatures do not match`**, remove the
 installed app once (this clears the app's data on the phone, not your layouts), then run `phone` again:
 
 ```powershell
-adb shell pm uninstall net.oxog.phonebox.deskpanel
+adb shell pm uninstall io.github.devpatel04.sidelight
 ```
 
 Debug builds are signed with a key that belongs to each PC, so installing a debug build from a different computer
 needs this uninstall too.
 
-While developing, go to **Settings → General → Updates**, set **Repository** to `DevPatel04/phonebox` and turn
+While developing, go to **Settings → General → Updates**, set **Repository** to `DevPatel04/sidelight` and turn
 **automatic updates off**, so a published release does not replace the app you are testing.
 
 Windows Firewall may ask about network access the first time. Allow **private networks** only if you will use
@@ -158,8 +158,8 @@ Wi-Fi pairing; USB works without it.
 Agent:
 
 ```powershell
-dotnet build agent\PhoneBox.Agent -f net10.0-windows10.0.19041.0
-Start-Process agent\PhoneBox.Agent\bin\Debug\net10.0-windows10.0.19041.0\PhoneBoxAgent.exe
+dotnet build agent\Sidelight.Agent -f net10.0-windows10.0.19041.0
+Start-Process agent\Sidelight.Agent\bin\Debug\net10.0-windows10.0.19041.0\SidelightAgent.exe
 ```
 
 Phone app:
@@ -169,11 +169,11 @@ cd android
 .\gradlew.bat assembleDebug
 cd ..
 adb install -r android\app\build\outputs\apk\debug\app-debug.apk
-adb shell am start -n net.oxog.phonebox.deskpanel/.MainActivity
+adb shell am start -n io.github.devpatel04.sidelight/.MainActivity
 ```
 
 With the agent running and the phone on USB, the phone wakes and opens the panel. If it shows
-"Waiting for agent", open the PhoneBox app or run:
+"Waiting for agent", open the Sidelight app or run:
 
 ```powershell
 adb reverse tcp:8765 tcp:8765
@@ -189,6 +189,6 @@ To stop the agent, right-click the tray icon → **Exit**, or `.\scripts\dev.ps1
 | `gradlew` says `JAVA_HOME is not set` | Repeat Step 2.3, then open a new window. |
 | `SDK location not found` | Check `$env:ANDROID_HOME` points to `%LOCALAPPDATA%\Android\Sdk`; repeat Step 2.3. |
 | `adb devices` empty or `unauthorized` | Data cable, File transfer mode, USB driver, accept the prompt on the phone. |
-| Agent does not start, port 8765 in use | Another agent runs: `.\scripts\dev.ps1 stop`, or exit the installed PhoneBox from the tray. |
+| Agent does not start, port 8765 in use | Another agent runs: `.\scripts\dev.ps1 stop`, or exit the installed Sidelight from the tray. |
 | `adb.exe - Application Error (0xc0000142)` at shutdown | Known Windows adb issue; harmless, see issue #179 upstream. |
 | Update check shows `404 (Not Found)` | The repository is private or has no release yet; leave automatic updates off. |

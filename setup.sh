@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# PhoneBox setup for Linux and macOS: installs the latest release, everything it needs, and the phone app.
+# Sidelight setup for Linux and macOS: installs the latest release, everything it needs, and the phone app.
 #
-#   curl -fsSL https://raw.githubusercontent.com/DevPatel04/phonebox/main/setup.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/DevPatel04/phonebox/main/setup.sh | bash -s -- --no-phone
+#   curl -fsSL https://raw.githubusercontent.com/DevPatel04/sidelight/main/setup.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/DevPatel04/sidelight/main/setup.sh | bash -s -- --no-phone
 #
 # Run it as yourself, not with sudo: it asks for sudo only to install packages, and asks first.
-# Running it again updates PhoneBox or repairs the installation; settings are kept.
+# Running it again updates Sidelight or repairs the installation; settings are kept.
 #
 # Options:
 #   --yes               answer every question with its default (unattended)
 #   --no-phone          do not install the app on a phone over USB (for a Wi-Fi-only phone)
 #   --serial <id>       the phone to use when several are connected (see "adb devices")
-#   --no-autostart      do not start PhoneBox at login
+#   --no-autostart      do not start Sidelight at login
 #   --no-start          install only; do not start the agent
 #   --no-extras         do not offer the optional helpers (playerctl, xprintidle, nowplaying-cli ...)
 #   --version <x.y.z>   install this release instead of the latest
 #   --dry-run           download and check everything, show what would happen, change nothing
 set -euo pipefail
 
-repo="DevPatel04/phonebox"
-package="net.oxog.phonebox.deskpanel"
+repo="DevPatel04/sidelight"
+package="io.github.devpatel04.sidelight"
 settings_url="http://127.0.0.1:8765"
 
 yes=0; phone=1; serial=""; autostart=1; start=1; extras=1; version=""; dry=0
@@ -70,13 +70,13 @@ read_line() { # read_line "prompt" -> the answer on stdout (empty without a term
 }
 
 download() { # download url file
-  if have curl; then curl -fsSL --retry 3 --proto '=https' --proto-redir '=https' -A phonebox-setup -o "$2" "$1"
-  else wget -q --https-only -U phonebox-setup -O "$2" "$1"; fi
+  if have curl; then curl -fsSL --retry 3 --proto '=https' --proto-redir '=https' -A sidelight-setup -o "$2" "$1"
+  else wget -q --https-only -U sidelight-setup -O "$2" "$1"; fi
 }
 
 download_text() { # download_text url -> stdout
-  if have curl; then curl -fsSL --retry 2 --proto '=https' -A phonebox-setup "$1"
-  else wget -q --https-only -U phonebox-setup -O - "$1"; fi
+  if have curl; then curl -fsSL --retry 2 --proto '=https' -A sidelight-setup "$1"
+  else wget -q --https-only -U sidelight-setup -O - "$1"; fi
 }
 
 local_up() { # is the agent answering on this computer?
@@ -216,7 +216,7 @@ install_adb() {
     pacman) if sudo_note; then pkg_install android-tools android-udev || true; fi ;;
   esac
   if [ -n "$(find_adb)" ]; then return; fi
-  # no package manager (or it failed): Google's download, in a folder PhoneBox looks in
+  # no package manager (or it failed): Google's download, in a folder Sidelight looks in
   local url dest
   if [ "$os" = osx ]; then url="https://dl.google.com/android/repository/platform-tools-latest-darwin.zip"; dest="$HOME/Library/Android/sdk"
   elif [ "$arch" = x64 ]; then url="https://dl.google.com/android/repository/platform-tools-latest-linux.zip"; dest="$HOME/Android/Sdk"
@@ -249,25 +249,25 @@ offer_extras() {
   if ask "Install them now?" y; then
     # shellcheck disable=SC2086 # one package name per word
     if sudo_note && pkg_install $missing; then ok "Installed: $missing"
-    else caution "Some could not be installed (not every distribution packages all of them); PhoneBox works without them."; fi
+    else caution "Some could not be installed (not every distribution packages all of them); Sidelight works without them."; fi
   fi
 }
 
 # ---- agent ------------------------------------------------------------------------------------------------------
-unit="$HOME/.config/systemd/user/phonebox.service"   # where scripts/uninstall.sh looks
-plist="$HOME/Library/LaunchAgents/net.oxog.phonebox.agent.plist"
+unit="$HOME/.config/systemd/user/sidelight.service"   # where scripts/uninstall.sh looks
+plist="$HOME/Library/LaunchAgents/io.github.devpatel04.sidelight.agent.plist"
 
 systemd_user() { have systemctl && systemctl --user show-environment >/dev/null 2>&1; }
 
 remove_autostart() {
   if [ "$os" = linux ] && [ -f "$unit" ]; then
-    systemctl --user disable phonebox.service >/dev/null 2>&1 || true
+    systemctl --user disable sidelight.service >/dev/null 2>&1 || true
     rm -f "$unit"
-    info 'Removed the login service; PhoneBox no longer starts at login.'
+    info 'Removed the login service; Sidelight no longer starts at login.'
   fi
   if [ "$os" = osx ] && [ -f "$plist" ]; then
     rm -f "$plist"
-    info 'Removed the login item; PhoneBox no longer starts at login.'
+    info 'Removed the login item; Sidelight no longer starts at login.'
   fi
 }
 
@@ -280,18 +280,18 @@ systemd_quote() {
 xml_escape() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
 
 stop_agent() {
-  if [ "$os" = linux ] && systemd_user; then systemctl --user stop phonebox.service 2>/dev/null || true; fi
+  if [ "$os" = linux ] && systemd_user; then systemctl --user stop sidelight.service 2>/dev/null || true; fi
   if [ "$os" = osx ] && [ -f "$plist" ]; then launchctl unload "$plist" 2>/dev/null || true; fi
-  pkill -x PhoneBoxAgent 2>/dev/null || true
+  pkill -x SidelightAgent 2>/dev/null || true
   local i=0
-  while pgrep -x PhoneBoxAgent >/dev/null 2>&1 && [ "$i" -lt 40 ]; do sleep 0.25; i=$((i + 1)); done
+  while pgrep -x SidelightAgent >/dev/null 2>&1 && [ "$i" -lt 40 ]; do sleep 0.25; i=$((i + 1)); done
 }
 
 write_autostart() {
   if [ "$os" = linux ]; then
     if ! systemd_user; then
-      caution "No systemd user session here, so PhoneBox cannot start at login automatically."
-      caution "Add $app/PhoneBoxAgent to your desktop's startup applications instead."
+      caution "No systemd user session here, so Sidelight cannot start at login automatically."
+      caution "Add $app/SidelightAgent to your desktop's startup applications instead."
       return 1
     fi
     local unsafe=0
@@ -302,7 +302,7 @@ write_autostart() {
     case "$app" in *'"'*|*"'"*|*[\\]*) unsafe=1 ;; esac
     if [ "$unsafe" = 1 ]; then
       caution "The install or settings path contains \$, a quote, a backslash or a line break, which a systemd service cannot be given safely;"
-      caution "add $app/PhoneBoxAgent to your desktop's startup applications instead."
+      caution "add $app/SidelightAgent to your desktop's startup applications instead."
       remove_autostart   # an older unit would otherwise start the previous install at login and in start_agent
       return 1
     fi
@@ -315,11 +315,11 @@ write_autostart() {
     mkdir -p "$(dirname "$unit")"
     cat > "$unit" <<EOF
 [Unit]
-Description=PhoneBox agent (desk panel for an Android phone)
+Description=Sidelight agent (desk panel for an Android phone)
 After=graphical-session.target
 
 [Service]
-ExecStart=$(systemd_quote "$app/PhoneBoxAgent")
+ExecStart=$(systemd_quote "$app/SidelightAgent")
 Restart=on-failure
 RestartSec=5
 ${env_lines}
@@ -327,7 +327,7 @@ ${env_lines}
 WantedBy=default.target
 EOF
     systemctl --user daemon-reload
-    systemctl --user enable phonebox.service >/dev/null 2>&1
+    systemctl --user enable sidelight.service >/dev/null 2>&1
     ok "systemd user service: $unit"
   else
     mkdir -p "$(dirname "$plist")"
@@ -335,8 +335,8 @@ EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>Label</key><string>net.oxog.phonebox.agent</string>
-  <key>ProgramArguments</key><array><string>$(xml_escape "$app/PhoneBoxAgent")</string></array>
+  <key>Label</key><string>io.github.devpatel04.sidelight.agent</string>
+  <key>ProgramArguments</key><array><string>$(xml_escape "$app/SidelightAgent")</string></array>
   <key>EnvironmentVariables</key><dict>
     <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
@@ -349,9 +349,9 @@ EOF
 }
 
 start_agent() {
-  if [ "$os" = linux ] && [ -f "$unit" ] && systemd_user; then systemctl --user restart phonebox.service && return; fi
+  if [ "$os" = linux ] && [ -f "$unit" ] && systemd_user; then systemctl --user restart sidelight.service && return; fi
   if [ "$os" = osx ] && [ -f "$plist" ]; then launchctl load "$plist" 2>/dev/null && return; fi
-  nohup "$app/PhoneBoxAgent" >/dev/null 2>&1 &
+  nohup "$app/SidelightAgent" >/dev/null 2>&1 &
   disown 2>/dev/null || true
 }
 
@@ -416,18 +416,18 @@ install_phone_app() { # install_phone_app apk serial -> 0 when installed
   level="$("$adb" -s "$device" shell getprop ro.build.version.sdk 2>/dev/null | tr -d '\r[:space:]')"
   case "$level" in ''|*[!0-9]*) level=0 ;; esac
   if [ "$level" -gt 0 ] && [ "$level" -lt 21 ]; then
-    caution "This phone runs Android API $level; PhoneBox needs Android 5.0 (API 21) or later. The app was not installed."
+    caution "This phone runs Android API $level; Sidelight needs Android 5.0 (API 21) or later. The app was not installed."
     return 1
   fi
   info "Installing $(basename "$apk") on $device (the phone may ask you to confirm) ..."
   out="$("$adb" -s "$device" install -r "$apk" 2>&1)" || true
   case "$out" in
     *INSTALL_FAILED_UPDATE_INCOMPATIBLE*)
-      caution 'The phone has a PhoneBox app signed with a different key (for example one you built yourself).'
-      caution 'It was left as it is, with its data. To switch to the release app, uninstall PhoneBox on the phone'
+      caution 'The phone has a Sidelight app signed with a different key (for example one you built yourself).'
+      caution 'It was left as it is, with its data. To switch to the release app, uninstall Sidelight on the phone'
       caution '(this deletes its settings) and run setup again.'
       return 1 ;;
-    *INSTALL_FAILED_VERSION_DOWNGRADE*) ok 'The phone already has a newer PhoneBox app; it was kept.'; return 0 ;;
+    *INSTALL_FAILED_VERSION_DOWNGRADE*) ok 'The phone already has a newer Sidelight app; it was kept.'; return 0 ;;
     *INSTALL_FAILED_USER_RESTRICTED*|*INSTALL_FAILED_ABORTED*)
       caution 'The phone refused the installation. Confirm it on the phone; Xiaomi / Redmi / POCO phones also need'
       caution '"Install via USB" in Developer options. Then run setup again.'
@@ -435,7 +435,7 @@ install_phone_app() { # install_phone_app apk serial -> 0 when installed
     *Success*) ;;
     *) caution "The app could not be installed: $(printf '%s' "$out" | tr '\n' ' ')"; return 1 ;;
   esac
-  ok 'PhoneBox app installed on the phone'
+  ok 'Sidelight app installed on the phone'
   "$adb" -s "$device" shell am start -n "$package/.MainActivity" >/dev/null 2>&1 || true
   return 0
 }
@@ -458,11 +458,11 @@ main() {
     shift
   done
 
-  printf '\n%sPhoneBox setup%s\n' "$c_step" "$c_off"
+  printf '\n%sSidelight setup%s\n' "$c_step" "$c_off"
   if [ "$dry" = 1 ]; then printf '%sDry run: downloads and checks everything, changes nothing.%s\n' "$c_warn" "$c_off"; fi
 
   step 'Checking this computer'
-  [ "$(id -u)" != 0 ] || die "do not run setup as root or with sudo. PhoneBox runs as you (its settings, autostart and phone pairing belong to your account); setup asks for sudo itself when it installs packages."
+  [ "$(id -u)" != 0 ] || die "do not run setup as root or with sudo. Sidelight runs as you (its settings, autostart and phone pairing belong to your account); setup asks for sudo itself when it installs packages."
   case "$(uname -s)" in
     Linux) os=linux ;;
     Darwin) os=osx ;;
@@ -475,13 +475,13 @@ main() {
     case "$(uname -m)" in
       x86_64|amd64) arch=x64 ;;
       aarch64|arm64) arch=arm64 ;;
-      *) die "there is no PhoneBox build for this CPU ($(uname -m)); x64 and arm64 are supported." ;;
+      *) die "there is no Sidelight build for this CPU ($(uname -m)); x64 and arm64 are supported." ;;
     esac
     if [ -f /etc/alpine-release ] || case "$(ldd --version 2>&1 || true)" in *musl*) true ;; *) false ;; esac; then
-      die "PhoneBox's Linux builds need glibc; musl systems such as Alpine are not supported yet."
+      die "Sidelight's Linux builds need glibc; musl systems such as Alpine are not supported yet."
     fi
   fi
-  have curl || have wget || die "curl or wget is needed to download PhoneBox."
+  have curl || have wget || die "curl or wget is needed to download Sidelight."
   have sha256sum || have shasum || die "sha256sum (coreutils) or shasum is needed to check the download."
   rid="$os-$arch"
   detect_pm
@@ -494,13 +494,13 @@ main() {
   ver="${tag#v}"
   printf '%s' "$ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || die "unexpected version '$tag'."
   base="https://github.com/$repo/releases/download/v$ver"
-  ok "PhoneBox $ver ($rid)"
+  ok "Sidelight $ver ($rid)"
 
-  tmp="$(mktemp -d "${TMPDIR:-/tmp}/phonebox-setup.XXXXXX")"
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/sidelight-setup.XXXXXX")"
   trap 'rm -rf "$tmp"' EXIT
 
-  step "Downloading PhoneBox $ver"
-  local zip_name="PhoneBoxAgent-$ver-$rid.zip" sums
+  step "Downloading Sidelight $ver"
+  local zip_name="SidelightAgent-$ver-$rid.zip" sums
   sums="$tmp/SHA256SUMS-$ver.txt"
   download "$base/SHA256SUMS-$ver.txt" "$sums" || die "release $ver was not found ($base)."
   info "$zip_name (about 45 MB) ..."
@@ -508,21 +508,21 @@ main() {
   check_sum "$tmp/$zip_name" "$sums" || die "the agent download could not be verified. Nothing was installed."
   check_provenance "$tmp/$zip_name"
   unzip_to "$tmp/$zip_name" "$tmp/agent"
-  chmod +x "$tmp/agent/PhoneBoxAgent"
+  chmod +x "$tmp/agent/SidelightAgent"
   if [ "$os" = osx ]; then
     xattr -dr com.apple.quarantine "$tmp/agent" 2>/dev/null || true
     # release binaries are signed ad hoc; Apple silicon refuses to run a binary without any signature
-    codesign --verify "$tmp/agent/PhoneBoxAgent" >/dev/null 2>&1 || codesign --force --sign - "$tmp/agent/PhoneBoxAgent" >/dev/null 2>&1 || true
+    codesign --verify "$tmp/agent/SidelightAgent" >/dev/null 2>&1 || codesign --force --sign - "$tmp/agent/SidelightAgent" >/dev/null 2>&1 || true
   fi
   local out
-  if ! out="$("$tmp/agent/PhoneBoxAgent" --print-install-dir 2>&1)"; then
-    die "this system cannot run the PhoneBox $rid build: $out"
+  if ! out="$("$tmp/agent/SidelightAgent" --print-install-dir 2>&1)"; then
+    die "this system cannot run the Sidelight $rid build: $out"
   fi
   app="$(printf '%s\n' "$out" | tail -n1)"
-  case "$app" in /*/PhoneBox/app) ;; *) die "unexpected install folder from the agent: $app" ;; esac
+  case "$app" in /*/Sidelight/app) ;; *) die "unexpected install folder from the agent: $app" ;; esac
   local installed=""
-  if [ -x "$app/PhoneBoxAgent" ]; then installed="present"; fi
-  if [ -f "$app/PhoneBoxAgent.dll" ]; then
+  if [ -x "$app/SidelightAgent" ]; then installed="present"; fi
+  if [ -f "$app/SidelightAgent.dll" ]; then
     info "Found a source install (scripts/install.sh): it is replaced by the self-contained release; settings stay."
   elif [ -n "$installed" ]; then
     info "Found an existing install in $app: it is replaced; settings stay."
@@ -536,13 +536,13 @@ main() {
   adb="$(find_adb)"
   if [ -n "$adb" ]; then ok "$adb"
   else
-    caution 'adb is not installed. Without it PhoneBox still works over Wi-Fi, but cannot reach the phone over USB'
+    caution 'adb is not installed. Without it Sidelight still works over Wi-Fi, but cannot reach the phone over USB'
     caution '(wake it on plug-in, install and update the phone app, fall back to USB when Wi-Fi drops).'
     if [ "$dry" = 1 ]; then info 'Would offer to install it.'
     elif ask 'Install adb now?' y; then
       install_adb
       adb="$(find_adb)"
-      if [ -n "$adb" ]; then ok "adb installed: $adb"; else caution 'adb could not be installed; PhoneBox will work over Wi-Fi only until it is.'; fi
+      if [ -n "$adb" ]; then ok "adb installed: $adb"; else caution 'adb could not be installed; Sidelight will work over Wi-Fi only until it is.'; fi
     fi
   fi
 
@@ -553,8 +553,8 @@ main() {
 
   if [ "$dry" = 1 ]; then
     step 'Dry run finished'
-    info "Would stop the running agent and install PhoneBox $ver to $app (settings stay)."
-    [ "$autostart" = 0 ] || info 'Would ask to start PhoneBox at login.'
+    info "Would stop the running agent and install Sidelight $ver to $app (settings stay)."
+    [ "$autostart" = 0 ] || info 'Would ask to start Sidelight at login.'
     [ "$phone" = 0 ] || info 'Would offer to install the app on a phone connected over USB.'
     info 'Nothing was changed.'
     return
@@ -571,11 +571,11 @@ main() {
     die "installing failed; the previous version was restored."
   fi
   rm -rf "$app.old"
-  ok "PhoneBox $ver installed"
+  ok "Sidelight $ver installed"
 
   if [ "$autostart" = 1 ]; then
     step 'Start at login'
-    if ask 'Start PhoneBox when you log in?' y; then write_autostart || true
+    if ask 'Start Sidelight when you log in?' y; then write_autostart || true
     else remove_autostart; fi
   else
     remove_autostart
@@ -585,14 +585,14 @@ main() {
   if [ "$phone" = 1 ]; then
     step 'Phone app'
     if [ -z "$adb" ]; then caution 'Skipped: adb is not installed.'
-    elif ask 'Install the PhoneBox app on a phone connected over USB now?' y; then
+    elif ask 'Install the Sidelight app on a phone connected over USB now?' y; then
       info 'USB debugging lets an allowed computer control the phone. Allow only your own computers; you can'
       info 'revoke them under Developer options > "Revoke USB debugging authorisations".'
       device="$(select_phone)"
       if [ -n "$device" ]; then
-        apk="$tmp/PhoneBox-$ver.apk"
-        if ! download "$base/PhoneBox-$ver.apk" "$apk"; then
-          caution "Phone app skipped: the download failed ($base/PhoneBox-$ver.apk)."
+        apk="$tmp/Sidelight-$ver.apk"
+        if ! download "$base/Sidelight-$ver.apk" "$apk"; then
+          caution "Phone app skipped: the download failed ($base/Sidelight-$ver.apk)."
         elif ! check_sum "$apk" "$sums"; then
           caution 'Phone app skipped: the APK could not be verified.'
         elif install_phone_app "$apk" "$device"; then
@@ -604,9 +604,9 @@ main() {
 
   if [ "$start" = 0 ]; then
     step 'Done (not started)'
-    info "Start it with $app/PhoneBoxAgent"
+    info "Start it with $app/SidelightAgent"
   else
-    step 'Starting PhoneBox'
+    step 'Starting Sidelight'
     start_agent
     local i=0 up=0
     while [ "$i" -lt 30 ]; do
@@ -615,7 +615,7 @@ main() {
       i=$((i + 1))
     done
     if [ "$up" = 1 ]; then
-      ok "PhoneBox is running: settings at $settings_url"
+      ok "Sidelight is running: settings at $settings_url"
       if [ "$os" = osx ]; then open "$settings_url" >/dev/null 2>&1 || true
       elif [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && have xdg-open; then (xdg-open "$settings_url" >/dev/null 2>&1 &) || true; fi
     else
@@ -624,13 +624,13 @@ main() {
   fi
 
   step 'Good to know'
-  if [ "$phone_done" = 1 ]; then info 'Keep the phone plugged in: PhoneBox wakes it and opens the panel.'
+  if [ "$phone_done" = 1 ]; then info 'Keep the phone plugged in: Sidelight wakes it and opens the panel.'
   elif [ "$phone" = 1 ]; then info 'Phone app later: plug the phone in and use Settings > General > Install the phone app, or run setup again.'; fi
   info 'Wi-Fi only: install the app from the release page on the phone, then on the computer open'
   info 'Settings > General > Wi-Fi & Tailscale > Pair a phone over Wi-Fi and scan the QR code.'
   if [ "$os" = linux ]; then info 'With a firewall (ufw, firewalld), Wi-Fi also needs TCP port 8766 open on your local network.'; fi
-  info "Until Wi-Fi is on, PhoneBox only listens on this computer. Every connection it makes: https://github.com/$repo/blob/main/PRIVACY.md"
-  info 'Updates: PhoneBox updates itself from Settings. Run setup again any time to repair it.'
+  info "Until Wi-Fi is on, Sidelight only listens on this computer. Every connection it makes: https://github.com/$repo/blob/main/PRIVACY.md"
+  info 'Updates: Sidelight updates itself from Settings. Run setup again any time to repair it.'
   info "Uninstall: curl -fsSL https://raw.githubusercontent.com/$repo/main/scripts/uninstall.sh | bash -s -- [--purge] [--apk]"
 }
 

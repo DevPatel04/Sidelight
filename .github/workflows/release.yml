@@ -4,10 +4,10 @@ name: release
 # scripts/release.ps1 dispatches this workflow. Start it from Actions › release › Run workflow after bumping the version.
 #
 # The APK must be signed with the same key as the app already on the phones, or Android refuses the update. Add the
-# key as repository secrets: PHONEBOX_KEYSTORE_BASE64 (base64 of the .jks / .keystore file), PHONEBOX_STORE_PASSWORD,
-# PHONEBOX_KEY_ALIAS and PHONEBOX_KEY_PASSWORD. Without them the workflow stops before publishing anything.
+# key as repository secrets: SIDELIGHT_KEYSTORE_BASE64 (base64 of the .jks / .keystore file), SIDELIGHT_STORE_PASSWORD,
+# SIDELIGHT_KEY_ALIAS and SIDELIGHT_KEY_PASSWORD. Without them the workflow stops before publishing anything.
 #
-# Automation for this repository (DevPatel04/phonebox):
+# Automation for this repository (DevPatel04/sidelight):
 #  - push to main  → stable GitHub release from the version in the project files (bump first; duplicate tags fail)
 #  - push to test  → pre-release numbered <version>.<run> (0.9.22.57) for the Testing update channel
 #  - workflow_dispatch → same as a push to the chosen branch; set draft=true to review assets before publishing
@@ -45,7 +45,7 @@ jobs:
       - id: v
         name: Read and check the version
         run: |
-          v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' agent/PhoneBox.Agent/PhoneBox.Agent.csproj | head -n1)
+          v=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' agent/Sidelight.Agent/Sidelight.Agent.csproj | head -n1)
           grep -q "versionName = \"$v\"" android/app/build.gradle.kts || { echo "::error::android versionName does not match $v"; exit 1; }
           if [ "$GITHUB_REF" = refs/heads/test ]; then v="$v.$GITHUB_RUN_NUMBER"; fi
           if git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null; then echo "::error::v$v is already released; bump the version first"; exit 1; fi
@@ -65,24 +65,24 @@ jobs:
           cache: gradle
       - name: Signing key
         env:
-          KEYSTORE: ${{ secrets.PHONEBOX_KEYSTORE_BASE64 }}
+          KEYSTORE: ${{ secrets.SIDELIGHT_KEYSTORE_BASE64 }}
         run: |
-          if [ -z "$KEYSTORE" ]; then echo "::error::add the PHONEBOX_KEYSTORE_BASE64 secret (see the top of release.yml)"; exit 1; fi
+          if [ -z "$KEYSTORE" ]; then echo "::error::add the SIDELIGHT_KEYSTORE_BASE64 secret (see the top of release.yml)"; exit 1; fi
           echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
       - name: Build the release APK
         working-directory: android
         env:
-          PHONEBOX_STORE_FILE: ${{ runner.temp }}/release.keystore
-          PHONEBOX_STORE_PASSWORD: ${{ secrets.PHONEBOX_STORE_PASSWORD }}
-          PHONEBOX_KEY_ALIAS: ${{ secrets.PHONEBOX_KEY_ALIAS }}
-          PHONEBOX_KEY_PASSWORD: ${{ secrets.PHONEBOX_KEY_PASSWORD }}
+          SIDELIGHT_STORE_FILE: ${{ runner.temp }}/release.keystore
+          SIDELIGHT_STORE_PASSWORD: ${{ secrets.SIDELIGHT_STORE_PASSWORD }}
+          SIDELIGHT_KEY_ALIAS: ${{ secrets.SIDELIGHT_KEY_ALIAS }}
+          SIDELIGHT_KEY_PASSWORD: ${{ secrets.SIDELIGHT_KEY_PASSWORD }}
         run: |
           chmod +x gradlew
           # a test build's version (0.9.14.57) only exists here, so the app reports it to the agent's updater
           sed -i 's/versionName = "[^"]*"/versionName = "${{ needs.version.outputs.version }}"/' app/build.gradle.kts
           ./gradlew assembleRelease --console=plain
           mkdir -p ../dist
-          cp app/build/outputs/apk/release/app-release.apk "../dist/PhoneBox-${{ needs.version.outputs.version }}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "../dist/Sidelight-${{ needs.version.outputs.version }}.apk"
       - name: Remove the signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/release.keystore"
@@ -111,37 +111,37 @@ jobs:
         with:
           dotnet-version: 10.0.x
       - name: Unit tests
-        run: dotnet test agent/PhoneBox.Agent.Tests --nologo
+        run: dotnet test agent/Sidelight.Agent.Tests --nologo
       # Self-contained single file: no .NET runtime to install. Not compressed (the zip is barely smaller and a
       # compressed bundle costs about 90 MB more memory in a process that runs all day); native libraries stay
       # loose next to the exe instead of being extracted to the temp folder at run time.
       - name: Publish (self-contained, single file)
-        run: dotnet publish agent/PhoneBox.Agent -c Release -f ${{ matrix.tfm }} -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true -p:Version=${{ needs.version.outputs.version }} -o out --nologo
+        run: dotnet publish agent/Sidelight.Agent -c Release -f ${{ matrix.tfm }} -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true -p:Version=${{ needs.version.outputs.version }} -o out --nologo
       - name: Sign macOS apphost ad hoc
         if: startsWith(matrix.rid, 'osx-')
-        run: codesign --force --sign - out/PhoneBoxAgent
+        run: codesign --force --sign - out/SidelightAgent
       # Authenticode signing through SignPath Foundation, before the smoke test, the zip, the checksums, the attestation
       # and the Scoop/winget hash, which all cover the signed file. It is on while the repository variable
       # SIGNPATH_SIGNING_POLICY names a policy (release-signing); each request waits for a manual approval in SignPath.
-      - name: Sign PhoneBoxAgent.exe (SignPath)
+      - name: Sign SidelightAgent.exe (SignPath)
         if: matrix.rid == 'win-x64' && vars.SIGNPATH_SIGNING_POLICY != ''
         uses: ./.github/actions/sign-windows-agent
         with:
-          exe: out/PhoneBoxAgent.exe
+          exe: out/SidelightAgent.exe
           signing-policy: ${{ vars.SIGNPATH_SIGNING_POLICY }}
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           trusted: ${{ vars.SIGNPATH_SIGNING_POLICY == 'release-signing' }}
       - name: Smoke-test the published agent on its native architecture
         shell: pwsh
         run: |
-          $exe = if ($IsWindows) { 'out/PhoneBoxAgent.exe' } else { 'out/PhoneBoxAgent' }
+          $exe = if ($IsWindows) { 'out/SidelightAgent.exe' } else { 'out/SidelightAgent' }
           python tools/smoke-agent.py $exe --version '${{ needs.version.outputs.version }}'
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Zip
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Compress-Archive -Path out/* -DestinationPath "dist/PhoneBoxAgent-${{ needs.version.outputs.version }}-${{ matrix.rid }}.zip"
+          Compress-Archive -Path out/* -DestinationPath "dist/SidelightAgent-${{ needs.version.outputs.version }}-${{ matrix.rid }}.zip"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-agent-${{ matrix.rid }}
@@ -171,7 +171,7 @@ jobs:
       - name: Save the provenance bundle
         env:
           BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
-        run: cp "$BUNDLE" "dist/PhoneBox-${{ needs.version.outputs.version }}.intoto.jsonl"
+        run: cp "$BUNDLE" "dist/Sidelight-${{ needs.version.outputs.version }}.intoto.jsonl"
       - name: Checksums
         working-directory: dist
         run: |
@@ -187,7 +187,7 @@ jobs:
           section() { awk -v v="$1" '/^## /{ if (on) exit; on = ($2 == v); next } on' CHANGELOG.md; }
           section "$v" > notes.md
           [ -s notes.md ] || section Unreleased > notes.md
-          [ -s notes.md ] || echo "PhoneBox $v" > notes.md
+          [ -s notes.md ] || echo "Sidelight $v" > notes.md
           if [ "$GITHUB_REF" = refs/heads/test ]; then printf 'Test build from the test branch (%s). Installed only by agents on the Testing update channel.\n' "${GITHUB_SHA::7}" > notes.md; fi
           cat >> notes.md <<'EOF'
 
@@ -203,32 +203,32 @@ jobs:
           if [ "${{ github.ref }}" = 'refs/heads/main' ] && [ '${{ inputs.draft }}' = 'true' ]; then draft_flag='--draft'; fi
           pre_flag=''
           if [ "${{ github.ref }}" = 'refs/heads/test' ]; then pre_flag='--prerelease --latest=false'; fi
-          gh release create "v$v" dist/* --title "PhoneBox $v" --notes-file notes.md --target "${{ github.sha }}" $draft_flag $pre_flag
+          gh release create "v$v" dist/* --title "Sidelight $v" --notes-file notes.md --target "${{ github.sha }}" $draft_flag $pre_flag
       # a draft's downloads are not public yet, so the package manifests follow only published releases
       - name: Update the Scoop bucket and the winget manifests
         if: ${{ github.ref == 'refs/heads/main' && inputs.draft != true }}
         run: |
           v="${{ needs.version.outputs.version }}"
-          sha=$(sha256sum "dist/PhoneBoxAgent-$v-win-x64.zip" | cut -d' ' -f1)
+          sha=$(sha256sum "dist/SidelightAgent-$v-win-x64.zip" | cut -d' ' -f1)
           repo='${{ github.repository }}'
           python3 - "$v" "$sha" "$repo" <<'PY'
           import json, sys
           v, sha, repo = sys.argv[1], sys.argv[2], sys.argv[3]
-          p = 'bucket/phonebox.json'
+          p = 'bucket/sidelight.json'
           m = json.load(open(p, encoding='utf-8'))
           m['version'] = v
           m['homepage'] = f'https://github.com/{repo}'
-          m['architecture']['64bit']['url'] = f'https://github.com/{repo}/releases/download/v{v}/PhoneBoxAgent-{v}-win-x64.zip'
+          m['architecture']['64bit']['url'] = f'https://github.com/{repo}/releases/download/v{v}/SidelightAgent-{v}-win-x64.zip'
           m['architecture']['64bit']['hash'] = sha
           # the agent is self-contained since 0.9.7: no .NET runtime to suggest
           m.get('suggest', {}).pop('.NET Desktop Runtime 10', None)
           if 'autoupdate' in m:
-              m['autoupdate']['architecture']['64bit']['url'] = f'https://github.com/{repo}/releases/download/v$version/PhoneBoxAgent-$version-win-x64.zip'
+              m['autoupdate']['architecture']['64bit']['url'] = f'https://github.com/{repo}/releases/download/v$version/SidelightAgent-$version-win-x64.zip'
           open(p, 'w', encoding='utf-8').write(json.dumps(m, indent=4, ensure_ascii=False) + '\n')
           PY
           python3 packaging/winget/make-manifests.py "$v" "$sha"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add bucket/phonebox.json packaging/winget/manifests
+          git add bucket/sidelight.json packaging/winget/manifests
           git commit -m "Scoop and winget manifests for $v"
           git push origin HEAD:main
