@@ -4,17 +4,17 @@ plugins {
 }
 
 // Release signing: values come from ~/.gradle/gradle.properties or environment variables
-// (PHONEBOX_STORE_FILE, PHONEBOX_STORE_PASSWORD, PHONEBOX_KEY_ALIAS, PHONEBOX_KEY_PASSWORD).
+// (SIDELIGHT_STORE_FILE, SIDELIGHT_STORE_PASSWORD, SIDELIGHT_KEY_ALIAS, SIDELIGHT_KEY_PASSWORD).
 // Without them, release builds fall back to the debug key so the project still builds anywhere.
 fun signingValue(name: String): String? =
     (project.findProperty(name) as String?) ?: System.getenv(name)
 
 android {
-    namespace = "net.oxog.phonebox.deskpanel"
+    namespace = "io.github.devpatel04.sidelight"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "net.oxog.phonebox.deskpanel"
+        applicationId = "io.github.devpatel04.sidelight"
         minSdk = 21 // Android 5.0; see CONTRIBUTING.md before changing it
         targetSdk = 35
         versionCode = 43
@@ -22,13 +22,13 @@ android {
     }
 
     signingConfigs {
-        val storeFile = signingValue("PHONEBOX_STORE_FILE")
+        val storeFile = signingValue("SIDELIGHT_STORE_FILE")
         if (storeFile != null && file(storeFile).exists()) {
             create("release") {
                 this.storeFile = file(storeFile)
-                storePassword = signingValue("PHONEBOX_STORE_PASSWORD")
-                keyAlias = signingValue("PHONEBOX_KEY_ALIAS")
-                keyPassword = signingValue("PHONEBOX_KEY_PASSWORD")
+                storePassword = signingValue("SIDELIGHT_STORE_PASSWORD")
+                keyAlias = signingValue("SIDELIGHT_KEY_ALIAS")
+                keyPassword = signingValue("SIDELIGHT_KEY_PASSWORD")
             }
         }
     }
