@@ -38,8 +38,6 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="devpatel04.github.io" android:pathPrefix="/phonebox/pair" />
-                <!-- QR codes from agents released before the move to DevPatel04/phonebox -->
                 <data android:scheme="https" android:host="ersinkoc.github.io" android:pathPrefix="/phonebox/pair" />
             </intent-filter>
             <intent-filter>
