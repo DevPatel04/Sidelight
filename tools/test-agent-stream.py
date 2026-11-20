@@ -40,7 +40,7 @@ def main():
     # Keep the compiled evidence; the audit workflow retains its artifacts.
     output = Path(tempfile.mkdtemp(prefix="sidelight-stream-check-"))
     compiler_cp = os.pathsep.join(map(str, [compiler, *dependencies, annotations[-1]]))
-    sources = [ROOT / "android/app/src/main/java/io/github/DevPatel04/phonebox/AgentStream.kt",
+    sources = [ROOT / "android/app/src/main/java/io/github/devpatel04/sidelight/AgentStream.kt",
                ROOT / "tools/kotlin-tests/AgentLink.kt", ROOT / "tools/kotlin-tests/AgentStreamChecks.kt"]
     subprocess.run(["java", "-cp", compiler_cp, "org.jetbrains.kotlin.cli.jvm.K2JVMCompiler", "-no-stdlib", "-no-reflect",
                     "-jvm-target", "17", "-classpath", classpath, "-d", str(output), *map(str, sources)], check=True, timeout=60)
@@ -287,7 +287,7 @@ def check_agent_link(compiler_cp: str, classpath: str, base_out: Path) -> None:
          "-sigalg", "SHA256withECDSA", "-dname", "CN=SidelightTest", "-validity", "1",
          "-storetype", "PKCS12", "-keystore", str(pfx), "-storepass", "changeit", "-keypass", "changeit"],
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
-    src_files = [ROOT / "android/app/src/main/java/io/github/DevPatel04/phonebox/AgentLink.kt"]
+    src_files = [ROOT / "android/app/src/main/java/io/github/devpatel04/sidelight/AgentLink.kt"]
     for name, content in LINK_STUBS.items():
         path = src_dir / name
         path.write_text(content, encoding="utf-8")
