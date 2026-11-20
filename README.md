@@ -38,6 +38,11 @@ Windows, Linux and macOS. No root, PhoneBox account or cloud service required.</
 <p align="center"><img src="docs/hero-0.6.png" width="900" alt="PhoneBox on three phones showing automation, home and planner pages"><br>
 <sub>Example layouts with demo data.</sub></p>
 
+> **Fork notice:** this repository is a fork of [ersinkoc/phonebox](https://github.com/ersinkoc/phonebox) by
+> Ersin KOÇ, used under the [MIT License](LICENSE). It is maintained separately by
+> [DevPatel04](https://github.com/DevPatel04) and is not affiliated with or endorsed by the original author.
+> See [NOTICE.md](NOTICE.md) for attribution and what this fork changes.
+
 > **Updates:** agents follow two channels (**Settings → General → Updates**). **Stable** installs releases from
 > `main`; **Testing** installs pre-releases from every push to `test`. Default repository is
 > `DevPatel04/phonebox`. While developing from source, turn automatic updates off so a published APK does not
@@ -88,7 +93,7 @@ Setup downloads the latest release, checks its SHA-256 checksum, offers missing 
 and opens the settings at <http://127.0.0.1:8765>. It can also install the Android app over USB.
 Run setup again to update or repair the installation while keeping settings and pairings.
 
-> **Windows signing:** release agents are currently unsigned while the SignPath Foundation application is pending.
+> **Windows signing:** release agents from this fork are not code-signed.
 > SmartScreen or antivirus software may warn or block them. See the [code signing policy](#code-signing-policy)
 > and [installation warnings](docs/SETUP.md#quick-start). USB debugging should be authorized only on computers you trust.
 
@@ -223,15 +228,13 @@ Contributions are welcome; start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Code signing policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
-[SignPath Foundation](https://signpath.org/).
-
-- **Windows agent:** the SignPath Foundation application is pending; releases are unsigned until approved.
-  The intended signing target is `PhoneBoxAgent.exe` in the `win-x64` release zip, built by the
-  [release workflow](.github/workflows/release.yml). Every signing request requires manual approval.
+- **Windows agent:** releases from this fork are **not code-signed**, so SmartScreen or antivirus software may warn
+  about them. The SignPath Foundation signing arrangement described in the
+  [upstream project](https://github.com/ersinkoc/phonebox#code-signing-policy) covers upstream releases only.
   Bundled runtime and library notices are in [THIRD-PARTY-NOTICES.txt](agent/PhoneBox.Agent/THIRD-PARTY-NOTICES.txt).
-- **Android app:** release APKs use the project's own signing key, independently of SignPath.
-- **Team roles:** committer, reviewer and signing approver for this repository: [DevPatel04](https://github.com/DevPatel04).
+- **Android app:** release APKs are signed with this fork's own key, so they install over each other but not over
+  the upstream app (uninstall that first).
+- **Team roles:** committer, reviewer and release approver for this repository: [DevPatel04](https://github.com/DevPatel04).
   Pull requests from other contributors are reviewed before merging.
 - **Privacy:** see the [privacy policy](PRIVACY.md).
 
@@ -239,23 +242,13 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
 
 People who tested PhoneBox on their own hardware:
 
-- [anandyakshit](https://github.com/anandyakshit): Android 7 support, on an Android 7.1.1 phone ([#73](https://github.com/DevPatel04/phonebox/issues/73)).
+- [anandyakshit](https://github.com/anandyakshit): Android 7 support, on an Android 7.1.1 phone ([ersinkoc/phonebox#73](https://github.com/ersinkoc/phonebox/issues/73)).
 
-## Sponsor
+## Credits
 
-<!-- sponsor: WrongStack -->
-<p align="center">
-  <a href="https://wrongstack.com">
-    <img src="docs/sponsors/wrongstack.svg" width="900" alt="Sponsored by WrongStack — open-source AI coding with durable memory and multi-agent workflows. Explore wrongstack.com.">
-  </a>
-</p>
-<p align="center">
-  <strong>Supported by <a href="https://wrongstack.com">WrongStack</a></strong> ·
-  An open-source AI coding agent that remembers your codebase.<br>
-  <a href="https://wrongstack.com"><strong>Explore WrongStack →</strong></a> ·
-  <a href="https://github.com/wrongstack/wrongstack"><strong>View on GitHub &amp; give it a star ★</strong></a>
-</p>
-<!-- /sponsor: WrongStack -->
+PhoneBox was created by [Ersin KOÇ](https://github.com/ersinkoc) ([ersinkoc/phonebox](https://github.com/ersinkoc/phonebox)).
+This fork builds on that work; the upstream project's history, contributors and sponsors are on its repository.
+The PhoneBox name and icon come from the upstream project.
 
 ## Star History
 
@@ -269,4 +262,6 @@ People who tested PhoneBox on their own hardware:
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Copyright (c) 2026 Ersin KOÇ (original work) and DevPatel04 and contributors
+(modifications). Third-party components: [THIRD-PARTY-NOTICES.txt](agent/PhoneBox.Agent/THIRD-PARTY-NOTICES.txt).
+Attribution details: [NOTICE.md](NOTICE.md).
