@@ -73,7 +73,7 @@ public class UpdateChannelTests
 
     [Theory]
     [InlineData("ersinkoc/phonebox")]
-    [InlineData("DevPatel04/PhoneBox")]
-    public void APhoneBoxRepoFromCarriedOverSettingsBecomesTheSidelightOne(string repo) =>
+    [InlineData("ErsinKoc/PhoneBox")]
+    public void TheUpstreamRepoFromCarriedOverSettingsBecomesThisOne(string repo) =>
         Assert.Equal(UpdateConfig.DefaultRepo, Load($$"""{ "updates": { "repo": "{{repo}}" } }""").Updates.Repo);
 }
