@@ -1,4 +1,4 @@
-// PhoneBox desk panel: core, pages, navigation and data from the agent. The widgets live in widgets/*.js;
+// Sidelight desk panel: core, pages, navigation and data from the agent. The widgets live in widgets/*.js;
 // they import what they need from here, so this module must not run code that needs them while it loads
 // (the start section at the end runs after every module has loaded).
 import { W } from './registry.js';
@@ -19,16 +19,16 @@ import './widgets/dictate.js';
 import './widgets/camera.js';
 import './widgets/spectrum.js';
 
-// PhoneBox desk panel. Pages are 12 × 6 grids of widgets, designed in the agent's settings page.
-// The panel talks to the PhoneBox agent through "/agent/*", which the Android shell proxies over USB
+// Sidelight desk panel. Pages are 12 × 6 grids of widgets, designed in the agent's settings page.
+// The panel talks to the Sidelight agent through "/agent/*", which the Android shell proxies over USB
 // (adb reverse) or Wi-Fi to the computer.
 
 export const API = '/agent/api';
 // The phone's native proxy only forwards requests that carry this header (or image GETs), so script in a sandboxed
 // Custom HTML widget cannot reach the agent: adding the header to a cross-origin request needs a CORS preflight,
 // which the proxy refuses. See MainActivity.fromPanel.
-export const PANEL_HEADERS = { 'X-PhoneBox-Panel': '1' };
-export const I18n = window.PhoneBoxI18n;
+export const PANEL_HEADERS = { 'X-Sidelight-Panel': '1' };
+export const I18n = window.SidelightI18n;
 export const t = (key, vars) => (I18n ? I18n.t(key, vars) : key);
 export let LOCALE = I18n ? I18n.getLocale() : 'en-GB';
 export const COLS = 12;
@@ -39,7 +39,7 @@ export const $ = (id) => document.getElementById(id);
 const BRIDGE = ['battery', 'buzz', 'haptic', 'is24Hour', 'pcs', 'selectPc', 'forgetPc', 'setBrightness', 'setHomeScreen', 'setOrientation',
   'setPinned', 'setVolumeKeys', 'transport', 'sensors', 'version', 'canListen', 'listen', 'stopListening', 'cancelListening'];
 export const bridge = typeof Android === 'undefined' ? null : Object.fromEntries(BRIDGE.filter((m) => typeof Android[m] === 'function')
-  .map((m) => [m, (...args) => Android[m](window.__phoneboxKey || '', ...args)]));
+  .map((m) => [m, (...args) => Android[m](window.__sidelightKey || '', ...args)]));
 // Live preview inside the agent's layout editor: the layout comes from the editor (unsaved), not from the agent.
 export const PREVIEW = new URLSearchParams(location.search).has('preview') && window.parent !== window;
 
@@ -1071,25 +1071,25 @@ export function buildLayout() {
   pager.replaceChildren();
   pages.forEach((p, pi) => {
     const grid = h('div', 'grid');
-    const pageAppearance = PhoneBoxAppearance.resolve(cfg.display?.appearance, p.appearance);
+    const pageAppearance = SidelightAppearance.resolve(cfg.display?.appearance, p.appearance);
     const pl = portrait ? portraitLayout(p.widgets) : null;
     if (pl) { grid.style.gridTemplateColumns = 'repeat(6, minmax(0, 1fr))'; grid.style.gridTemplateRows = `repeat(${pl.rows}, minmax(0, 1fr))`; }
     for (const w of p.widgets) {
       const def = W[w.type];
       if (!def) continue;
       const box = h('div', `w w-${w.type}${def.bare ? ' bare' : ' card'}`);
-      const appearance = PhoneBoxAppearance.resolve(cfg.display?.appearance, p.appearance, w.appearance);
+      const appearance = SidelightAppearance.resolve(cfg.display?.appearance, p.appearance, w.appearance);
       const at = pl?.pos.get(w) || w;
       box.style.gridArea = `${at.y + 1} / ${at.x + 1} / span ${at.h} / span ${at.w}`;
       grid.appendChild(box);
       const ctx = { page: p, w, o: w.options || {}, box, appearance };
       let inst;
       try { inst = def.create(box, ctx) || {}; } catch (e) { box.replaceChildren(h('div', 'empty', `${w.type}: ${e.message}`)); inst = {}; }
-      PhoneBoxAppearance.widget(box, appearance);
+      SidelightAppearance.widget(box, appearance);
       mounted.push({ pi, def: inst.needs ? { ...def, needs: inst.needs, always: inst.always ?? def.always } : def, inst, ctx, dirty: true });
     }
     const sec = h('section', 'page', grid);
-    PhoneBoxAppearance.page(sec, grid, pageAppearance);
+    SidelightAppearance.page(sec, grid, pageAppearance);
     sec.dataset.id = p.id;
     pager.appendChild(sec);
   });
@@ -2003,7 +2003,7 @@ window.onAgentStream = (event, data) => {
   try { d = JSON.parse(data); } catch (_) { return; }
   if (event === 'state') { applyState(d); for (const e of evPre || []) evOffer(e); evPre = null; }
   else if (event === 'work') applyWork(d);
-  else if (event === 'spectrum') window.dispatchEvent(new CustomEvent('phonebox-spectrum', { detail: d }));
+  else if (event === 'spectrum') window.dispatchEvent(new CustomEvent('sidelight-spectrum', { detail: d }));
   else if (event === 'event') { if (evPre) { evPre.push(d); if (evPre.length > 100) evPre.shift(); } else evOffer(d); }
 };
 export const streaming = () => streamOn && Date.now() - lastStateAt < 3000;
@@ -2048,7 +2048,7 @@ poll();
 if (PREVIEW) {
   let weatherKey = '';
   window.addEventListener('message', (e) => {
-    if (e.origin !== location.origin || e.data?.type !== 'phonebox-preview') return;
+    if (e.origin !== location.origin || e.data?.type !== 'sidelight-preview') return;
     const c = e.data.config || {};
     // no night screen and no idle return in the preview
     cfg = { ...DEFAULT_CFG, ...c, night: { ...(c.night || {}), enabled: false }, display: { ...(c.display || {}), idleReturnSec: 0 } };
@@ -2062,7 +2062,7 @@ if (PREVIEW) {
     const i = sel && shown(sel) ? list.slice(0, e.data.page).filter(shown).length : -1;
     if (i >= 0 && i !== curPage) goPage(i, true);
   });
-  window.parent.postMessage({ type: 'phonebox-preview-ready' }, location.origin);
+  window.parent.postMessage({ type: 'sidelight-preview-ready' }, location.origin);
 }
 
 // ---------------------------------------------------------------- battery report (the agent's charge guard)

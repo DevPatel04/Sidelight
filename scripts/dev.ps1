@@ -32,12 +32,12 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path $PSScriptRoot
 $tfm = 'net10.0-windows10.0.19041.0'
-$exe = Join-Path $root "agent\PhoneBox.Agent\bin\Debug\$tfm\PhoneBoxAgent.exe"
+$exe = Join-Path $root "agent\Sidelight.Agent\bin\Debug\$tfm\SidelightAgent.exe"
 $url = 'http://127.0.0.1:8765'
-$pkg = 'net.oxog.phonebox.deskpanel'
+$pkg = 'io.github.devpatel04.sidelight'
 $apk = Join-Path $root 'android\app\build\outputs\apk\debug\app-debug.apk'
 # The WinForms agent has no console; FileLogger writes here whether the exe is installed or run from source.
-$log = Join-Path $env:LOCALAPPDATA 'PhoneBox\agent.log'
+$log = Join-Path $env:LOCALAPPDATA 'Sidelight\agent.log'
 
 if (-not $env:ANDROID_HOME) { $env:ANDROID_HOME = Join-Path $env:LOCALAPPDATA 'Android\Sdk' }
 if (-not $env:JAVA_HOME) {
@@ -63,8 +63,8 @@ function Find-Adb {
 }
 
 function Get-AgentProcess {
-    # Prefer the debug build from this checkout; fall back to any PhoneBoxAgent (installed copy also holds :8765).
-    $all = @(Get-Process -Name PhoneBoxAgent -ErrorAction SilentlyContinue)
+    # Prefer the debug build from this checkout; fall back to any SidelightAgent (installed copy also holds :8765).
+    $all = @(Get-Process -Name SidelightAgent -ErrorAction SilentlyContinue)
     if ($all.Count -eq 0) { return $null }
     $mine = @($all | Where-Object { $_.Path -and ($_.Path -ieq $exe) })
     if ($mine.Count -gt 0) { return $mine[0] }
@@ -72,15 +72,15 @@ function Get-AgentProcess {
 }
 
 function Stop-Agent {
-    $procs = @(Get-Process -Name PhoneBoxAgent, DeskAgent -ErrorAction SilentlyContinue)
+    $procs = @(Get-Process -Name SidelightAgent, DeskAgent -ErrorAction SilentlyContinue)
     if ($procs.Count -eq 0) { Write-Host 'agent: not running'; return }
     Write-Host ("agent: stopping ({0})" -f (($procs | ForEach-Object Id) -join ', '))
     $procs | Stop-Process -Force -ErrorAction SilentlyContinue
     for ($i = 0; $i -lt 20; $i++) {
-        if (-not (Get-Process -Name PhoneBoxAgent -ErrorAction SilentlyContinue)) { break }
+        if (-not (Get-Process -Name SidelightAgent -ErrorAction SilentlyContinue)) { break }
         Start-Sleep -Milliseconds 500
     }
-    Get-Process -Name PhoneBoxAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process -Name SidelightAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 }
 
 function Start-Agent {
@@ -93,7 +93,7 @@ function Start-Agent {
         throw '.NET 10 SDK is required: winget install Microsoft.DotNet.SDK.10'
     }
     Write-Host 'agent: building'
-    & dotnet build (Join-Path $root 'agent\PhoneBox.Agent') -f $tfm --nologo -v q -clp:ErrorsOnly
+    & dotnet build (Join-Path $root 'agent\Sidelight.Agent') -f $tfm --nologo -v q -clp:ErrorsOnly
     if ($LASTEXITCODE) { throw "dotnet build failed (exit code $LASTEXITCODE)" }
     if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "built agent not found: $exe" }
 
@@ -153,7 +153,7 @@ function Update-Phone {
     Write-Host "app: installing on $serial"
     . (Join-Path $PSScriptRoot 'install-apk.ps1')
     try {
-        Install-PhoneBoxApk -Adb $adb -ApkPath $apk -Serial $serial | Out-Null
+        Install-SidelightApk -Adb $adb -ApkPath $apk -Serial $serial | Out-Null
     } catch {
         if ("$_" -match 'signing key differs|UPDATE_INCOMPATIBLE') {
             Write-Host 'app: the installed app is signed with another key. Uninstall it once (this clears the app''s data):' -ForegroundColor Yellow
@@ -196,7 +196,7 @@ function Invoke-Tests {
     if ($LASTEXITCODE) { throw "check-release.py failed (exit code $LASTEXITCODE)" }
 
     Write-Host 'tests: agent'
-    & dotnet test (Join-Path $root 'agent\PhoneBox.Agent.Tests') --nologo
+    & dotnet test (Join-Path $root 'agent\Sidelight.Agent.Tests') --nologo
     if ($LASTEXITCODE) { throw "dotnet test failed (exit code $LASTEXITCODE)" }
 
     Write-Host 'tests: UI (Playwright)'

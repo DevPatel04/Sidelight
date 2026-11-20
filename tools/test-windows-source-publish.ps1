@@ -1,10 +1,10 @@
 $ErrorActionPreference = 'Stop'
 $installer = Join-Path $PSScriptRoot '../scripts/install.ps1'
-$fixture = Join-Path ([IO.Path]::GetTempPath()) ('phonebox-publish-test-' + [guid]::NewGuid().ToString('N'))
+$fixture = Join-Path ([IO.Path]::GetTempPath()) ('sidelight-publish-test-' + [guid]::NewGuid().ToString('N'))
 $oldLocalAppData = $env:LOCALAPPDATA
 $env:LOCALAPPDATA = $fixture
-$app = Join-Path $fixture 'PhoneBox/app'
-$installed = Join-Path $app 'PhoneBoxAgent.exe'
+$app = Join-Path $fixture 'Sidelight/app'
+$installed = Join-Path $app 'SidelightAgent.exe'
 New-Item -ItemType Directory -Path $app -Force | Out-Null
 [IO.File]::WriteAllText($installed, 'running install')
 $fakeState = [pscustomobject]@{ Stopped = $false; Output = ""; PublishExit = 0 }

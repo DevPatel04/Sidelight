@@ -29,10 +29,10 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 mkdir -p "$output"
-printf '%s\n' '#!/bin/sh' 'printf "%s\\n" "$PHONEBOX_TEST_INSTALL_DIR"' > "$output/PhoneBoxAgent"
-chmod +x "$output/PhoneBoxAgent"
+printf '%s\n' '#!/bin/sh' 'printf "%s\\n" "$SIDELIGHT_TEST_INSTALL_DIR"' > "$output/SidelightAgent"
+chmod +x "$output/SidelightAgent"
 """)
-        app = root / ('PhoneBox & extras' if os_name == 'Darwin' else 'PhoneBox 100%')
+        app = root / ('Sidelight & extras' if os_name == 'Darwin' else 'Sidelight 100%')
         env = dict(
             os.environ,
             PATH=str(commands) + os.pathsep + os.environ['PATH'],
@@ -41,7 +41,7 @@ chmod +x "$output/PhoneBoxAgent"
             DOTNET_ROOT=str(root / 'dotnet & runtime'),
             XDG_DATA_HOME=str(root / 'data directory'),
             XDG_CONFIG_HOME=str(root / 'config directory'),
-            PHONEBOX_TEST_INSTALL_DIR=str(app),
+            SIDELIGHT_TEST_INSTALL_DIR=str(app),
         )
         bash = sys.argv[1] if len(sys.argv) > 1 else '/bin/bash'
         result = subprocess.run(
@@ -52,22 +52,22 @@ chmod +x "$output/PhoneBoxAgent"
         return app, env
 
     def test_linux_service_quotes_paths_and_preserves_xdg(self):
-        with tempfile.TemporaryDirectory(prefix='phonebox ') as tmp:
+        with tempfile.TemporaryDirectory(prefix='sidelight ') as tmp:
             root = pathlib.Path(tmp)
             app, env = self.install('Linux', root)
-            unit = (root / '.config/systemd/user/phonebox.service').read_text(encoding='utf-8')
-            self.assertIn(f'ExecStart="{app / "PhoneBoxAgent"}"'.replace('%', '%%'), unit)
+            unit = (root / '.config/systemd/user/sidelight.service').read_text(encoding='utf-8')
+            self.assertIn(f'ExecStart="{app / "SidelightAgent"}"'.replace('%', '%%'), unit)
             for name in ('DOTNET_ROOT', 'XDG_DATA_HOME', 'XDG_CONFIG_HOME'):
                 self.assertIn(f'Environment="{name}={env[name]}"', unit)
 
     def test_macos_launch_agent_keeps_xml_metacharacters_in_paths(self):
-        with tempfile.TemporaryDirectory(prefix='phonebox ') as tmp:
+        with tempfile.TemporaryDirectory(prefix='sidelight ') as tmp:
             root = pathlib.Path(tmp)
             app, env = self.install('Darwin', root)
-            plist = root / 'Library/LaunchAgents/net.oxog.phonebox.agent.plist'
+            plist = root / 'Library/LaunchAgents/io.github.devpatel04.sidelight.agent.plist'
             with plist.open('rb') as stream:
                 config = plistlib.load(stream)
-            self.assertEqual(config['ProgramArguments'], [str(app / 'PhoneBoxAgent')])
+            self.assertEqual(config['ProgramArguments'], [str(app / 'SidelightAgent')])
             self.assertEqual(config['EnvironmentVariables']['DOTNET_ROOT'], env['DOTNET_ROOT'])
 
 

@@ -44,13 +44,13 @@ class InstallerTests(unittest.TestCase):
                 self.assertEqual(result.stdout, '')
 
     def run_installer(self, serial=None, fail=False, newer_sources=False):
-        with tempfile.TemporaryDirectory(prefix='phonebox installer ') as directory:
+        with tempfile.TemporaryDirectory(prefix='sidelight installer ') as directory:
             root = pathlib.Path(directory)
             repo = root / 'repo'
             (repo / 'scripts').mkdir(parents=True)
             (repo / 'dist').mkdir()
             shutil.copyfile(INSTALLER, repo / 'scripts/install.sh')
-            apk = repo / 'dist/PhoneBox-fixture.apk'
+            apk = repo / 'dist/Sidelight-fixture.apk'
             apk.write_bytes(b'installer test fixture')
             if newer_sources:
                 android = repo / 'android'
@@ -85,14 +85,14 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 mkdir -p "$output"
-printf '%s\n' '#!/bin/sh' 'printf "%s\\n" "$PHONEBOX_TEST_INSTALL_DIR"' > "$output/PhoneBoxAgent"
-chmod +x "$output/PhoneBoxAgent"
+printf '%s\n' '#!/bin/sh' 'printf "%s\\n" "$SIDELIGHT_TEST_INSTALL_DIR"' > "$output/SidelightAgent"
+chmod +x "$output/SidelightAgent"
 ''')
             recorder = root / 'record-adb.py'
             recorder.write_text('''import json, os, pathlib, sys
-with pathlib.Path(os.environ['PHONEBOX_TEST_CALLS']).open('a') as stream:
+with pathlib.Path(os.environ['SIDELIGHT_TEST_CALLS']).open('a') as stream:
     stream.write(json.dumps(sys.argv[1:]) + '\\n')
-if 'install' in sys.argv[1:] and os.environ.get('PHONEBOX_TEST_FAIL') == '1':
+if 'install' in sys.argv[1:] and os.environ.get('SIDELIGHT_TEST_FAIL') == '1':
     print('Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE]', file=sys.stderr)
     sys.exit(1)
 print('Success')
@@ -101,8 +101,8 @@ print('Success')
             calls_path = root / 'adb.jsonl'
             env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ['PATH'],
                        DOTNET_ROOT=str(root / 'runtime'), TMPDIR=str(root),
-                       PHONEBOX_TEST_INSTALL_DIR=str(root / 'installed'),
-                       PHONEBOX_TEST_CALLS=str(calls_path), PHONEBOX_TEST_FAIL='1' if fail else '0')
+                       SIDELIGHT_TEST_INSTALL_DIR=str(root / 'installed'),
+                       SIDELIGHT_TEST_CALLS=str(calls_path), SIDELIGHT_TEST_FAIL='1' if fail else '0')
             command = [args.bash, str(repo / 'scripts/install.sh'), '--apk']
             if serial is not None:
                 command += ['--serial', serial]
@@ -115,7 +115,7 @@ print('Success')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, [
             ['-s', 'fixture-device', 'install', '-r', apk],
-            ['-s', 'fixture-device', 'shell', 'am', 'start', '-n', 'net.oxog.phonebox.deskpanel/.MainActivity'],
+            ['-s', 'fixture-device', 'shell', 'am', 'start', '-n', 'io.github.devpatel04.sidelight/.MainActivity'],
         ], result.stdout + result.stderr)
 
     def test_no_serial_installs_and_opens_the_phone_app(self):
@@ -123,7 +123,7 @@ print('Success')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, [
             ['install', '-r', apk],
-            ['shell', 'am', 'start', '-n', 'net.oxog.phonebox.deskpanel/.MainActivity'],
+            ['shell', 'am', 'start', '-n', 'io.github.devpatel04.sidelight/.MainActivity'],
         ], result.stdout + result.stderr)
 
     def test_newer_android_sources_are_built_before_install(self):

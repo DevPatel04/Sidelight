@@ -1,21 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Sidelight: a monitor with a phone standing beside it, lit up. Drawn on a 96 grid, scaled into the 66dp safe zone. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- screen -->
-    <path
-        android:pathData="M35,36h38a5,5 0,0 1,5 5v22a5,5 0,0 1,-5 5h-38a5,5 0,0 1,-5 -5v-22a5,5 0,0 1,5 -5z"
-        android:strokeWidth="3"
-        android:strokeColor="#E8ECF1"
-        android:fillColor="#00000000" />
-    <!-- bars -->
-    <path android:pathData="M38,61v-6h5v6z" android:fillColor="#2DD4BF" />
-    <path android:pathData="M46,61v-13h5v13z" android:fillColor="#76B900" />
-    <path android:pathData="M54,61v-9h5v9z" android:fillColor="#A78BFA" />
-    <!-- clock dot -->
-    <path android:pathData="M64,47a4,4 0,1 0,8 0a4,4 0,1 0,-8 0z" android:fillColor="#F59E0B" />
-    <!-- stand -->
-    <path android:pathData="M51,68h6v5h-6z M43,73h22v3h-22z" android:fillColor="#E8ECF1" />
+    <group
+        android:pivotX="48"
+        android:pivotY="48"
+        android:scaleX="0.74"
+        android:scaleY="0.74"
+        android:translateX="6"
+        android:translateY="6">
+        <!-- monitor -->
+        <path
+            android:pathData="M16,24h36a4,4 0,0 1,4 4v24a4,4 0,0 1,-4 4h-36a4,4 0,0 1,-4 -4v-24a4,4 0,0 1,4 -4z"
+            android:strokeWidth="3"
+            android:strokeColor="#85B7EB"
+            android:fillColor="#00000000" />
+        <path
+            android:pathData="M28,64h12M34,56v8"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeColor="#85B7EB" />
+        <!-- light -->
+        <path
+            android:pathData="M71,26v-7M81,30l5,-5M61,30l-5,-5"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeColor="#FAC775" />
+        <!-- phone and its tiles -->
+        <path android:pathData="M65,34h12a5,5 0,0 1,5 5v28a5,5 0,0 1,-5 5h-12a5,5 0,0 1,-5 -5v-28a5,5 0,0 1,5 -5z" android:fillColor="#FAC775" />
+        <path android:pathData="M64,40h14v6h-14z" android:fillColor="#633806" />
+        <path android:pathData="M64,49h6v6h-6z" android:fillColor="#633806" />
+        <path android:pathData="M72,49h6v6h-6z" android:fillColor="#BA7517" />
+        <path android:pathData="M64,58h14v8h-14z" android:fillColor="#BA7517" />
+        <!-- desk -->
+        <path
+            android:pathData="M8,76h80"
+            android:strokeWidth="3"
+            android:strokeLineCap="round"
+            android:strokeColor="#378ADD" />
+    </group>
 </vector>
