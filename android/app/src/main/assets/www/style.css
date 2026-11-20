@@ -1250,7 +1250,7 @@ body.waking::after { opacity: 0; pointer-events: auto; transition: opacity .2s e
 .ac-note[hidden] { display: none; }
 /* dictation: a big microphone button, what was heard, and a status line */
 .w.dc { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 10px; }
-.dc-mic { width: 84px; height: 84px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .1); background: rgba(255, 255, 255, .07); color: var(--text); display: flex; align-items: center; justify-content: center; flex: none; }
+.dc-mic { width: 84px; height: 84px; border-radius: 50%; border: 1px solid var(--surface-line); background: var(--surface-hi); color: var(--text); display: flex; align-items: center; justify-content: center; flex: none; }
 .dc-mic .ico { width: 38px; height: 38px; }
 .dc-mic.on { background: var(--err, #ef4444); border-color: transparent; color: #fff; animation: dc-pulse 1.4s ease-in-out infinite; }
 @keyframes dc-pulse { 50% { opacity: .7; } }
