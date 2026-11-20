@@ -99,7 +99,7 @@ test('the settings page shows no English left in Vietnamese, with every section 
 
   // Product names and platform names that are not translated on purpose, and demo/sample data the config carries.
   const leftoversKept = englishLeftovers(leftovers, [
-    'Control Deck', 'PhoneBox', 'Spotify', 'Claude', 'Codex', 'GitHub', 'OBS Studio', 'Home Assistant',
+    'Control Deck', 'Sidelight', 'Spotify', 'Claude', 'Codex', 'GitHub', 'OBS Studio', 'Home Assistant',
     'Discord', 'Antigravity', 'Tailscale', 'Windows', 'macOS', 'Linux', 'Android', 'WebView',
     'Windows Terminal', 'File Explorer (args: folder)', 'Task Manager', 'AppID', 'PowerShell',
     'JSON', 'HTTPS', 'USB', 'Wi-Fi', 'MIDI', 'OSC', 'SPA', 'CodexBar', 'radio-browser.info',
@@ -128,7 +128,7 @@ test('the settings page shows no English left in Vietnamese, with every section 
 test('every string in widgets.json and templates.json has a Vietnamese catalog entry', async ({ page }) => {
   await page.goto('/panel/');
   const out = await page.evaluate(async () => {
-    const I18n = window.PhoneBoxI18n;
+    const I18n = window.SidelightI18n;
     const cat = await (await fetch('/widgets.json', { cache: 'no-store' })).json();
     const tpl = await (await fetch('/templates.json', { cache: 'no-store' })).json();
     const widgets = Array.isArray(cat) ? cat : (cat.widgets || []);
@@ -159,7 +159,7 @@ test('every string in widgets.json and templates.json has a Vietnamese catalog e
 });
 
 test('settings.html keeps no English literal in a position that reaches the screen', async () => {
-  const file = path.join(__dirname, '..', '..', 'agent', 'PhoneBox.Agent', 'settings.html');
+  const file = path.join(__dirname, '..', '..', 'agent', 'Sidelight.Agent', 'settings.html');
   const src = fs.readFileSync(file, 'utf8');
   const marker = src.indexOf('<script>');
   const script = marker === -1 ? '' : src.slice(marker);

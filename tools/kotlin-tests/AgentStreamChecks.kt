@@ -1,4 +1,4 @@
-package net.oxog.phonebox.deskpanel
+package io.github.devpatel04.sidelight
 
 import java.io.ByteArrayInputStream
 import java.io.InputStream

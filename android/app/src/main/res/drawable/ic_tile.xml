@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Quick Settings tile: a phone on its side with a grid of widgets. Single colour; the system tints it. -->
+<!-- Quick Settings tile: a monitor with a phone standing beside it. Single colour; the system tints it. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"
     android:height="24dp"
@@ -8,5 +8,5 @@
     <path
         android:fillColor="#FFFFFFFF"
         android:fillType="evenOdd"
-        android:pathData="M3,5h18a2,2 0,0 1,2 2v10a2,2 0,0 1,-2 2H3a2,2 0,0 1,-2 -2V7a2,2 0,0 1,2 -2zM3,7v10h18V7zM5,9h6v3H5zM13,9h6v3h-6zM5,13h6v2H5zM13,13h6v2h-6z" />
+        android:pathData="M2,5h12a1,1 0,0 1,1 1v8a1,1 0,0 1,-1 1H2a1,1 0,0 1,-1 -1V6a1,1 0,0 1,1 -1zM3,7v6h10V7zM6,17h4v2H6zM17,8h4a1.5,1.5 0,0 1,1.5 1.5v9a1.5,1.5 0,0 1,-1.5 1.5h-4a1.5,1.5 0,0 1,-1.5 -1.5v-9A1.5,1.5 0,0 1,17 8zM17.5,10v8h3v-8zM18,3.5h2v2.5h-2z" />
 </vector>

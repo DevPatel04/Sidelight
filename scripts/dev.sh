@@ -16,12 +16,12 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
-state="${XDG_STATE_HOME:-$HOME/.local/state}/phonebox-dev"
+state="${XDG_STATE_HOME:-$HOME/.local/state}/sidelight-dev"
 pidfile="$state/agent.pid"
 log="$state/agent.log"
-exe="$root/agent/PhoneBox.Agent/bin/Debug/net10.0/PhoneBoxAgent"
+exe="$root/agent/Sidelight.Agent/bin/Debug/net10.0/SidelightAgent"
 url="http://127.0.0.1:8765"
-pkg="net.oxog.phonebox.deskpanel"
+pkg="io.github.devpatel04.sidelight"
 mkdir -p "$state"
 
 # ~/.bashrc only sets these for interactive shells
@@ -49,7 +49,7 @@ stop_agent() {
   # it closes the phone link and its pollers first; a hung shutdown should not block the next start
   for _ in $(seq 1 20); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
   kill -0 "$pid" 2>/dev/null && { echo "agent: did not exit, killing"; kill -9 "$pid" 2>/dev/null || true; }
-  pkill -f "dotnet run --project agent/PhoneBox.Agent" 2>/dev/null || true
+  pkill -f "dotnet run --project agent/Sidelight.Agent" 2>/dev/null || true
   rm -f "$pidfile"
 }
 
@@ -58,7 +58,7 @@ start_agent() {
   pid="$(agent_pid)"
   if [ -n "$pid" ]; then echo "agent: already running ($pid), use restart to pick up changes"; return; fi
   echo "agent: building"
-  dotnet build "$root/agent/PhoneBox.Agent" -f net10.0 --nologo -v q -clp:ErrorsOnly
+  dotnet build "$root/agent/Sidelight.Agent" -f net10.0 --nologo -v q -clp:ErrorsOnly
   echo "agent: starting, log in $log"
   # detached from this shell's stdio and job table, so the script (or a pipe reading it) ends while the agent runs on
   cd "$root"
@@ -136,7 +136,7 @@ run_tests() {
   echo "tests: release metadata"
   python3 "$root/tools/check-release.py"
   echo "tests: agent"
-  dotnet test "$root/agent/PhoneBox.Agent.Tests" --nologo
+  dotnet test "$root/agent/Sidelight.Agent.Tests" --nologo
   echo "tests: UI (Playwright)"
   ensure_npm
   (

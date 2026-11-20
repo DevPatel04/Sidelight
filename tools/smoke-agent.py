@@ -4,7 +4,7 @@ p=argparse.ArgumentParser();p.add_argument('executable');p.add_argument('--versi
 exe=pathlib.Path(args.executable).resolve()
 if os.name!='nt':exe.chmod(exe.stat().st_mode|0o111)
 base=f'http://127.0.0.1:{args.port}'
-with tempfile.TemporaryDirectory(prefix='phonebox-smoke-') as work:
+with tempfile.TemporaryDirectory(prefix='sidelight-smoke-') as work:
  config=pathlib.Path(work)/'config.json'
  # one shortcut with no program icon of its own (builtin:), for the uploaded-picture checks below
  config.write_text(json.dumps({'deviceSerial':'__smoke_no_device__','updates':{'auto':False},'lan':{'enabled':False},'claude':{'phoneApprovals':False},'pages':[{'template':'home'}],'rules':[],'shortcuts':[{'id':'smoke-art','label':'Art','cmd':'builtin:lock'}]}))

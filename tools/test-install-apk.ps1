@@ -1,26 +1,26 @@
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../scripts/install-apk.ps1')
-$fixture = Join-Path ([IO.Path]::GetTempPath()) ('phonebox-installer-' + [guid]::NewGuid().ToString('N'))
+$fixture = Join-Path ([IO.Path]::GetTempPath()) ('sidelight-installer-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $fixture | Out-Null
 $fakeAdb = Join-Path $fixture 'adb.ps1'
-$env:PHONEBOX_INSTALL_TEST_LOG = Join-Path $fixture 'calls.txt'
+$env:SIDELIGHT_INSTALL_TEST_LOG = Join-Path $fixture 'calls.txt'
 @'
-Add-Content -LiteralPath $env:PHONEBOX_INSTALL_TEST_LOG -Value ($args -join ' ')
+Add-Content -LiteralPath $env:SIDELIGHT_INSTALL_TEST_LOG -Value ($args -join ' ')
 if ($args -contains 'uninstall') { Write-Output 'Success'; exit 0 }
-if ($env:PHONEBOX_INSTALL_TEST_MODE -eq 'signature') { Write-Output 'Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE]'; exit 1 }
-if ($env:PHONEBOX_INSTALL_TEST_MODE -eq 'failure') { Write-Output 'Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]'; exit 1 }
+if ($env:SIDELIGHT_INSTALL_TEST_MODE -eq 'signature') { Write-Output 'Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE]'; exit 1 }
+if ($env:SIDELIGHT_INSTALL_TEST_MODE -eq 'failure') { Write-Output 'Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]'; exit 1 }
 Write-Output 'Success'; exit 0
 '@ | Set-Content -LiteralPath $fakeAdb -Encoding utf8
 try {
     foreach ($mode in @('signature', 'failure')) {
-        $env:PHONEBOX_INSTALL_TEST_MODE = $mode
+        $env:SIDELIGHT_INSTALL_TEST_MODE = $mode
         $failed = $false
-        try { Install-PhoneBoxApk -Adb $fakeAdb -ApkPath 'test.apk' -Serial 'test-phone' | Out-Null } catch { $failed = $true }
+        try { Install-SidelightApk -Adb $fakeAdb -ApkPath 'test.apk' -Serial 'test-phone' | Out-Null } catch { $failed = $true }
         if (-not $failed) { throw "$mode install must report failure" }
-        if ((Get-Content -LiteralPath $env:PHONEBOX_INSTALL_TEST_LOG) -match 'uninstall') { throw 'Installer must never remove the existing app automatically' }
+        if ((Get-Content -LiteralPath $env:SIDELIGHT_INSTALL_TEST_LOG) -match 'uninstall') { throw 'Installer must never remove the existing app automatically' }
     }
-    $env:PHONEBOX_INSTALL_TEST_MODE = 'success'
-    Install-PhoneBoxApk -Adb $fakeAdb -ApkPath 'test.apk' -Serial 'test-phone' | Out-Null
+    $env:SIDELIGHT_INSTALL_TEST_MODE = 'success'
+    Install-SidelightApk -Adb $fakeAdb -ApkPath 'test.apk' -Serial 'test-phone' | Out-Null
 
     # Regression check: scripts/install.ps1 starts the newly installed agent before the optional -Apk step, a failed
     # -Apk step can't leave it stopped, and a failed start doesn't skip the phone step but still fails the install.
@@ -51,7 +51,7 @@ try {
                 $outIdx = [Array]::IndexOf($args, '-o')
                 $stageDir = $args[$outIdx + 1]
                 New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
-                Set-Content -LiteralPath (Join-Path $stageDir 'PhoneBoxAgent.exe') -Value 'staged' -Encoding ascii
+                Set-Content -LiteralPath (Join-Path $stageDir 'SidelightAgent.exe') -Value 'staged' -Encoding ascii
                 $global:LASTEXITCODE = 0
             }
             function global:Get-Process { param([string[]]$Name, $ErrorAction) $state.Order.Add('stop'); return @() }
@@ -89,8 +89,8 @@ try {
     Write-Output 'PASS: signature mismatch and other failures preserve the installed app; successful updates work'
 } finally {
     [IO.File]::Delete($fakeAdb)
-    [IO.File]::Delete($env:PHONEBOX_INSTALL_TEST_LOG)
+    [IO.File]::Delete($env:SIDELIGHT_INSTALL_TEST_LOG)
     [IO.Directory]::Delete($fixture)
-    $env:PHONEBOX_INSTALL_TEST_LOG = $null
-    $env:PHONEBOX_INSTALL_TEST_MODE = $null
+    $env:SIDELIGHT_INSTALL_TEST_LOG = $null
+    $env:SIDELIGHT_INSTALL_TEST_MODE = $null
 }
