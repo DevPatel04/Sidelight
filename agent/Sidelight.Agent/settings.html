@@ -1012,6 +1012,8 @@ nav a.on::before { color: var(--accent); }
           The phone then talks HTTPS to this PC, trusts only this PC's certificate and has to present a secret key.
           The phone and this PC must be on the same network &mdash; or both on <a href="https://tailscale.com" target="_blank" rel="noopener">Tailscale</a>, which also works from another place or across separate Wi-Fi networks.
           Windows Firewall asks once &mdash; allow it (tick the network type Tailscale uses, too).</p>
+        <div class="row" style="margin-bottom:4px"><label class="switch"><input type="checkbox" data-bind="lan.browsers"><span></span></label> <span data-i18n="s.wifi.browsers">Also let a browser open the panel (iPhone, iPad)</span></div>
+        <p class="hint" style="margin:0 0 12px" data-i18n="s.wifi.browsersHint">For devices that cannot run the Android app. Pairing then also shows an iPhone QR code; the browser keeps a cookie that a new key revokes. Safari warns once about this computer's own certificate: choose to visit the website anyway. No vibration, brightness or volume keys.</p>
         <div class="grid2">
           <div class="field"><label data-i18n="s.wifi.port">Port</label><input type="number" min="1024" max="65535" data-bind="lan.port" data-type="int"></div>
           <div class="field"><label data-i18n="s.wifi.addresses">Addresses offered to the phone</label><div id="lanHosts" class="hint">—</div></div>
@@ -2225,7 +2227,12 @@ async function pairOverWifi() {
         h('b', {}, t('s.wifi.step1')),
         h('img', { src: svg(r.appQr), alt: 'QR code of the app download' }),
         h('small', { class: 'hint' }, t('s.wifi.step1Hint'))),
-      pairBox),
+      pairBox,
+      r.webQr ? h('div', { class: 'pair-qr' },
+        h('b', {}, t('s.wifi.browserStep')),
+        h('img', { src: svg(r.webQr), alt: 'Browser pairing QR code' }),
+        h('small', { class: 'hint' }, t('s.wifi.browserStepHint'))) : null),
+    ...(r.webLinks?.length > 1 ? [h('p', { class: 'hint', style: 'margin:0' }, t('s.wifi.browserOther'), ' ', r.webLinks.slice(1).join(' · '))] : []),
     h('p', { class: 'hint', style: 'margin:0' }, r.hosts.length
       ? `The phone will connect to ${r.hosts.join(', ')} on port ${r.port}. The code works once, for 5 minutes; the key itself is not in the QR code.`
       : 'No LAN or Tailscale address was found on this computer, so the phone has nothing to connect to.'),

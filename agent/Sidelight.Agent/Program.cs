@@ -167,9 +167,11 @@ app.MapPost("/api/controls/radio-directory/check", async (HttpRequest req, Cance
 
 // The panel in a desktop browser (the layout editor's live preview, /panel/) calls the API as /agent/api/..., the same
 // path the phone uses; on the local port that is simply /api/... Routing runs after this, so it sees the new path.
+// A paired browser on the Wi-Fi port (an iPhone) loads the same panel, so the Wi-Fi port rewrites it as well.
 app.Use((ctx, next) =>
 {
-    if (ctx.Connection.LocalPort == Port && ctx.Request.Path.StartsWithSegments("/agent/api", out var rest))
+    if ((ctx.Connection.LocalPort == Port || (lanCert is not null && ctx.Connection.LocalPort == lanCfg.Port))
+        && ctx.Request.Path.StartsWithSegments("/agent/api", out var rest))
         ctx.Request.Path = "/api" + rest;
     return next(ctx);
 });
@@ -222,17 +224,28 @@ app.Use(async (ctx, next) =>
         // The phone's key opens the panel API; the separate webhook key opens only the webhook endpoints, in a header
         // or, for senders that cannot set headers, in ?token= (URLs end up in logs, so it must not be the phone's key).
         var lan = configStore.Get().Lan;
+        // A browser's own origin; Request.Host keeps the port unless it is 443 (e.g. behind `tailscale serve`).
         var access = Lan.AuthorizeRequest(lan, ctx.Request.Method, ctx.Request.Path, origin,
-            ctx.Request.Headers.Authorization, ctx.Request.Query["token"]);
+            ctx.Request.Headers.Authorization, ctx.Request.Query["token"],
+            ctx.Request.Cookies[Lan.BrowserCookie], "https://" + ctx.Request.Host.Value, ctx.Request.Headers["Sec-Fetch-Site"]);
         if (access == Lan.LanAccess.Denied)
         {
+            // a browser that is not (or no longer) paired lands on the pairing page instead of a blank 403; the bare
+            // address goes to the panel, which sends it on to pairing when needed
+            if (lan.Browsers && HttpMethods.IsGet(ctx.Request.Method) && ctx.Request.Headers["Sec-Fetch-Mode"] == "navigate"
+                && (ctx.Request.Path == "/" || ctx.Request.Path.StartsWithSegments("/panel")))
+            {
+                ctx.Response.Headers.CacheControl = "no-store";
+                ctx.Response.Redirect(ctx.Request.Path == "/" ? "/panel/" : "/pair");
+                return;
+            }
             ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
         }
-        if (access is Lan.LanAccess.PairingClaim or Lan.LanAccess.Webhook)
+        if (access is Lan.LanAccess.PairingClaim or Lan.LanAccess.Webhook or Lan.LanAccess.BrowserPairing)
         {
             // pairing claims and webhooks must not touch phone registry, app version or "phone connected" updates
-            if (access == Lan.LanAccess.PairingClaim)
+            if (access is Lan.LanAccess.PairingClaim or Lan.LanAccess.BrowserPairing)
                 ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()!.MaxRequestBodySize = 1024;
             ctx.Response.Headers.CacheControl = "no-store";
             await next();
@@ -302,6 +315,8 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
     // Same repo the updater checks — a hard-coded upstream URL would hand out a differently signed APK.
     var repo = cfg.Get().Updates.Repo;
     var apk = $"https://github.com/{repo}/releases/download/v{AppPaths.Version}/Sidelight-{AppPaths.Version}.apk";
+    // A browser (iPhone) opens the agent itself; the same code pairs either an app or a browser, once.
+    var webLinks = cfg.Get().Lan.Browsers ? hosts.Select(h => PairingCodes.BrowserLink(h, lanCfg.Port, code)).ToList() : [];
     return Results.Json(new
     {
         enabled = true,
@@ -316,12 +331,25 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
         qr = PairingCodes.Svg(link),
         app = apk,
         appQr = PairingCodes.Svg(apk),
+        webLinks,
+        webQr = webLinks.Count > 0 ? PairingCodes.Svg(webLinks[0]) : null,
     });
 });
 app.MapPost("/api/pair/cancel", (long attempt, PairingCodes codes) => { codes.Cancel(attempt); return Results.Ok(); });
 app.MapGet("/api/pair/status", (PairingCodes codes) => Results.Json(new { claims = codes.Claims }));
 app.MapPost("/api/pair/claim", (HttpRequest req, ConfigStore cfg, PairingCodes codes) =>
     ClaimPairingAsync(req, cfg, codes, lanCert, lanCfg.Port, app.Logger));
+// Pairing a browser (an iPhone or iPad): Wi-Fi port only, and only with Settings › Wi-Fi › browsers turned on.
+app.MapGet("/pair", (HttpContext ctx, ConfigStore cfg) =>
+{
+    if (lanCert is null || ctx.Connection.LocalPort != lanCfg.Port || !cfg.Get().Lan.Browsers) return Results.NotFound();
+    ctx.Response.Headers["Content-Security-Policy"] = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'";
+    using var s = AppPaths.Resource("browser-pair.html")!;
+    using var r = new StreamReader(s);
+    return Results.Content(r.ReadToEnd(), "text/html; charset=utf-8");
+});
+app.MapPost("/api/pair/web", (HttpContext ctx, ConfigStore cfg, PairingCodes codes) =>
+    ctx.Connection.LocalPort != lanCfg.Port ? Task.FromResult(Results.NotFound()) : ClaimBrowserAsync(ctx, cfg, codes, lanCert, app.Logger));
 
 app.MapGet("/api/lan", (ConfigStore cfg) => Results.Json(new
 {
@@ -354,7 +382,8 @@ app.MapGet("/", () =>
     using var r = new StreamReader(s);
     return Results.Content(r.ReadToEnd(), "text/html; charset=utf-8");
 });
-// The phone's panel (embedded at build time) for the live preview in the layout editor; local port only.
+// The phone's panel (embedded at build time) for the live preview in the layout editor, and on the Wi-Fi port for
+// a paired browser (the middleware lets only that cookie through there).
 app.MapGet("/panel/{*file}", (string? file, HttpRequest req) =>
 {
     if (string.IsNullOrEmpty(file) && !req.Path.Value!.EndsWith('/')) return Results.Redirect("/panel/" + req.QueryString);
@@ -1183,6 +1212,30 @@ public partial class Program
             hosts = Lan.Addresses(),
             macs = WakeOnLan.LocalMacs(),
         });
+    }
+
+    /// <summary>
+    /// POST /api/pair/web: a browser trades a one-time code for the cookie that opens the panel (see
+    /// <see cref="Lan.BrowserKey"/>). HttpOnly keeps it from the page's scripts (Custom HTML widgets included); Strict
+    /// and Secure keep it on this agent's HTTPS origin. Browsers cap a cookie at 400 days; pairing again renews it.
+    /// </summary>
+    internal static async Task<IResult> ClaimBrowserAsync(HttpContext ctx, ConfigStore cfg, PairingCodes codes,
+        System.Security.Cryptography.X509Certificates.X509Certificate2? lanCert, ILogger log)
+    {
+        var req = ctx.Request;
+        if (!cfg.Get().Lan.Enabled || !cfg.Get().Lan.Browsers || lanCert is null || req.ContentLength is > 1024)
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        var code = await PairingCodes.ReadClaimCodeAsync(req);
+        var lan = cfg.Get().Lan;
+        if (!lan.Enabled || !lan.Browsers || string.IsNullOrEmpty(lan.Token) || code is null
+            || !codes.Claim(code, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        ctx.Response.Cookies.Append(Lan.BrowserCookie, Lan.BrowserKey(lan.Token), new CookieOptions
+        {
+            Secure = true, HttpOnly = true, SameSite = SameSiteMode.Strict, Path = "/", MaxAge = TimeSpan.FromDays(400), IsEssential = true,
+        });
+        log.LogInformation("browser paired over Wi-Fi");
+        return Results.Json(new { ok = true, pc = Environment.MachineName });
     }
 
     /// <summary>

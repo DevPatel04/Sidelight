@@ -243,6 +243,11 @@ public sealed class LanConfig
     public string? Token { get; set; }
     /// <summary>Separate key for the webhook API from other machines (push/notify/goto/refresh only). May appear in URLs.</summary>
     public string? WebhookToken { get; set; }
+    /// <summary>
+    /// Also let a web browser (an iPhone or iPad, which cannot run the Android app) open the panel over Wi-Fi. It pairs
+    /// with a one-time code and keeps a cookie derived from <see cref="Token"/>, so a new key unpairs browsers too.
+    /// </summary>
+    public bool Browsers { get; set; }
 }
 
 public sealed class UpdateConfig
