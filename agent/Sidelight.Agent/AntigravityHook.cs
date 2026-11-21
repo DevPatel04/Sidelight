@@ -29,11 +29,12 @@ public static class AntigravityHook
     internal static readonly object NoDecision = new { decision = "allow" };
 
     /// <summary>Handles one hook call; always returns a decision for the hook to print.</summary>
-    public static async Task<object> HandleAsync(JsonElement input, ConfigStore cfg, ApprovalStore approvals, CancellationToken aborted)
+    public static async Task<object> HandleAsync(JsonElement input, ConfigStore cfg, ApprovalStore approvals, CancellationToken aborted, Func<bool?>? askerInFront = null)
     {
         var c = cfg.Get().Antigravity;
         if (!c.PhoneApprovals) return NoDecision;
         if (c.OnlyWhenAway && Idle.Seconds() < 60) return NoDecision;
+        if (ClaudeHook.LeaveToPc(c.SkipWhenFocused, askerInFront)) return NoDecision;
         if (Describe(input, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), c.TimeoutSec) is not { } a) return NoDecision;
         return Output(await approvals.AskAsync(a, aborted));
     }
@@ -57,7 +58,7 @@ public static class AntigravityHook
         // ask_question is a question, not a permission: answering it happens in agy itself.
         var question = tool == "ask_question";
         return new Approval(ApprovalStore.NewId(), "Antigravity", ClaudeHook.Str(input, "conversationId") ?? "", ClaudeHook.ProjectName(cwd),
-            ToolTitle(tool), question ? ClaudeHook.QuestionDetail(args, "Antigravity") : Detail(tool, args),
+            CursorHook.ShownCwd(cwd), ToolTitle(tool), question ? ClaudeHook.QuestionDetail(args, "Antigravity") : Detail(tool, args),
             ClaudeHook.Str(args, "Description"), now, now + Math.Clamp(timeoutSec, 10, 3600) * 1000L, question ? "question" : "permission");
     }
 

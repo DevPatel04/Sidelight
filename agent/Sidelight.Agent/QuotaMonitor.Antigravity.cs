@@ -360,7 +360,15 @@ public sealed partial class QuotaMonitor
                 named.Add(("127.0.0.1", ep.Port));
                 yield return new AntigravityEndpoint(ep.Port, ep.CsrfToken);
             }
-            if (ParseHttpsServerFromCommandLine(cmd) is not { } https) continue;
+            if (ParseHttpsServerFromCommandLine(cmd) is not { } https)
+            {
+                // Antigravity on Linux (seen with the IDE in 2026) passes no port flag for the server's own RPC at all:
+                // only --extension_server_port, which is the IDE's extension server and refuses these calls. The server
+                // still listens on ports it picks and checks its own --csrf_token there, so look among those.
+                if (name != "agy" && pid > 0 && AntigravityFlag(cmd, "csrf_token", "csrfToken") is { Length: > 0 } own)
+                    dynamic.Add((pid, own));
+                continue;
+            }
             if (https.Port > 0)
             {
                 named.Add(("127.0.0.1", https.Port));

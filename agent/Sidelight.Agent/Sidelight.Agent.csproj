@@ -13,7 +13,7 @@
     <Product>Sidelight</Product>
     <Company>Sidelight</Company>
     <Description>Sidelight desktop agent: feeds the Sidelight Android desk panel over USB or Wi-Fi.</Description>
-    <Version>0.9.22</Version>
+    <Version>0.9.24</Version>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
@@ -58,6 +58,7 @@
     <EmbeddedResource Include="config.default.macos.json" LogicalName="config.default.macos.json" />
     <EmbeddedResource Include="sidelight.ico" LogicalName="sidelight.ico" />
     <EmbeddedResource Include="settings.html" LogicalName="settings.html" />
+    <EmbeddedResource Include="browser-pair.html" LogicalName="browser-pair.html" />
     <EmbeddedResource Include="widgets.json" LogicalName="widgets.json" />
     <EmbeddedResource Include="templates.json" LogicalName="templates.json" />
     <!-- the phone's panel, served at /panel/ for the live preview in the layout editor -->

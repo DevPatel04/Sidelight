@@ -160,7 +160,7 @@ Then open <http://127.0.0.1:8790/panel/>.
 
 ## 5. Updates while developing
 
-In **Settings → General → Updates**, keep **Repository** set to `DevPatel04/phonebox` and turn **automatic updates
+In **Settings → General → Updates**, keep **Repository** set to `DevPatel04/Sidelight` and turn **automatic updates
 off** while you work. Otherwise the agent may install a published release over the app you are testing. "Check now"
 returns 404 until the repository is public and has a release.
 

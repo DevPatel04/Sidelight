@@ -81,12 +81,18 @@ public sealed class PairingCodes
     /// so opening the link in a browser instead of the app does not leak the code to the web page's host.
     /// </summary>
     public static string Link(string pc, string fingerprint, int port, IEnumerable<string> hosts, string code) =>
-        "https://devpatel04.github.io/phonebox/pair/#v=1"
+        "https://devpatel04.github.io/Sidelight/pair/#v=1"
         + "&pc=" + Uri.EscapeDataString(pc)
         + "&fp=" + fingerprint
         + "&port=" + port
         + "&h=" + string.Join(",", hosts.Select(Uri.EscapeDataString))
         + "&c=" + code;
+
+    /// <summary>
+    /// The link a browser (iPhone, iPad) opens to pair: the agent's own pairing page, with the code in the fragment so
+    /// it stays out of the request line and the agent's logs. IPv4 addresses only (see <see cref="Lan.Addresses"/>).
+    /// </summary>
+    public static string BrowserLink(string host, int port, string code) => $"https://{host}:{port}/pair#c={code}";
 
     /// <summary>
     /// The start of the certificate fingerprint ("AB12 CD34"): the settings page shows it next to the QR code and the

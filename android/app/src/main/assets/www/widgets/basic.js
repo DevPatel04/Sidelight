@@ -1,4 +1,4 @@
-import { $, API, D, LEVEL_COLOR, LOCALE, mediaHtml, METRICS, PANEL_HEADERS, PREVIEW, Q_STYLE, S_ORDER, ago, api, averageColor, buildLayout, buzz, cfg, cfgVersion, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, en, haptic, hasProcessesPage, hist, hour12, keyButton, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, configMark, configReadSince, localWriteStored, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxIcon } from '../main.js';
+import { $, API, D, LEVEL_COLOR, LOCALE, mediaHtml, METRICS, PANEL_HEADERS, PREVIEW, Q_STYLE, S_ORDER, ago, api, averageColor, buildLayout, buzz, cfg, chime, cfgVersion, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, en, haptic, hasProcessesPage, hist, hour12, icon, keyButton, setKeyFace, labelled, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, configMark, configReadSince, localWriteStored, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxDeg, wxIcon, emo, rich, tp, tpv, quotaText } from '../main.js';
 import { W } from '../registry.js';
 import { invalidateDeckState } from './controls.js';
 import { skin } from './skins.js';
@@ -21,10 +21,9 @@ W.clock = {
   bare: true, needs: ['tick', 'state', 'weather', 'quotas', 'work'],
   create(box, { o }) {
     const status = o.status !== false ? h('div', 'status') : null;
-    const hh = h('span', 'hh', '--'), mm = h('span', 'mm', '--'), ss = h('span', 'sec'), ap = h('span', 'ap');
+    const hh = h('span', 'hh', '--'), colon = h('span', 'colon', ':'), mm = h('span', 'mm', '--'), ss = h('span', 'sec'), ap = h('span', 'ap');
     const date = o.date !== false ? h('div', 'date') : null;
     const wx = o.weather !== false ? wxBlock() : null;
-    const colon = h('span', 'colon', ':');
     const clock = h('div', 'clock', hh, colon, mm, ss, ap);
     box.append(status || '', clock, date || '', wx || '');
     box.style.setProperty('--tf', (0.84 - (status ? 0.1 : 0) - (date ? 0.11 : 0) - (wx ? 0.2 : 0)).toFixed(2));
@@ -50,10 +49,13 @@ W.clock = {
           digits(mm, pad(now.getMinutes()));
           if (draw) clock.setAttribute('aria-label', hh.dataset.v + ':' + mm.dataset.v);
           ss.textContent = cfg.display?.showSeconds === false ? '' : pad(now.getSeconds());
+          // the colon blinks once a second from here, not from a CSS animation: a running animation makes the browser draw a frame
+          // on every display refresh (120 a second on some phones) for something that changes once a second
+          colon.classList.toggle('dim', now.getSeconds() % 2 === 1);
           if (date) date.textContent = now.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' });
-          if (status && now.getSeconds() % 30 === 0) renderStatus(status); // battery
+          if (status && now.getSeconds() % 30 === 0) renderStatus(status, o); // battery
         } else if (kind === 'weather') wx?.update();
-        else if (status) renderStatus(status);
+        else if (status) renderStatus(status, o);
       },
     };
   },
@@ -87,11 +89,13 @@ W.forecast = {
         if (daily) {
           const d = w.daily;
           for (let i = 0; i < Math.min(n, d.time.length); i++) {
+            // some models (Météo-France, CMA) forecast fewer than 7 days and send null for the rest: stop there, not at "0°"
+            if (d.temperature_2m_max?.[i] == null) break;
             const day = i === 0 ? t('time.today') : new Date(d.time[i] + 'T12:00').toLocaleDateString(LOCALE, { weekday: 'short' });
             const rain = d.precipitation_probability_max?.[i];
-            cells.push(h('div', 'fc-i', h('span', 'fc-t', day), h('span', 'fc-ic', wxIcon(d.weather_code[i])),
-              h('span', 'fc-v', Math.round(d.temperature_2m_max[i]) + '°', h('small', null, ' ' + Math.round(d.temperature_2m_min[i]) + '°')),
-              h('span', 'fc-r', rain >= 20 ? `💧${rain}%` : '')));
+            cells.push(h('div', 'fc-i', h('span', 'fc-t', day), h('span', 'fc-ic', emo(wxIcon(d.weather_code[i]))),
+              h('span', 'fc-v', wxDeg(d.temperature_2m_max[i]) + '°', h('small', null, ' ' + wxDeg(d.temperature_2m_min[i]) + '°')),
+              h('span', 'fc-r', rain >= 20 ? rich(`💧${rain}%`) : '')));
           }
         } else {
           const hr = w.hourly;
@@ -100,10 +104,10 @@ W.forecast = {
           const step = n >= 10 ? 1 : 2;
           for (let k = 0; k < n; k++) {
             const i = start + k * step;
-            if (i >= hr.time.length) break;
+            if (i >= hr.time.length || hr.temperature_2m?.[i] == null) break;
             const rain = hr.precipitation_probability?.[i];
-            cells.push(h('div', 'fc-i', h('span', 'fc-t', k === 0 ? 'Now' : hr.time[i].slice(11, 13)), h('span', 'fc-ic', wxIcon(hr.weather_code[i], hr.is_day?.[i])),
-              h('span', 'fc-v', Math.round(hr.temperature_2m[i]) + '°'), h('span', 'fc-r', rain >= 20 ? `💧${rain}%` : '')));
+            cells.push(h('div', 'fc-i', h('span', 'fc-t', k === 0 ? 'Now' : hr.time[i].slice(11, 13)), h('span', 'fc-ic', emo(wxIcon(hr.weather_code[i], hr.is_day?.[i]))),
+              h('span', 'fc-v', wxDeg(hr.temperature_2m[i]) + '°'), h('span', 'fc-r', rain >= 20 ? rich(`💧${rain}%`) : '')));
           }
         }
         row.replaceChildren(...cells);
@@ -142,13 +146,65 @@ W.media = {
         emit('tick');
       } catch (_) {}
     }));
-    q('.bar').addEventListener('click', async (e) => {
-      if (!media || !media.durMs || !media.canSeek) return;
-      const r = e.currentTarget.getBoundingClientRect();
-      const ms = Math.round(((e.clientX - r.left) / r.width) * media.durMs);
+    // The position bar is a slider. Holding it (touch, mouse) or moving it with the arrow keys shows a bubble with the time
+    // the song will continue from; it seeks on release, not while moving. Meanwhile the once-a-second state and the 250 ms
+    // refresh leave the bar alone (see update()).
+    const bar = q('.bar'), tip = q('.scrub-tip');
+    let scrub = null, seekTimer = 0, ariaSec = -1; // scrub: { id, ms, key } while held
+    const canScrub = () => !!(media && media.durMs > 0 && media.canSeek);
+    // which song a held bar belongs to: a different one underneath (next track) cancels the scrub instead of seeking it
+    const trackKey = () => (media ? [media.app, media.title, media.durMs].join('\n') : '');
+    const paintAria = (ms) => {
+      bar.setAttribute('aria-valuenow', Math.round(ms / 1000));
+      bar.setAttribute('aria-valuetext', fmtTime(ms));
+    };
+    const nowMs = () => Math.min(media.durMs, media.posMs + (media.playing ? performance.now() - media.at : 0));
+    const msFrom = (clientX) => {
+      const r = bar.getBoundingClientRect();
+      return Math.round(Math.min(1, Math.max(0, (clientX - r.left) / r.width)) * media.durMs);
+    };
+    const paintScrub = (ms) => {
+      const pct = (ms / media.durMs) * 100;
+      q('.fill').style.width = pct + '%';
+      q('.m-pos').textContent = tip.textContent = fmtTime(ms);
+      bar.style.setProperty('--tip', pct + '%');
+      paintAria(ms);
+    };
+    const endScrub = (commit) => {
+      clearTimeout(seekTimer);
+      if (!scrub) return;
+      const { ms, key } = scrub;
+      scrub = null;
+      bar.classList.remove('scrubbing');
+      if (!commit || !canScrub() || key !== trackKey()) return; // checked again: the song may have changed since it was held
       haptic();
-      media.posMs = ms; media.at = performance.now();
-      try { await api('/media/seek?ms=' + ms, 'POST'); } catch (_) {}
+      // the bar stays where it was put until the agent has caught up: its next samples still hold the old position
+      media.posMs = ms; media.at = performance.now(); media.hold = performance.now() + 2500;
+      api('/media/seek?ms=' + ms, 'POST').catch(() => {});
+    };
+    const startScrub = (id, ms) => { scrub = { id, ms, key: trackKey() }; bar.classList.add('scrubbing'); paintScrub(ms); };
+    bar.addEventListener('pointerdown', (e) => {
+      if (!canScrub() || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      clearTimeout(seekTimer);
+      startScrub(e.pointerId, msFrom(e.clientX));
+      try { bar.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    bar.addEventListener('pointermove', (e) => {
+      if (scrub && e.pointerId === scrub.id) { scrub.ms = msFrom(e.clientX); paintScrub(scrub.ms); }
+    });
+    bar.addEventListener('pointerup', (e) => { if (scrub && e.pointerId === scrub.id) endScrub(true); });
+    bar.addEventListener('pointercancel', () => endScrub(false));
+    bar.addEventListener('lostpointercapture', () => endScrub(false)); // a no-op after pointerup: the scrub has ended
+    bar.addEventListener('keydown', (e) => {
+      const step = { ArrowRight: 5000, ArrowUp: 5000, ArrowLeft: -5000, ArrowDown: -5000, PageUp: 30000, PageDown: -30000 }[e.key];
+      if (step === undefined && e.key !== 'Home' && e.key !== 'End') return;
+      if (!canScrub()) return;
+      e.preventDefault();
+      const base = scrub ? scrub.ms : nowMs();
+      const ms = e.key === 'Home' ? 0 : e.key === 'End' ? Math.max(0, media.durMs - 1000) : Math.min(media.durMs, Math.max(0, base + step));
+      startScrub(-1, ms);
+      clearTimeout(seekTimer);
+      seekTimer = setTimeout(() => endScrub(true), 350); // a run of key presses seeks once
     });
     const paintVol = (v) => { vol.style.setProperty('--p', v + '%'); q('.vol-val').textContent = v; };
     const cancelVolumeDrag = () => {
@@ -176,12 +232,14 @@ W.media = {
 
     return {
       update(kind) {
+        if (scrub && scrub.key !== trackKey()) endScrub(false); // the song changed under the finger
         if (kind === 'fast') {
-          if (!media) return;
+          if (!media || scrub) return; // while the bar is held it shows the chosen time, not the song's
           if (media.durMs > 0) {
             const pos = Math.min(media.durMs, media.posMs + (media.playing ? performance.now() - media.at : 0));
             q('.fill').style.width = (pos / media.durMs) * 100 + '%';
             q('.m-pos').textContent = fmtTime(pos);
+            if (Math.floor(pos / 1000) !== ariaSec) { ariaSec = Math.floor(pos / 1000); paintAria(pos); } // once a second, not every 250 ms
           } else if (media.app === 'Internet Radio') {
             const pos = Math.max(0, (media.posMs || 0) + (media.playing ? performance.now() - media.at : 0));
             q('.fill').style.width = media.playing ? '100%' : '0';
@@ -199,27 +257,40 @@ W.media = {
         } else q('.vol-val').textContent = 'n/a';
         box.classList.toggle('idle', !m);
         if (!m) {
+          endScrub(false);
           box.classList.remove('playing');
-          q('.m-app-name').textContent = 'Media';
+          q('.m-app-name').textContent = tp('Media');
           sourceIcon.replaceChildren();
           q('.m-title').textContent = t('w.nothingPlaying');
           q('.m-artist').textContent = t('w.pressToResume');
           q('.fill').style.width = '0';
           q('.m-pos').textContent = q('.m-dur').textContent = '0:00';
+          ariaSec = -1; paintAria(0); bar.setAttribute('aria-disabled', 'true');
           if (artId !== 0) { artId = 0; img.classList.remove('on'); setArtColor(null); }
           return;
         }
         box.classList.toggle('playing', m.playing);
-        q('.m-app-name').textContent = m.app || 'Media';
+        q('.m-app-name').textContent = m.app || tp('Media');
         sourceIcon.innerHTML = sourceIcons[m.app] || '';
-        q('.m-title').textContent = m.title || 'Unknown track';
+        q('.m-title').textContent = m.title || tp('Unknown track');
         q('.m-artist').textContent = [m.artist, m.album].filter(Boolean).join(' · ') || '—';
         if (m.app === 'Internet Radio' && !(m.durMs > 0)) {
           q('.fill').style.width = m.playing ? '100%' : '0';
           q('.m-pos').textContent = fmtTime(m.posMs || 0);
-          q('.m-dur').textContent = m.playing ? 'LIVE' : '0:00';
+          q('.m-dur').textContent = m.playing ? tp('LIVE') : '0:00';
         } else {
           q('.m-dur').textContent = fmtTime(m.durMs);
+        }
+        // the slider's range and value for assistive technology (its maximum defaults to 100 without this)
+        if (m.durMs > 0) {
+          bar.setAttribute('aria-valuemax', Math.max(1, Math.round(m.durMs / 1000)));
+          bar.setAttribute('aria-disabled', String(!m.canSeek));
+          if (media && !scrub) { ariaSec = Math.floor(nowMs() / 1000); paintAria(nowMs()); }
+        } else {
+          // no known length (a live stream): no range to move on, and nothing left over from the song before
+          bar.setAttribute('aria-valuemax', '0');
+          bar.setAttribute('aria-disabled', 'true');
+          ariaSec = -1; paintAria(0);
         }
         if (m.artId !== artId) {
           artId = m.artId;
@@ -227,7 +298,7 @@ W.media = {
           else { img.classList.remove('on'); setArtColor(null); }
         }
       },
-      destroy: cancelVolumeDrag,
+      destroy() { endScrub(false); cancelVolumeDrag(); },
     };
   },
 };
@@ -239,7 +310,7 @@ W.stat = {
     const c = color(m.color);
     box.style.setProperty('--c', c);
     const canvas = h('canvas');
-    const lbl = h('div', 't-label', m.label);
+    const lbl = h('div', 't-label', tp(m.label));
     const val = h('b', null, '—'), unit = h('small'), sub = h('div', 't-sub', ' ');
     box.append(canvas, lbl, h('div', 't-val', val, unit), sub);
     // a theme's skin may add a small picture of the reading in the corner, for metrics that have a full scale
@@ -259,7 +330,7 @@ W.stat = {
         val.textContent = v;
         unit.textContent = u;
         const pctVal = m.pct?.(s);
-        lbl.textContent = pctVal != null && m.label === 'RAM' ? `RAM (${Math.round(pctVal)}%)` : m.label;
+        lbl.textContent = pctVal != null && m.label === 'RAM' ? `RAM (${Math.round(pctVal)}%)` : tp(m.label);
         sub.textContent = m.sub?.(s) || ' ';
         if (art) {
           const raw = m.pct ? pctVal : m.val(s), v = raw == null ? 0 : m.pct ? raw / 100 : raw / m.max(s);
@@ -277,7 +348,7 @@ W.gauge = {
     const m = METRICS[o.metric] || METRICS.cpu;
     box.style.setProperty('--q', color(m.color));
     const dial = h('div', 'g-dial'), pct = h('div', 'g-val'), sub = h('div', 'g-sub');
-    box.append(dial, h('div', 'g-label', m.label), sub);
+    box.append(dial, h('div', 'g-label', tp(m.label)), sub);
     dial.append(pct);
     if (o.metric === 'cpu' || o.metric === 'ram') bindProcessLink(box, o.metric === 'cpu' ? 'cpu' : 'mem');
     let svg = null;
@@ -320,7 +391,7 @@ W.chart = {
     if (!keys.length) keys.push('cpu');
     const single = keys.length === 1 ? METRICS[keys[0]] : null;
     const isNet = keys.every((k) => k === 'down' || k === 'up');
-    const label = single ? single.name : isNet ? 'Network' : keys.map((k) => METRICS[k].name).join(' · ');
+    const label = single ? tp(single.name) : isNet ? tp('Network') : keys.map((k) => tp(METRICS[k].name)).join(' · ');
     box.style.setProperty('--c', color((single || METRICS[keys[0]]).color));
     const head = h('div', 's-head', h('span', 's-label', label), h('span', 's-name', ''));
     const main = h('div', 's-main');
@@ -339,11 +410,11 @@ W.chart = {
           main.replaceChildren(...keys.map((k) => {
             const mm = METRICS[k];
             const [v, u] = metricText(mm, s);
-            const e = h('span', 'multi', (k === 'down' ? '↓ ' : k === 'up' ? '↑ ' : mm.label + ' '), h('b', null, v + ' ' + u));
+            const e = h('span', 'multi', (k === 'down' ? '↓ ' : k === 'up' ? '↑ ' : tp(mm.label) + ' '), h('b', null, v + ' ' + u));
             e.style.color = color(mm.color);
             return e;
           }));
-          head.lastChild.textContent = isNet && s.ping ? `Ping ${s.ping.ms != null ? Math.round(s.ping.ms) + ' ms' : '—'} · loss ${s.ping.lossPct}%` : '';
+          head.lastChild.textContent = isNet && s.ping ? tpv('Ping {ms} · loss {loss}%', { ms: s.ping.ms != null ? Math.round(s.ping.ms) + ' ms' : '—', loss: s.ping.lossPct }) : '';
         }
         chart(canvas, keys.map((k) => ({ data: hist[METRICS[k].hist || k], color: color(METRICS[k].color), max: METRICS[k].max(s) })), { grid: true });
       },
@@ -370,16 +441,16 @@ W.meters = {
         const pc = D.state?.pc;
         if (!pc) return;
         const s = pc.uptimeSec, d = Math.floor(s / 86400), hr = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
-        up.textContent = 'Up ' + (d ? `${d} d ${hr} h` : hr ? `${hr} h ${m} min` : `${m} min`);
+        up.textContent = tp('Up ') + (d ? `${d} d ${hr} h` : hr ? `${hr} h ${m} min` : `${m} min`);
         const rows = [meter('RAM', `${r1(pc.ramUsedGb)} / ${Math.round(pc.ramTotalGb)} GB`, (pc.ramUsedGb / pc.ramTotalGb) * 100)];
         // one row per GPU (the integrated one counts its shared memory); named once there is more than one
         const gpus = gpusOf(D.state);
         for (const g of gpus) {
           const m = gpuMem(g);
-          if (m) rows.push(meter(gpus.length > 1 ? `${m.label === 'VRAM' ? 'VRAM' : 'GPU'} · ${shortGpu(g.name)}` : m.label === 'VRAM' ? 'VRAM' : 'GPU MEMORY',
+          if (m) rows.push(meter(gpus.length > 1 ? `${m.label === 'VRAM' ? 'VRAM' : 'GPU'} · ${shortGpu(g.name)}` : m.label === 'VRAM' ? 'VRAM' : tp('GPU MEMORY'),
             `${r1(m.used)} / ${Math.round(m.total)} GB`, (m.used / m.total) * 100, cssVar('--gpu')));
         }
-        const disks = h('div', 'disks', ...(pc.disks || []).map((dk) => meter(dk.name === '/' ? 'DISK' : dk.name, Math.round((dk.usedGb / dk.totalGb) * 100) + '%', (dk.usedGb / dk.totalGb) * 100, '#94a3b8')));
+        const disks = h('div', 'disks', ...(pc.disks || []).map((dk) => meter(dk.name === '/' ? tp('DISK') : dk.name, Math.round((dk.usedGb / dk.totalGb) * 100) + '%', (dk.usedGb / dk.totalGb) * 100, '#94a3b8')));
         list.replaceChildren(...rows, disks);
       },
     };
@@ -393,7 +464,7 @@ W.quotas = {
    */
   create(box, { o }) {
     const tokens = (n) => n == null ? '—' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
-    const grid = h('div', 'q-grid', h('div', 'empty', 'Quota data arrives once the computer is connected.'));
+    const grid = h('div', 'q-grid', h('div', 'empty', tp('Quota data arrives once the computer is connected.')));
     box.append(grid);
     let last = 0;
     let offset = 0;
@@ -454,14 +525,14 @@ W.quotas = {
       const age = ov.updatedAt ? Math.max(0, Date.now() - ov.updatedAt) : null;
       const updStr = age != null ? `checked ${age < 60_000 ? 'just now' : fmtDur(age) + ' ago'}` : '';
       card.appendChild(h('div', 'q-head',
-        h('span', 'q-logo', '📊'),
-        h('span', 'q-name', 'Overview'),
+        h('span', 'q-logo', emo('📊')),
+        h('span', 'q-name', tp('Overview')),
         h('span', 'q-plan', `${days}-day spend`),
         updStr ? h('span', 'q-upd', updStr) : null
       ));
       const summary = h('div', 'q-ov-hero',
-        h('div', 'q-ov-stat', h('span', 'q-ov-lbl', 'Estimated spend'), h('strong', 'q-ov-val', fmtCurrency(ov.totalCost, ov.currencyCode))),
-        h('div', 'q-ov-stat', h('span', 'q-ov-lbl', 'Recorded tokens'), h('strong', 'q-ov-val', tokens(ov.totalTokens || 0)))
+        h('div', 'q-ov-stat', h('span', 'q-ov-lbl', tp('Estimated spend')), h('strong', 'q-ov-val', fmtCurrency(ov.totalCost, ov.currencyCode))),
+        h('div', 'q-ov-stat', h('span', 'q-ov-lbl', tp('Recorded tokens')), h('strong', 'q-ov-val', tokens(ov.totalTokens || 0)))
       );
       card.appendChild(summary);
       const details = h('div', 'q-details q-ov-details');
@@ -488,7 +559,7 @@ W.quotas = {
       const want = getProviders();
       const list = getItems();
       grid.replaceChildren();
-      if (!list.length) { grid.appendChild(h('div', 'empty', want.length ? 'Quota data is unavailable for the selected providers' : 'No quota providers enabled')); return; }
+      if (!list.length) { grid.appendChild(h('div', 'empty', want.length ? tp('Quota data is unavailable for the selected providers') : tp('No quota providers enabled'))); return; }
 
       const ps = getPageSize();
       const needsPaging = isRotateEnabled() && ps > 0 && list.length > ps;
@@ -528,21 +599,21 @@ W.quotas = {
           const pctEl = h('div', 'q-pct', String(Math.round(l.percent)), h('small', null, '%'));
           if (compact) pctEl.style.fontSize = 'calc(22px * var(--widget-font-scale, 1))';
           dial.appendChild(pctEl);
-          rings.appendChild(h('div', 'q-ring', dial, h('div', 'q-label', l.label), p.id === 'codex' ? h('div', 'q-left', `${Math.max(0, Math.round(100 - l.percent))}% left`) : null, h('div', 'q-reset', fmtReset(l.resetsAt)),
+          rings.appendChild(h('div', 'q-ring', dial, h('div', 'q-label', quotaText(l.label)), p.id === 'codex' ? h('div', 'q-left', tpv('{n}% left', { n: Math.max(0, Math.round(100 - l.percent)) })) : null, h('div', 'q-reset', fmtReset(l.resetsAt)),
             pace ? h('div', 'q-pace ' + pace.cls, pace.text) : null));
         }
-        if (!p.limits.length) rings.appendChild(h('div', 'q-reset', 'No data'));
+        if (!p.limits.length) rings.appendChild(h('div', 'q-reset', tp('No data')));
         card.append(rings);
         if (p.id === 'codex' && p.codex) {
           const c = p.codex;
           const details = h('div', 'q-details');
-          if (c.model) details.append(h('div', 'q-detail', h('span', null, 'Latest local session'), h('strong', null, c.model + (c.effort ? ` · ${c.effort}` : ''))));
-          if (c.totalTokens != null) details.append(h('div', 'q-detail', h('span', null, 'Session tokens'), h('strong', null, tokens(c.totalTokens))));
-          if (c.totalInput != null || c.totalOutput != null) details.append(h('div', 'q-detail q-breakdown', `In ${tokens(c.totalInput)} · Out ${tokens(c.totalOutput)} · Cached ${tokens(c.totalCached)} · Reasoning ${tokens(c.totalReasoning)}`));
-          if (c.lastInput != null && c.contextWindow) details.append(h('div', 'q-detail q-breakdown', `Last input ${tokens(c.lastInput)} / ${tokens(c.contextWindow)} context window`));
+          if (c.model) details.append(h('div', 'q-detail', h('span', null, tp('Latest local session')), h('strong', null, c.model + (c.effort ? ` · ${c.effort}` : ''))));
+          if (c.totalTokens != null) details.append(h('div', 'q-detail', h('span', null, tp('Session tokens')), h('strong', null, tokens(c.totalTokens))));
+          if (c.totalInput != null || c.totalOutput != null) details.append(h('div', 'q-detail q-breakdown', tpv('In {in} · Out {out} · Cached {cached} · Reasoning {reasoning}', { in: tokens(c.totalInput), out: tokens(c.totalOutput), cached: tokens(c.totalCached), reasoning: tokens(c.totalReasoning) })));
+          if (c.lastInput != null && c.contextWindow) details.append(h('div', 'q-detail q-breakdown', tpv('Last input {n} / {max} context window', { n: tokens(c.lastInput), max: tokens(c.contextWindow) })));
           if (details.childNodes.length) card.append(details);
         }
-        card.append(h('div', 'q-foot', h('span', p.extra?.startsWith('Limit reached') ? 'q-alert' : null, p.extra || ''), p.error ? h('span', 'q-err', p.error) : h('span')));
+        card.append(h('div', 'q-foot', h('span', p.extra?.startsWith('Limit reached') ? 'q-alert' : null, quotaText(p.extra) || ''), p.error ? h('span', 'q-err', p.error) : h('span')));
 
         grid.appendChild(card);
       }
@@ -618,23 +689,102 @@ W.sessions = {
     box.append(h('div', 'w-head', h('span', 's-label', t('w.sessions')), sum), list);
     box.style.setProperty('--c', '#d97757');
     const tokens = (n) => n == null ? '—' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
-    const statusText = (s) => s.status === 'busy' ? t('sess.working') : s.status === 'waiting' ? t('sess.waiting') : s.status === 'shell' ? t('sess.shell') : s.outcome === 'completed' ? t('sess.completed') : s.outcome === 'aborted' ? t('sess.aborted') : t('sess.idle');
+    const statusText = (s) => s.status === 'busy' ? t('sess.working') : s.status === 'waiting' ? t('sess.waiting') : s.status === 'shell' ? t('sess.shell') : s.outcome === 'completed' ? t('sess.completed') : s.outcome === 'failed' ? t('sess.failed') : s.outcome === 'aborted' ? t('sess.aborted') : t('sess.idle');
+    // The tool each session comes from: one glyph in the list, a glyph and a name in the details panel.
+    const toolIcon = (tool) => tool === 'claude' ? '✳' : tool === 'codex' ? '◎' : tool === 'cursor' ? '◆' : tool === 'opencode' ? '◈' : tool === 'antigravity' ? '✦' : '◎';
+    const toolTitle = (tool) => tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'cursor' ? 'Cursor' : tool === 'opencode' ? 'OpenCode' : tool === 'antigravity' ? 'Antigravity' : 'Codex';
     const ageText = (since) => Date.now() - since < 60_000 ? 'just now' : shortDur(Date.now() - since) + ' ago';
+    // A session's title is the main label and the project folder goes under it: Claude Code sends it only while
+    // Settings › Claude Code › "Show session titles on the phone" is on, OpenCode only while "Show OpenCode session
+    // titles" is on; without a title the folder is the label, as before.
+    const titleOf = (s) => s.title || s.project || s.name;
+    const folderOf = (s) => (s.title ? s.project : '');
+    // A Claude Code chat's recent steps, last exchange and message list. The agent sends them only when Settings › Claude Code
+    // › "Show the conversation on the phone" is on. Returns the function that stops the refresh.
+    const conversationSection = (panel, s) => {
+      const box = h('div', 'session-conv');
+      panel.append(box);
+      let data = null, expanded = false, gone = false, asked = 0, applied = 0;
+      let labels = []; // the time label of each step on screen, so they can move on without drawing everything again
+      const stepAge = (st) => (st.running ? (st.at ? 'running ' + shortDur(Date.now() - st.at) : 'running') : st.at ? ageText(st.at) : '');
+      const refreshLabels = () => { for (const [el, st] of labels) el.textContent = stepAge(st); };
+      const toolName = (n) => n.startsWith('mcp__') ? n.slice(5).replace(/__/g, ' › ') : n;
+      const clip = (text, n) => text.length > n ? text.slice(0, n) + '…' : text;
+      const message = (m, full) => h('div', 'conv-msg ' + m.role,
+        h('span', 'conv-who', m.role === 'user' ? tp('You') : 'Claude'),
+        h('div', full ? 'conv-text' : 'conv-text clamp', full ? m.text : clip(m.text, 500)));
+      const render = () => {
+        const prevList = box.querySelector('.conv-list');
+        const top = prevList ? prevList.scrollTop : null;
+        labels = [];
+        if (!data.enabled) {
+          box.replaceChildren(h('p', 'session-note', tp('The conversation is off. Turn it on in Settings › Claude Code › Show the conversation on the phone.')));
+          return;
+        }
+        const messages = data.messages || [], steps = data.steps || [];
+        const kids = [];
+        if (steps.length) {
+          kids.push(h('div', 'conv-h', tp('Recent steps')));
+          for (const st of [...steps].reverse().slice(0, 6)) {
+            const age = h('span', 'cs-a', stepAge(st));
+            labels.push([age, st]);
+            kids.push(h('div', 'conv-step' + (st.running ? ' on' : ''), h('span', 'cs-t', toolName(st.tool)), h('span', 'cs-d', st.detail || ''), age));
+          }
+        }
+        if (!messages.length) kids.push(h('p', 'session-note', tp('No messages yet.')));
+        else if (expanded) {
+          kids.push(h('div', 'conv-h', tp('Conversation')), h('div', 'conv-list', messages.map((m) => message(m, true))));
+        } else {
+          const lastOf = (role) => [...messages].reverse().find((m) => m.role === role);
+          kids.push(h('div', 'conv-h', tp('Last exchange')));
+          for (const m of [lastOf('user'), lastOf('assistant')]) if (m) kids.push(message(m, false));
+        }
+        if (messages.length) {
+          const toggle = h('button', 'conv-toggle', expanded ? 'Hide the conversation' : `Show the conversation (${messages.length})`);
+          toggle.type = 'button';
+          toggle.addEventListener('click', () => { haptic(); expanded = !expanded; render(); });
+          kids.push(toggle);
+        }
+        box.replaceChildren(...kids);
+        const list = box.querySelector('.conv-list');
+        if (list) list.scrollTop = top ?? list.scrollHeight; // a new view starts at the newest message
+      };
+      const load = async () => {
+        const mine = ++asked;
+        try {
+          const d = await api('/work/conversation?id=' + encodeURIComponent(s.id), 'GET', 5000);
+          // A slower earlier request can finish after a newer one: its answer is older, and must not replace it (for
+          // example a "turned off" answer that has already been shown).
+          if (gone || mine < applied) return;
+          applied = mine;
+          // the messages are drawn again only when they changed, to keep the scroll position and the focus; the ages
+          // of the steps move on with the clock either way
+          if (JSON.stringify(d) !== JSON.stringify(data)) { data = d; render(); } else refreshLabels();
+        } catch (_) {
+          if (!gone && !data) box.replaceChildren(h('p', 'session-note', tp('Could not read the conversation.')));
+        }
+      };
+      load();
+      const timer = setInterval(load, 3000);
+      return () => { gone = true; clearInterval(timer); };
+    };
     const openDetails = (s) => {
       haptic();
       const backdrop = h('div', 'session-backdrop');
       const panel = h('div', 'session-panel');
       panel.setAttribute('role', 'dialog');
       panel.setAttribute('aria-modal', 'true');
-      const title = h('h2', null, s.project || s.name);
-      const close = h('button', 'session-close', '✕');
-      close.setAttribute('aria-label', 'Close session details');
+      const title = h('h2', null, titleOf(s));
+      const close = h('button', 'session-close', icon('x'));
+      close.setAttribute('aria-label', tp('Close session details'));
+      let stopConversation = () => {};
       const onKey = (e) => { if (e.key === 'Escape') dismiss(); };
-      const dismiss = () => { backdrop.remove(); document.removeEventListener('keydown', onKey); };
+      const dismiss = () => { stopConversation(); backdrop.remove(); document.removeEventListener('keydown', onKey); };
       close.addEventListener('click', dismiss);
       backdrop.addEventListener('click', (e) => { if (e.target === backdrop) dismiss(); });
-      panel.append(h('div', 'session-panel-head', h('span', null, s.tool === 'codex' ? '◎ Codex' : '✳ Claude Code'), close), title);
+      panel.append(h('div', 'session-panel-head', h('span', null, toolIcon(s.tool) + ' ' + toolTitle(s.tool)), close), title);
       const rows = [
+        ['Folder', folderOf(s) || null],
         ['Status', statusText(s)],
         ['Started', s.startedAt ? ageText(s.startedAt) : null],
         ['Last activity', s.since ? ageText(s.since) : null],
@@ -647,8 +797,11 @@ W.sessions = {
         ['Last input / context window', s.lastInputTokens != null && s.contextWindow ? `${tokens(s.lastInputTokens)} / ${tokens(s.contextWindow)}` : null],
         ['Recent tool', s.lastTool],
       ];
-      for (const [label, value] of rows) if (value != null) panel.append(h('div', 'session-detail-row', h('span', null, label), h('strong', null, value)));
-      if (s.tool === 'codex') panel.append(h('p', 'session-note', 'Token totals are for this local session, not your account allowance.'));
+      // a small label over each value, four to a row: the facts take one line instead of four
+      panel.append(h('div', 'session-grid', rows.filter(([, value]) => value != null)
+        .map(([label, value]) => h('div', 'session-cell', h('span', null, tp(label)), h('strong', null, value)))));
+      if (s.tool === 'codex') panel.append(h('p', 'session-note', tp('Token totals are for this local session, not your account allowance.')));
+      if (s.tool === 'claude') stopConversation = conversationSection(panel, s);
       backdrop.append(panel);
       document.body.append(backdrop);
       close.focus();
@@ -668,8 +821,8 @@ W.sessions = {
         const sorted = [...sessions].sort((a, b) => (S_ORDER[a.status] ?? 9) - (S_ORDER[b.status] ?? 9) || b.since - a.since);
         const rows = sorted.length ? sorted.map((s) => {
           const row = h('button', 'sess ' + s.status,
-            h('span', 'st'), h('span', 'tl ' + s.tool, s.tool === 'claude' ? '✳' : '◎'),
-            h('span', 'sess-main', h('span', 'nm', s.project || s.name), h('span', 'sess-meta', [s.model, s.effort].filter(Boolean).join(' · ') || statusText(s))),
+            h('span', 'st'), h('span', 'tl ' + s.tool, toolIcon(s.tool)),
+            h('span', 'sess-main', h('span', 'nm', titleOf(s)), h('span', 'sess-meta', [folderOf(s), [s.model, s.effort].filter(Boolean).join(' · ') || statusText(s)].filter(Boolean).join(' · '))),
             h('span', 'ds', shortDur(Date.now() - s.since)));
           row.type = 'button';
           row.addEventListener('click', () => openDetails(s));
@@ -686,17 +839,17 @@ W.github = {
   create(box) {
     box.style.setProperty('--c', '#c9d1d9');
     const user = h('span', 'w-sum'), bell = h('span', 'gh-bell');
-    const rc = h('b'), mc = h('b'), rev = h('div', 'gh-list'), mine = h('div', 'gh-list'), err = h('div', 'gh-err', 'Waiting for GitHub data…');
+    const rc = h('b'), mc = h('b'), rev = h('div', 'gh-list'), mine = h('div', 'gh-list'), err = h('div', 'gh-err', tp('Waiting for GitHub data…'));
     box.append(h('div', 'w-head', h('span', 's-label', 'GitHub'), user, bell),
-      h('div', 'gh-sec', h('span', null, 'Review requests'), rc), rev,
-      h('div', 'gh-sec', h('span', null, 'My pull requests'), mc), mine, err);
+      h('div', 'gh-sec', h('span', null, tp('Review requests')), rc), rev,
+      h('div', 'gh-sec', h('span', null, tp('My pull requests')), mc), mine, err);
     return {
       update() {
         const g = D.work?.github;
         if (!g) return;
         const rows = Math.max(1, Math.floor((box.clientHeight - 90) / 25));
         user.textContent = g.user ? '@' + g.user : '';
-        bell.textContent = `🔔 ${g.notifications >= 50 ? '50+' : g.notifications}`;
+        bell.replaceChildren(rich(`🔔 ${g.notifications >= 50 ? '50+' : g.notifications}`));
         rc.textContent = g.reviewRequests.length;
         mc.textContent = g.myPrs.length;
         const nRev = Math.min(g.reviewRequests.length || 1, Math.max(1, Math.floor(rows / 2)));
@@ -758,7 +911,7 @@ W.processes = {
         e._g = g;
         e.querySelector('.p-t').textContent = g.title;
         e.querySelector('.p-count').textContent = g.count > 1 ? '×' + g.count : '';
-        e.querySelector('.p-lock').textContent = g.locked ? '🔒' : '';
+        e.querySelector('.p-lock').replaceChildren(...(g.locked ? [emo('🔒')] : []));
         e.querySelector('.p-bar i').style.width = ((sort === 'cpu' ? g.cpu : g.memMb) / max) * 100 + '%';
         e.querySelector('.p-nums b').textContent = sort === 'cpu' ? g.cpu.toFixed(1) + '%' : fmtMem(g.memMb);
         e.querySelector('.p-nums small').textContent = sort === 'cpu' ? fmtMem(g.memMb) : g.cpu.toFixed(1) + '%';
@@ -783,6 +936,22 @@ W.processes = {
 export function applyToggles(root) {
   const t = D.state?.toggles || {};
   root.querySelectorAll('.key.toggle').forEach((b) => b.classList.toggle('on', t[b.dataset.id] === true));
+  applyCycles(root);
+}
+
+// A key that cycles through other keys shows the one that ran last (D.state.cycles: { id: the id of that key }); before the
+// first tap, and after the agent restarted, it shows its own icon and name. The agent sends the id, not a position, so
+// the face never depends on which version of the list the phone has loaded.
+function applyCycles(root) {
+  const at = D.state?.cycles || {}, all = cfg.shortcuts || [];
+  root.querySelectorAll('.key.cycle').forEach((b) => {
+    const id = b.dataset.id, own = all.find((x) => x.id === id);
+    if (!own) return;
+    const want = at[id] != null ? all.find((x) => x.id === at[id]) : (b.dataset.face ? own : null);
+    // a key the phone has not loaded yet leaves the face as it is: not the key's own, which did not run
+    if (!want || (b.dataset.face || '') === (want.id === id ? '' : want.id)) return;
+    setKeyFace(b, want, b._cover === true);
+  });
 }
 
 W.shortcuts = {
@@ -878,7 +1047,7 @@ W.calendar = {
         const grid = h('div', 'cal', cells);
         grid.style.gridTemplateRows = `auto repeat(${total / 7 - 1}, 1fr)`;
         box.replaceChildren(h('div', 'w-title', now.toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' }),
-          h('span', 'w-sub', 'Week ' + isoWeek(now))), grid);
+          h('span', 'w-sub', tp('Week ') + isoWeek(now))), grid);
       },
     };
   },
@@ -948,7 +1117,7 @@ W.pomodoro = {
     const save = () => { st.phase = plan[st.step].kind; store.set(key, st); };
     save();
     const dial = h('div', 'g-dial'), time = h('div', 'g-val'), phase = h('div', 'g-label'), count = h('div', 'g-sub');
-    const play = h('button', 'pb main', '▶'), reset = h('button', 'pb', '↺'), skip = h('button', 'pb', '⏭');
+    const play = labelled(h('button', 'pb main', icon('play')), t('w.a.start')), reset = labelled(h('button', 'pb', icon('rotate-ccw')), t('w.a.restart')), skip = labelled(h('button', 'pb', icon('skip-forward')), t('w.a.skip'));
     dial.append(time);
     box.append(dial, phase, count, h('div', 'pomo-btns', reset, play, skip));
     let svg = null;
@@ -981,10 +1150,11 @@ W.pomodoro = {
         const was = plan[st.step].kind;
         const finished = advance(false);
         buzz(finished ? '0,200,120,200,120,200,120,600' : '0,200,120,200,120,400');
+        if (o.sound === true) chime(o.soundVolume, finished);
         const next = plan[st.step].kind;
         toast(finished ? 'Sequence finished, well done'
           : next === 'long' ? 'Time for a long break' : next === 'break' ? 'Time for a break'
-            : was === 'focus' ? 'Next focus session' : 'Back to focus', 'ok', '🍅 Pomodoro', 5);
+            : was === 'focus' ? tp('Next focus session') : tp('Back to focus'), 'ok', '🍅 Pomodoro', 5);
       }
       const left = remaining();
       const kind = plan[st.step].kind;
@@ -997,9 +1167,12 @@ W.pomodoro = {
       time.textContent = fmtTime(left + 999);
       phase.textContent = label();
       const tomatoes = st.count ? '🍅'.repeat(Math.min(st.count, 6)) + (st.count > 6 ? ` ×${st.count}` : '') : t('w.noSessionsToday');
-      count.textContent = custom.bad ? `Sequence not understood: "${custom.bad}"`
-        : rounds > 1 ? `Round ${(st.round || 0) + 1}/${rounds} · ${tomatoes}` : tomatoes;
-      play.textContent = st.endsAt ? '⏸' : '▶';
+      count.replaceChildren(rich(custom.bad ? `Sequence not understood: "${custom.bad}"`
+        : rounds > 1 ? `Round ${(st.round || 0) + 1}/${rounds} · ${tomatoes}` : tomatoes));
+      // the tomato icons are decorative (aria-hidden), so say the count in words for screen readers
+      if (st.count && !custom.bad) count.append(h('span', 'sr-only', ' ' + t('w.a.sessionsToday', { n: st.count })));
+      play.replaceChildren(icon(st.endsAt ? 'pause' : 'play'));
+      labelled(play, t(st.endsAt ? 'w.a.pause' : 'w.a.start'));
     };
     play.addEventListener('click', () => {
       haptic();
@@ -1038,7 +1211,7 @@ W.countdown = {
       }
     }
     const big = h('div', 'cd-v'), sub = h('div', 'cd-s');
-    box.append(h('div', 'cd-l', o.label || 'Countdown'), big, sub);
+    box.append(h('div', 'cd-l', o.label || tp('Countdown')), big, sub);
     if (Number.isNaN(target)) { big.textContent = '—'; sub.textContent = t('w.setDateFormat'); return {}; }
     sub.textContent = new Date(target).toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) + ', ' + fmtHM(new Date(target));
     return {
@@ -1204,7 +1377,7 @@ W.push = {
       if (c) box.style.setProperty('--c', c); else box.style.removeProperty('--c');
       const unit = v.unit ?? o.unit ?? '';
       const style = o.style && o.style !== 'auto' ? o.style : v.items ? 'list' : 'big';
-      const title = h('div', 'w-title', (v.icon ? v.icon + ' ' : '') + (o.title || v.title || key), h('span', 'push-age w-sub', ago(item.at)));
+      const title = h('div', 'w-title', v.icon ? rich(v.icon + ' ') : '', o.title || v.title || key, h('span', 'push-age w-sub', ago(item.at)));
       let body;
       if (style === 'list') {
         const items = v.items || (v.value != null ? [v.value] : []);
@@ -1244,7 +1417,7 @@ W.inbox = {
   needs: ['notes', 'tick'],
   create(box) {
     const list = h('div', 'inbox');
-    const clear = h('button', 'mini-btn', 'Clear');
+    const clear = h('button', 'mini-btn', tp('Clear'));
     clear.addEventListener('click', () => { haptic(); D.notes = []; store.set('notes', []); emit('notes'); });
     box.append(h('div', 'w-title', en('Notifications'), clear), list);
     let shown = '';

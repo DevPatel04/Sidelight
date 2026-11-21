@@ -7,13 +7,18 @@ name: release
 # key as repository secrets: SIDELIGHT_KEYSTORE_BASE64 (base64 of the .jks / .keystore file), SIDELIGHT_STORE_PASSWORD,
 # SIDELIGHT_KEY_ALIAS and SIDELIGHT_KEY_PASSWORD. Without them the workflow stops before publishing anything.
 #
-# Automation for this repository (DevPatel04/phonebox):
+# Automation for this repository (DevPatel04/Sidelight):
 #  - push to main  → stable GitHub release from the version in the project files (bump first; duplicate tags fail)
 #  - push to test  → pre-release numbered <version>.<run> (0.9.22.57) for the Testing update channel
 #  - workflow_dispatch → same as a push to the chosen branch; set draft=true to review assets before publishing
 #
 # Test builds sort after the release they build on and before the next one, keep the APK's versionCode (so adb
 # installs them over the release and the next release over them), and never touch the Scoop/winget manifests.
+# A stable release commits the updated manifests to main and copies them to test, so test → main merges do not conflict.
+#
+# The macOS agent is signed with Sidelight's own certificate when the secrets MACOS_SIGNING_P12_BASE64 and
+# MACOS_SIGNING_P12_PASSWORD exist (tools/make-macos-signing-cert.sh); without them it is signed ad hoc, and Macs ask
+# again for the Accessibility permission after each update.
 on:
   push:
     branches: [main, test]
@@ -117,9 +122,16 @@ jobs:
       # loose next to the exe instead of being extracted to the temp folder at run time.
       - name: Publish (self-contained, single file)
         run: dotnet publish agent/Sidelight.Agent -c Release -f ${{ matrix.tfm }} -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true -p:Version=${{ needs.version.outputs.version }} -o out --nologo
-      - name: Sign macOS apphost ad hoc
+      # Sidelight's own certificate (tools/make-macos-signing-cert.sh): every release has the same designated
+      # requirement, so macOS keeps the Accessibility permission across updates (#269). Without the secrets the agent
+      # is signed ad hoc, so a fork without a certificate can still release.
+      - name: Sign the macOS agent
         if: startsWith(matrix.rid, 'osx-')
-        run: codesign --force --sign - out/SidelightAgent
+        uses: ./.github/actions/sign-macos-agent
+        with:
+          binary: out/SidelightAgent
+          p12-base64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
       # Authenticode signing through SignPath Foundation, before the smoke test, the zip, the checksums, the attestation
       # and the Scoop/winget hash, which all cover the signed file. It is on while the repository variable
       # SIGNPATH_SIGNING_POLICY names a policy (release-signing); each request waits for a manual approval in SignPath.
@@ -232,3 +244,17 @@ jobs:
           git add bucket/sidelight.json packaging/winget/manifests
           git commit -m "Scoop and winget manifests for $v"
           git push origin HEAD:main
+      # The manifests commit above lands on main only, so the next test → main merge would conflict on these files.
+      # Giving test the same content makes both sides equal. A push with GITHUB_TOKEN starts no workflow (no pre-release).
+      - name: Copy the manifests to the test branch
+        if: ${{ github.ref == 'refs/heads/main' && inputs.draft != true }}
+        run: |
+          v="${{ needs.version.outputs.version }}"
+          released=$(git rev-parse HEAD)
+          git fetch --depth=1 origin test
+          git checkout -B manifests-to-test FETCH_HEAD
+          git checkout "$released" -- bucket/sidelight.json packaging/winget/manifests
+          if git diff --cached --quiet; then echo "test already has the $v manifests"; exit 0; fi
+          git commit -m "Scoop and winget manifests for $v"
+          # the release is already out: a test branch that moved meanwhile only means merging main into test by hand
+          git push origin HEAD:test || echo "::warning::Could not update test; merge main into test before the next release."

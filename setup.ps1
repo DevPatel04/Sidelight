@@ -5,11 +5,11 @@
 .DESCRIPTION
   Run it from a normal PowerShell window (not "Run as administrator"):
 
-    irm https://raw.githubusercontent.com/DevPatel04/phonebox/main/setup.ps1 | iex
+    irm https://raw.githubusercontent.com/DevPatel04/Sidelight/main/setup.ps1 | iex
 
   With options:
 
-    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/DevPatel04/phonebox/main/setup.ps1))) -NoPhone
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/DevPatel04/Sidelight/main/setup.ps1))) -NoPhone
 
   What it does, asking first before anything outside the Sidelight folders:
     1. Checks this PC (Windows 10/11, x64) and finds the latest Sidelight release.
@@ -48,7 +48,7 @@ param(
     [switch]$AllowAdministrator
 )
 
-$Repo = 'DevPatel04/phonebox'
+$Repo = 'DevPatel04/Sidelight'
 $Package = 'io.github.devpatel04.sidelight'
 $SettingsUrl = 'http://127.0.0.1:8765'
 
