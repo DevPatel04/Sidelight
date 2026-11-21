@@ -118,7 +118,7 @@ public sealed class AntigravityTests
         };
         var endpoints = QuotaMonitor.FindAntigravityEndpoints(
             name => (commands.GetValueOrDefault(name) ?? []).Select(cmd => (1000, cmd)),
-            _ => throw new InvalidOperationException("No command line asked for a run-time port")).ToArray();
+            _ => []).ToArray();
         Assert.Equal(new[] { 18765, 18766, 18767, 18769 }, endpoints.Select(ep => ep.Port).Order().ToArray());
         Assert.All(endpoints, ep => Assert.Equal("http", ep.Scheme));
     }
@@ -144,6 +144,33 @@ public sealed class AntigravityTests
     [InlineData("language_server --csrf_token abc --https_server_port 0x10")]
     public void MissingOrInvalidHttpsServerFlagsAreNotCandidates(string cmd) =>
         Assert.Null(QuotaMonitor.ParseHttpsServerFromCommandLine(cmd));
+
+    [Fact]
+    public void ServerWithoutAnRpcPortFlagIsLookedForAmongItsOwnListeners()
+    {
+        // Antigravity on Linux names only the IDE's extension server port, which refuses the RPC; the server's own
+        // HTTPS listener answers with --csrf_token, never the extension server's token.
+        var commands = new Dictionary<string, (int, string)[]>
+        {
+            ["language_server_linux_x64"] =
+            [
+                (51, "/usr/share/antigravity/bin/language_server_linux_x64 --csrf_token main --extension_server_port 33373 --extension_server_csrf_token ext --app_data_dir antigravity"),
+            ],
+            ["language_server"] = [(52, "language_server --app_data_dir=windsurf --csrf_token=other-editor")],
+            ["agy"] = [(53, "agy --csrf_token=cli")],
+        };
+        var asked = new List<int>();
+        var endpoints = QuotaMonitor.FindAntigravityEndpoints(
+            name => commands.GetValueOrDefault(name) ?? [],
+            pid => { asked.Add(pid); return [V4(33373), V4(44039)]; }).ToArray();
+
+        Assert.Equal(new[] { 51 }, asked);
+        Assert.Equal(new QuotaMonitor.AntigravityEndpoint[]
+        {
+            new(33373, "ext"),
+            new(44039, "main", "https"), // 33373 is already the named candidate
+        }, endpoints);
+    }
 
     [Fact]
     public void RunTimeHttpsPortsComeFromTheSameProcessAfterEveryNamedPort()
