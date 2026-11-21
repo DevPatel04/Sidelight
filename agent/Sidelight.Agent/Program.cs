@@ -858,7 +858,7 @@ app.MapPost(ClaudeHook.Endpoint, async (HttpRequest req, ConfigStore cfg, Approv
     JsonElement input;
     try { input = (await JsonDocument.ParseAsync(req.Body)).RootElement.Clone(); }
     catch (JsonException) { return Results.Text(""); }
-    var output = await ClaudeHook.HandleAsync(input, cfg, approvals, sessions, req.HttpContext.RequestAborted);
+    var output = await ClaudeHook.HandleAsync(input, cfg, approvals, sessions, req.HttpContext.RequestAborted, () => WindowFocus.CallerInFront(req.HttpContext));
     return output is null ? Results.Text("") : Results.Json(output);
 });
 app.MapGet("/api/claude/hook", () => Results.Json(new { installed = ClaudeHook.Installed(), path = ClaudeHook.SettingsPath }));
@@ -871,7 +871,7 @@ app.MapPost(AntigravityHook.Endpoint, async (HttpRequest req, ConfigStore cfg, A
     JsonElement input;
     try { input = (await JsonDocument.ParseAsync(req.Body)).RootElement.Clone(); }
     catch (JsonException) { return Results.Json(AntigravityHook.NoDecision); }
-    return Results.Json(await AntigravityHook.HandleAsync(input, cfg, approvals, req.HttpContext.RequestAborted));
+    return Results.Json(await AntigravityHook.HandleAsync(input, cfg, approvals, req.HttpContext.RequestAborted, () => WindowFocus.CallerInFront(req.HttpContext)));
 });
 app.MapGet("/api/antigravity/hook", () => Results.Json(new { installed = AntigravityHook.Installed(), path = AntigravityHook.HooksPath }));
 app.MapPost("/api/antigravity/hook", (ConfigStore cfg) => AntigravityHook.Configure(true, Port, cfg.Get().Antigravity.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
@@ -883,7 +883,7 @@ app.MapPost(CursorHook.Endpoint, async (HttpRequest req, ConfigStore cfg, Approv
     JsonElement input;
     try { input = (await JsonDocument.ParseAsync(req.Body)).RootElement.Clone(); }
     catch (JsonException) { return Results.Json(CursorHook.NoChange); }
-    return Results.Json(await CursorHook.HandleAsync(input, cfg, approvals, req.HttpContext.RequestAborted));
+    return Results.Json(await CursorHook.HandleAsync(input, cfg, approvals, req.HttpContext.RequestAborted, () => WindowFocus.CallerInFront(req.HttpContext)));
 });
 app.MapGet("/api/cursor/hook", () => Results.Json(new { installed = CursorHook.Installed(), path = CursorHook.HooksPath }));
 app.MapPost("/api/cursor/hook", (ConfigStore cfg) => CursorHook.Configure(true, Port, cfg.Get().Cursor.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
@@ -902,7 +902,7 @@ app.MapPost(CodexHook.Endpoint, async (HttpRequest req, ConfigStore cfg, Approva
     JsonElement input;
     try { input = (await JsonDocument.ParseAsync(req.Body)).RootElement.Clone(); }
     catch (JsonException) { return Results.Text(""); }
-    var output = await CodexHook.HandleAsync(input, cfg, approvals, sessions, req.HttpContext.RequestAborted);
+    var output = await CodexHook.HandleAsync(input, cfg, approvals, sessions, req.HttpContext.RequestAborted, () => WindowFocus.CallerInFront(req.HttpContext));
     return output is null ? Results.Text("") : Results.Json(output);
 });
 app.MapGet("/api/codex/hook", () => Results.Json(new { installed = CodexHook.Installed(), path = CodexHook.HooksPath }));

@@ -16,17 +16,20 @@ public static class ClaudeHook
     public static readonly string SettingsPath = Path.Combine(Home, ".claude", "settings.json");
 
     /// <summary>Handles one hook call; returns the JSON for the hook to print, or null for "no decision".</summary>
-    public static async Task<object?> HandleAsync(JsonElement input, ConfigStore cfg, ApprovalStore approvals, SessionMonitor sessions, CancellationToken aborted)
-        => await HandlePermissionAsync(input, cfg, approvals, sessions, aborted, "Claude Code", "claude:", allowQuestions: true);
+    /// <param name="askerInFront">Whether the app that asked owns the focused window (null: can't tell); see <see cref="WindowFocus"/>.</param>
+    public static async Task<object?> HandleAsync(JsonElement input, ConfigStore cfg, ApprovalStore approvals, SessionMonitor sessions, CancellationToken aborted,
+        Func<bool?>? askerInFront = null)
+        => await HandlePermissionAsync(input, cfg, approvals, sessions, aborted, "Claude Code", "claude:", allowQuestions: true, askerInFront);
 
     /// <summary>Shared PermissionRequest protocol used by Claude Code, Codex and compatible agents.</summary>
     internal static async Task<object?> HandlePermissionAsync(JsonElement input, ConfigStore cfg, ApprovalStore approvals,
-        SessionMonitor sessions, CancellationToken aborted, string source, string? sessionPrefix, bool allowQuestions)
+        SessionMonitor sessions, CancellationToken aborted, string source, string? sessionPrefix, bool allowQuestions, Func<bool?>? askerInFront = null)
     {
         if (input.ValueKind != JsonValueKind.Object) return null;
         var c = cfg.Get().Claude;
         if (!c.PhoneApprovals) return null;
         if (c.OnlyWhenAway && Idle.Seconds() < 60) return null;
+        if (LeaveToPc(c.SkipWhenFocused, askerInFront)) return null;
 
         var tool = Str(input, "tool_name") ?? "a tool";
         var ti = input.TryGetProperty("tool_input", out var t) && t.ValueKind == JsonValueKind.Object ? t : default;
@@ -57,6 +60,10 @@ public static class ClaudeHook
             },
         };
     }
+
+    /// <summary>True when the PC should ask by itself: the option is on and the asking app is known to be in front.
+    /// Checked last, after the cheap settings, because finding the asking app reads the process table.</summary>
+    internal static bool LeaveToPc(bool skipWhenFocused, Func<bool?>? askerInFront) => skipWhenFocused && askerInFront?.Invoke() == true;
 
     /// <summary>
     /// What the panel shows as the project: the workspace name WorkBuddy remembers for a directory (its sessions are
