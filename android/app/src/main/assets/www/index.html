@@ -46,18 +46,31 @@
   <div class="ps-list" id="psList"></div>
 </div>
 
-<div id="approval" hidden>
+<!-- permission prompts: a compact island at the top; the widgets underneath stay visible and usable -->
+<div id="approval" role="region" aria-live="polite" hidden>
   <div class="ap-card">
-    <div class="ap-head"><span class="ap-logo" id="apLogo" aria-hidden="true">◆</span><span id="apSource">AI agent</span><span class="ap-count" id="apCount"></span></div>
-    <div class="ap-context"><b id="apProject"></b><span class="ap-sep" id="apContextSep">·</span><code id="apCwd"></code></div>
-    <div class="ap-tool" id="apTool"></div>
-    <div class="ap-desc" id="apDesc"></div>
-    <pre class="ap-detail" id="apDetail"></pre>
-    <div class="ap-pattern" id="apPattern" hidden></div>
-    <div class="ap-choices" id="apChoices" hidden></div>
-    <div class="ap-custom" id="apCustom" hidden>
-      <input type="text" id="apCustomText" autocomplete="off" spellcheck="false" enterkeyhint="send">
-      <button class="ap-btn allow" id="apCustomSend" data-i18n="panel.answerSend">Send</button>
+    <div class="ap-head">
+      <span class="ap-logo" id="apLogo" aria-hidden="true">◆</span>
+      <div class="ap-sum" id="apSum" role="button" tabindex="0" aria-expanded="false" aria-controls="apMore">
+        <div class="ap-line"><b class="ap-tool" id="apTool"></b><span class="ap-where" id="apWhere"></span></div>
+        <code class="ap-brief" id="apBrief"></code>
+      </div>
+      <div class="ap-nav">
+        <button class="ap-arrow" id="apPrev" type="button" data-i18n-aria="panel.approvalNewer" aria-label="Newer request" hidden>‹</button>
+        <span class="ap-count" id="apCount"></span>
+        <button class="ap-arrow" id="apNext" type="button" data-i18n-aria="panel.approvalOlder" aria-label="Older request" hidden>›</button>
+      </div>
+    </div>
+    <div class="ap-more" id="apMore">
+      <div class="ap-context"><span id="apSource">AI agent</span><span class="ap-sep">·</span><b id="apProject"></b><span class="ap-sep" id="apContextSep">·</span><code id="apCwd"></code></div>
+      <div class="ap-desc" id="apDesc"></div>
+      <pre class="ap-detail" id="apDetail"></pre>
+      <div class="ap-pattern" id="apPattern" hidden></div>
+      <div class="ap-choices" id="apChoices" hidden></div>
+      <div class="ap-custom" id="apCustom" hidden>
+        <input type="text" id="apCustomText" autocomplete="off" spellcheck="false" enterkeyhint="send">
+        <button class="ap-btn allow" id="apCustomSend" data-i18n="panel.answerSend">Send</button>
+      </div>
     </div>
     <div class="ap-foot">
       <span class="ap-time" id="apTime"></span>

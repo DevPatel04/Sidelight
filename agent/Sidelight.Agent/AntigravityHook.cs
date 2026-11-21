@@ -29,11 +29,12 @@ public static class AntigravityHook
     internal static readonly object NoDecision = new { decision = "allow" };
 
     /// <summary>Handles one hook call; always returns a decision for the hook to print.</summary>
-    public static async Task<object> HandleAsync(JsonElement input, ConfigStore cfg, ApprovalStore approvals, CancellationToken aborted)
+    public static async Task<object> HandleAsync(JsonElement input, ConfigStore cfg, ApprovalStore approvals, CancellationToken aborted, Func<bool?>? askerInFront = null)
     {
         var c = cfg.Get().Antigravity;
         if (!c.PhoneApprovals) return NoDecision;
         if (c.OnlyWhenAway && Idle.Seconds() < 60) return NoDecision;
+        if (ClaudeHook.LeaveToPc(c.SkipWhenFocused, askerInFront)) return NoDecision;
         if (Describe(input, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), c.TimeoutSec) is not { } a) return NoDecision;
         return Output(await approvals.AskAsync(a, aborted));
     }

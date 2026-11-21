@@ -174,6 +174,8 @@ public sealed class DisplayConfig
     public int IdleReturnSec { get; set; } = 90;
     /// <summary>Vibrate when a session finishes or needs input.</summary>
     public bool Vibrate { get; set; } = true;
+    /// <summary>Play a short, quiet chime when a permission prompt or a notification arrives (softer on the night screen).</summary>
+    public bool AlertSound { get; set; } = true;
     /// <summary>Show a message when a session finishes. The "needs input" message always shows.</summary>
     public bool FinishToast { get; set; } = true;
     /// <summary>The phone's volume keys switch pages.</summary>
@@ -276,6 +278,9 @@ public sealed class ClaudeConfig
     public bool ShareConversation { get; set; }
     /// <summary>Only use the phone when the PC has been idle for a minute (you are away from the keyboard).</summary>
     public bool OnlyWhenAway { get; set; }
+    /// <summary>Leave the prompt to the PC while the app that asks (its terminal or editor) is the focused window; see
+    /// <see cref="WindowFocus"/>. Where focus can't be told, the phone asks as before.</summary>
+    public bool SkipWhenFocused { get; set; } = true;
     /// <summary>Show each Claude Code chat's title on the phone. The title is the name you gave the chat or the one
     /// Claude Code wrote, which it often draws from your first prompt, so it stays off until you turn it on.</summary>
     public bool ShareSessionTitles { get; set; }
@@ -312,6 +317,9 @@ public sealed class AntigravityConfig
     public int TimeoutSec { get; set; } = 30;
     /// <summary>Only use the phone when the PC has been idle for a minute (you are away from the keyboard).</summary>
     public bool OnlyWhenAway { get; set; }
+    /// <summary>Leave the prompt to the PC while the app that asks (its terminal or editor) is the focused window; see
+    /// <see cref="WindowFocus"/>. Where focus can't be told, the phone asks as before.</summary>
+    public bool SkipWhenFocused { get; set; } = true;
     /// <summary>Show recent Antigravity agent conversations on the AI sessions widget (off by default, like Cursor's).</summary>
     public bool Sessions { get; set; }
 }
@@ -324,6 +332,9 @@ public sealed class CursorConfig
     public int TimeoutSec { get; set; } = 60;
     /// <summary>Only use the phone when the PC has been idle for a minute (you are away from the keyboard).</summary>
     public bool OnlyWhenAway { get; set; }
+    /// <summary>Leave the prompt to the PC while the app that asks (its terminal or editor) is the focused window; see
+    /// <see cref="WindowFocus"/>. Where focus can't be told, the phone asks as before.</summary>
+    public bool SkipWhenFocused { get; set; } = true;
     /// <summary>Show recent Cursor agent chats on the AI sessions widget (off by default).</summary>
     public bool Sessions { get; set; }
 }
