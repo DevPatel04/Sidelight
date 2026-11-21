@@ -7,7 +7,7 @@ name: release
 # key as repository secrets: SIDELIGHT_KEYSTORE_BASE64 (base64 of the .jks / .keystore file), SIDELIGHT_STORE_PASSWORD,
 # SIDELIGHT_KEY_ALIAS and SIDELIGHT_KEY_PASSWORD. Without them the workflow stops before publishing anything.
 #
-# Automation for this repository (DevPatel04/phonebox):
+# Automation for this repository (DevPatel04/Sidelight):
 #  - push to main  → stable GitHub release from the version in the project files (bump first; duplicate tags fail)
 #  - push to test  → pre-release numbered <version>.<run> (0.9.22.57) for the Testing update channel
 #  - workflow_dispatch → same as a push to the chosen branch; set draft=true to review assets before publishing

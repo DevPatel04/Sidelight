@@ -2,7 +2,7 @@
 
 ## 0.9.22 — 2026-11-19
 
-First release of [DevPatel04/phonebox](https://github.com/DevPatel04/phonebox): upstream 0.9.21 plus this fork's
+First release of [DevPatel04/Sidelight](https://github.com/DevPatel04/Sidelight): upstream 0.9.21 plus this fork's
 panel themes, update channels, and local development scripts. GitHub Actions publishes a stable release on every
 push to `main` (after a version bump) and a Testing-channel pre-release on every push to `test`.
 
@@ -13,7 +13,7 @@ push to `main` (after a version bump) and a Testing-channel pre-release on every
 
 **Settings / updates**
 - Update channels: **Stable** (`main` releases) and **Testing** (`test` branch pre-releases); configurable GitHub
-  repository (default `DevPatel04/phonebox`).
+  repository (default `DevPatel04/Sidelight`).
 
 **Development**
 - `scripts/dev.sh` (Linux/macOS) and `scripts/dev.ps1` (Windows) rebuild and restart the agent and/or reinstall the

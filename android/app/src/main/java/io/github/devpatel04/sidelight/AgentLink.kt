@@ -321,14 +321,14 @@ class AgentLink(private val context: Context) {
             }
 
             /**
-             * Reads https://devpatel04.github.io/phonebox/pair/#v=1&... (the QR code; the data is in the fragment so it
+             * Reads https://devpatel04.github.io/Sidelight/pair/#v=1&... (the QR code; the data is in the fragment so it
              * never reaches a web server) or sidelight://pair?v=1&... (the "Open in Sidelight" button on that page).
              * Anything malformed returns null.
              */
             fun parse(uri: Uri?): PairLink? {
                 if (uri == null) return null
                 val raw = when {
-                    uri.scheme == "https" && uri.host == "devpatel04.github.io" && uri.path?.startsWith("/phonebox/pair") == true -> uri.encodedFragment
+                    uri.scheme == "https" && uri.host == "devpatel04.github.io" && uri.path?.startsWith("/Sidelight/pair") == true -> uri.encodedFragment
                     uri.scheme == "sidelight" && uri.host == "pair" -> uri.encodedQuery
                     else -> null
                 } ?: return null

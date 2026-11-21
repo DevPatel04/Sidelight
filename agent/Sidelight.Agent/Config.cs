@@ -217,7 +217,7 @@ public sealed class UpdateConfig
     /// </summary>
     public string Channel { get; set; } = "stable";
 
-    public const string DefaultRepo = "DevPatel04/phonebox";
+    public const string DefaultRepo = "DevPatel04/Sidelight";
     public static readonly string[] Channels = ["stable", "test"];
 }
 
@@ -585,8 +585,10 @@ public sealed partial class ConfigStore(string path)
         c.Cursor.TimeoutSec = Math.Clamp(c.Cursor.TimeoutSec, 10, 3600);
         // the repo goes into the GitHub API URL the updater calls, so only "owner/name" is accepted
         if (c.Updates.Repo is null || !RepoName().IsMatch(c.Updates.Repo)) c.Updates.Repo = UpdateConfig.DefaultRepo;
-        // settings carried over from PhoneBox can name the upstream repository, whose releases have no Sidelight files
-        if (c.Updates.Repo.Equals("ersinkoc/phonebox", StringComparison.OrdinalIgnoreCase)) c.Updates.Repo = UpdateConfig.DefaultRepo;
+        // settings carried over from PhoneBox can name the upstream repository, whose releases have no Sidelight files,
+        // and older Sidelight builds saved this repository under its former name
+        if (c.Updates.Repo.Equals("ersinkoc/phonebox", StringComparison.OrdinalIgnoreCase)
+            || c.Updates.Repo.Equals("DevPatel04/phonebox", StringComparison.OrdinalIgnoreCase)) c.Updates.Repo = UpdateConfig.DefaultRepo;
         if (!UpdateConfig.Channels.Contains(c.Updates.Channel)) c.Updates.Channel = "stable";
         c.Lan.Port = Math.Clamp(c.Lan.Port, 1024, 65535);
         if (string.IsNullOrWhiteSpace(c.Lan.Token)) c.Lan.Token = NewToken();

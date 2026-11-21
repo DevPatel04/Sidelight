@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Sidelight setup for Linux and macOS: installs the latest release, everything it needs, and the phone app.
 #
-#   curl -fsSL https://raw.githubusercontent.com/DevPatel04/phonebox/main/setup.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/DevPatel04/phonebox/main/setup.sh | bash -s -- --no-phone
+#   curl -fsSL https://raw.githubusercontent.com/DevPatel04/Sidelight/main/setup.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/DevPatel04/Sidelight/main/setup.sh | bash -s -- --no-phone
 #
 # Run it as yourself, not with sudo: it asks for sudo only to install packages, and asks first.
 # Running it again updates Sidelight or repairs the installation; settings are kept.
@@ -18,7 +18,7 @@
 #   --dry-run           download and check everything, show what would happen, change nothing
 set -euo pipefail
 
-repo="DevPatel04/phonebox"
+repo="DevPatel04/Sidelight"
 package="io.github.devpatel04.sidelight"
 settings_url="http://127.0.0.1:8765"
 
