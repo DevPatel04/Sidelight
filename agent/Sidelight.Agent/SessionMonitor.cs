@@ -20,6 +20,7 @@ public sealed record AgentSession(string Id, string Tool, string Name, string Pr
 ///  - Codex: the latest events in recent rollout files under ~/.codex/sessions
 ///  - Cursor (opt-in): recent agent transcripts under ~/.cursor/projects/*/agent-transcripts
 ///  - OpenCode: recent sessions from the local HTTP API of its background service (native and in WSL)
+///  - Antigravity (opt-in): recent conversations from the IDE's local language server
 /// </summary>
 public sealed class SessionMonitor(ILogger<SessionMonitor> log, ConfigStore? config = null) : BackgroundService
 {
@@ -87,6 +88,14 @@ public sealed class SessionMonitor(ILogger<SessionMonitor> log, ConfigStore? con
             if (config?.Get().Cursor.Sessions == true)
             {
                 try { list.AddRange(ReadCursor()); } catch (Exception ex) { log.LogDebug("cursor sessions: {Msg}", ex.Message); }
+            }
+            // Antigravity sessions are off until Settings › Assistants › "Show Antigravity sessions" is enabled; while
+            // off, its language server is neither looked for nor asked.
+            if (config?.Get().Antigravity.Sessions == true)
+            {
+                try { list.AddRange(await AntigravitySessions.ReadAsync(log, ct)); }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                catch (Exception ex) { log.LogDebug("antigravity sessions: {Msg}", ex.Message); }
             }
             _sessions = list;
             ClaudeTranscript.Trim(list.Where(s => s.Tool == "claude").Select(s => s.Id["claude:".Length..]), config?.Get().Claude.ShareConversation ?? false);
