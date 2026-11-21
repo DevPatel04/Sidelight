@@ -89,6 +89,12 @@ public sealed class PairingCodes
         + "&c=" + code;
 
     /// <summary>
+    /// The link a browser (iPhone, iPad) opens to pair: the agent's own pairing page, with the code in the fragment so
+    /// it stays out of the request line and the agent's logs. IPv4 addresses only (see <see cref="Lan.Addresses"/>).
+    /// </summary>
+    public static string BrowserLink(string host, int port, string code) => $"https://{host}:{port}/pair#c={code}";
+
+    /// <summary>
     /// The start of the certificate fingerprint ("AB12 CD34"): the settings page shows it next to the QR code and the
     /// phone shows it in its confirmation, so a pairing link from anyone else is easy to spot.
     /// </summary>
