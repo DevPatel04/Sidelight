@@ -312,6 +312,8 @@ public sealed class AntigravityConfig
     public int TimeoutSec { get; set; } = 30;
     /// <summary>Only use the phone when the PC has been idle for a minute (you are away from the keyboard).</summary>
     public bool OnlyWhenAway { get; set; }
+    /// <summary>Show recent Antigravity agent conversations on the AI sessions widget (off by default, like Cursor's).</summary>
+    public bool Sessions { get; set; }
 }
 
 public sealed class CursorConfig

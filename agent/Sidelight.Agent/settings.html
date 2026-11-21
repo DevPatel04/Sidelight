@@ -914,6 +914,12 @@ nav a.on::before { color: var(--accent); }
       </div>
 
       <div class="card">
+        <h3 data-i18n="s.antigravity.sessionsTitle">Antigravity sessions</h3>
+        <p class="hint" style="margin:0 0 12px" data-i18n="s.antigravity.sessionsHint">Show recent Antigravity agent conversations on the AI sessions widget while the Antigravity IDE is running (off by default). The agent asks the IDE's own server on this computer for its conversation list and keeps only the run status, times and the workspace folder name; titles and chat text are never shown, stored or sent.</p>
+        <div class="row" style="margin-bottom:8px"><label class="switch"><input type="checkbox" data-bind="antigravity.sessions"><span></span></label> <span data-i18n="s.antigravity.sessions">Show Antigravity sessions</span></div>
+      </div>
+
+      <div class="card">
         <h3 data-i18n="s.approvals.title">AI coding agent permission prompts</h3>
         <p class="hint" style="margin:0 0 12px" data-i18n-html="s.approvals.hint">When Codex or Claude Code asks for permission, the phone shows the request with <b>Allow</b> and <b>Deny</b>. Install the hook for each agent you use; existing hook files are preserved and backed up.</p>
         <div class="row" style="margin-bottom:8px"><b style="min-width:92px" data-i18n="s.approvals.codex">Codex</b><button class="btn" id="codexHookBtn" data-i18n="s.claude.installHook">Install hook</button><span class="hint" id="codexHookState"></span></div>

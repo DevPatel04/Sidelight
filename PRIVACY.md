@@ -46,6 +46,13 @@ Last updated: 2026-11-20 (Sidelight 0.9.6).
   the panel; chat text is never shown, stored or sent. Project labels use the folder basename from Cursor's
   `workspaceStorage/*/workspace.json` `folder` URI (cached about a minute), sent to the phone as the session's project
   name over the same local USB / paired Wi-Fi link as other panel data. Turning the setting off stops the scan.
+- **Antigravity sessions** (off by default; **Settings › Assistants › Show Antigravity sessions**): while enabled and
+  the Antigravity IDE is running, the agent asks the IDE's own language server on this computer (loopback only, with
+  the CSRF token from that process's command line, found the same way as the Antigravity quota) for its conversation
+  list about every 5 seconds. Only each conversation's id, run status, times and the workspace folder's name are
+  kept; the summaries and message text in that reply are dropped and never shown, stored or sent. The folder name
+  reaches the phone over the same local USB / paired Wi-Fi link as other panel data. Turning the setting off stops
+  the requests.
 - **OpenCode sessions (off by default):** with Settings › General › "Show OpenCode sessions" on, the agent asks
   OpenCode's own background service — the native one, and the one inside each running WSL distro — for its recent
   sessions: the same local HTTP API the desktop app uses, authenticated with the password OpenCode wrote to
