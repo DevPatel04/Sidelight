@@ -242,6 +242,21 @@ permission prompts** and press *Install hook*: Sidelight adds a `PermissionReque
 time, the hook returns no decision and Claude Code asks in the terminal as usual. Optionally only when you have been
 away from the keyboard for a minute.
 
+The prompt appears as a small island at the top of the panel: the tool, the project and the command (or file, or URL)
+on one line, with **Allow** and **Deny** right below. Tap the summary to see the full command and the working
+directory; tap again (or press Back) to fold it. When several requests wait at once they share the island, newest
+first: "2 of 3" with arrows, or swipe sideways on it. The widgets underneath stay visible and usable the whole time.
+A new request vibrates briefly and plays a short, quiet sound (**Settings › Display**: *Vibrate…* and *Play a short,
+quiet sound…*); on the night screen the vibration is a single tick and the sound a whisper.
+
+**Not while I am looking at it** (on by default, for Claude Code, Codex, Cursor and Antigravity) keeps a prompt on the
+PC while the terminal or editor that asks is the focused window, so you answer where you already are; switch to
+another window and the next prompt comes to the phone. Sidelight follows the hook's connection to the process that
+sent it and checks whether the focused window belongs to one of its parents (the terminal, VS Code, Cursor). This
+works on Windows, and on Linux under X11 with `xdotool` installed; under Wayland and on macOS the focused window can't
+be read, so the phone asks as before. Turn it off with `"skipWhenFocused": false` in the agent's section of
+`config.json`, or in Settings.
+
 WorkBuddy speaks the same hook protocol. Add the same `PermissionRequest` entry to `~/.workbuddy/settings.json` by
 hand: *Install hook* writes to `~/.claude/settings.json` only. WorkBuddy keeps its sessions in `~/.workbuddy`, so the
 card takes the project name from the workspace name WorkBuddy stores

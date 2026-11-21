@@ -24,11 +24,12 @@ public static class CursorHook
     internal static readonly object NoChange = new { @continue = true, permission = "allow" };
 
     /// <summary>Handles one hook call; always returns a permission for the hook to print.</summary>
-    public static async Task<object> HandleAsync(JsonElement input, ConfigStore cfg, ApprovalStore approvals, CancellationToken aborted)
+    public static async Task<object> HandleAsync(JsonElement input, ConfigStore cfg, ApprovalStore approvals, CancellationToken aborted, Func<bool?>? askerInFront = null)
     {
         var c = cfg.Get().Cursor;
         if (!c.PhoneApprovals || !ApprovalStore.PhoneConnected) return NoChange;
         if (c.OnlyWhenAway && Idle.Seconds() < 60) return NoChange;
+        if (ClaudeHook.LeaveToPc(c.SkipWhenFocused, askerInFront)) return NoChange;
         if (Describe(input, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), c.TimeoutSec) is not { } a) return NoChange;
         return Output(await approvals.AskAsync(a, aborted));
     }

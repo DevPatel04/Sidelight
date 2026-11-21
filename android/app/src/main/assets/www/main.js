@@ -171,39 +171,43 @@ export const buzz = (p) => { try { if (bridge && !nightOn && cfg.display?.vibrat
 // One AudioContext for the whole panel: Chrome limits how many can be open, so a new one per chime would run out.
 // It is suspended a second after the last tone, so a panel that runs all day doesn't keep an audio output open.
 let chimeCtx = null, chimeIdle = 0;
-/**
- * A short tone for timers, made with Web Audio so the app needs no sound file. Silent on the night screen, like
- * buzz(). volume is a percentage (10–100); finished plays a rising three-note pattern instead of two beeps.
- */
-export const chime = (volume, finished = false) => {
+/** Plays sine notes one after another through the shared AudioContext: peak is the loudness (below 1), gap the
+ * seconds from one note to the next and len how long each one rings. */
+export function tones(notes, peak, gap = 0.25, len = 0.22) {
   try {
-    if (nightOn) return;
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
     if (!chimeCtx) chimeCtx = new Ctx();
     // a context made without a tap starts suspended in a desktop browser; the phone's WebView allows playback
     if (chimeCtx.state === 'suspended') { const r = chimeCtx.resume(); if (r && r.catch) r.catch(() => {}); }
-    const peak = 0.4 * Math.min(100, Math.max(10, +volume || 60)) / 100; // below 1, so two notes never clip
-    const notes = finished ? [660, 880, 1100] : [880, 880];
     const t0 = chimeCtx.currentTime + 0.02;
     notes.forEach((freq, i) => {
-      const at = t0 + i * 0.25, osc = chimeCtx.createOscillator(), gain = chimeCtx.createGain();
+      const at = t0 + i * gap, osc = chimeCtx.createOscillator(), gain = chimeCtx.createGain();
       osc.type = 'sine';
       osc.frequency.setValueAtTime(freq, at);
       gain.gain.setValueAtTime(0.0001, at);
       gain.gain.linearRampToValueAtTime(peak, at + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.22); // a quick fade-out, no click at the end
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + len); // a quick fade-out, no click at the end
       osc.connect(gain);
       gain.connect(chimeCtx.destination);
       osc.start(at);
-      osc.stop(at + 0.24);
+      osc.stop(at + len + 0.02);
     });
     clearTimeout(chimeIdle);
     const ctx = chimeCtx;
     chimeIdle = setTimeout(() => {
       try { if (ctx.state === 'running' && ctx.suspend) { const r = ctx.suspend(); if (r && r.catch) r.catch(() => {}); } } catch (_) {}
-    }, (notes.length * 0.25 + 1) * 1000);
+    }, (notes.length * gap + len + 1) * 1000);
   } catch (_) {}
+}
+/**
+ * A short tone for timers, made with Web Audio so the app needs no sound file. Silent on the night screen, like
+ * buzz(). volume is a percentage (10–100); finished plays a rising three-note pattern instead of two beeps.
+ */
+export const chime = (volume, finished = false) => {
+  if (nightOn) return;
+  const peak = 0.4 * Math.min(100, Math.max(10, +volume || 60)) / 100; // below 1, so two notes never clip
+  tones(finished ? [660, 880, 1100] : [880, 880], peak);
 };
 export const transport = () => { try { return bridge ? bridge.transport() : ''; } catch (_) { return ''; } };
 
@@ -1162,10 +1166,12 @@ export const levelOf = (v) => v.level || (typeof v.value === 'string' ? (/^(ok|p
 // ---------------------------------------------------------------- notifications (POST /api/notify)
 export function handleNotify(d) {
   const level = d.level === 'error' ? 'err' : d.level === 'ok' || d.level === 'success' ? 'ok' : d.level === 'warn' ? 'warn' : '';
+  const night = !!nightOn;
   if (d.wake && nightOn) { wakeUntil = Date.now() + 30_000; setNight(false); }
   undim();
   toast(d.text || '', level, d.title || '', d.seconds || 5);
-  if (d.vibrate !== false) buzz(level === 'err' ? '0,90,90,90,90,160' : '0,70,110,70');
+  // on the night screen a notification stays silent and still unless it was sent to wake the phone; then it is soft
+  if (d.vibrate !== false && (!night || d.wake)) announce(night, level === 'err' ? '0,90,90,90,90,160' : '0,70,110,70');
   D.notes.unshift({ title: d.title || '', text: d.text || '', level: d.level || 'info', at: Date.now() });
   D.notes = D.notes.slice(0, 30);
   store.set('notes', D.notes);
@@ -1179,31 +1185,57 @@ export function handleNotify(d) {
 }
 
 // ---------------------------------------------------------------- permission prompts (AI coding-agent hook → phone)
-export let approvals = [];
+// The prompts sit in an island at the top of the screen, newest first, so several waiting requests never cover the
+// widgets: one card at a time, "2 of 3" with arrows (or a swipe) to move between them, and a tap opens the details.
+export let approvals = []; // newest first
 export let approvalShown = null;
+let apIndex = 0;
+// The card the user is looking at, by id, so a list refresh that adds or drops other requests keeps it on screen.
+let apFocus = null;
+let apExpanded = false;
+// When the island was last touched: a request that arrives while a thumb is on it must not swap the card underneath.
+let apTouchedAt = 0;
+const apTouchHold = 4000;
 
 // A list request sent before the answer can land after it and hand back the already answered prompt, which would
 // pop the card up again on its own and buzz. Ids answered from this phone are dropped from every later list.
 const answered = new Set();
 const answeredCap = 50;
 
+// Ids the phone has already announced with a buzz and a sound: moving between cards or a list refresh is not news.
+const announced = new Set();
+const announcedCap = 200;
+
 // Ids whose answer is on its way to the agent. Tracked per id rather than as one flag because a list request can
 // put a different prompt on screen while this one is still posting, and neither may unlock the other's buttons.
 const submitting = new Set();
+
+const remember = (set, id, cap) => { set.add(id); if (set.size > cap) set.delete(set.values().next().value); };
 
 function stillOpen(items) {
   return items.filter((x) => !answered.has(x.id));
 }
 
+// the list comes oldest first, so two requests from the same millisecond keep their order reversed as well
+const newestFirst = (items) => items.slice().reverse().sort((a, b) => (+b.createdAt || 0) - (+a.createdAt || 0));
+
+/** The request on screen, or null. */
+export const currentApproval = () => approvals[apIndex] || null;
+
 let approvalBusy = false;
+// An event that arrives while a list request is out may describe a request that list doesn't have yet; it asks
+// once more when that one ends instead of waiting for the next five-second tick.
+let approvalAgain = false;
 
 export async function loadApprovals() {
-  if (PREVIEW || approvalBusy) return; // a slow answer must not stack up with the next tick
+  if (PREVIEW) return;
+  if (approvalBusy) { approvalAgain = true; return; } // a slow answer must not stack up with the next tick
   approvalBusy = true;
+  approvalAgain = false;
   try {
     // api() gives up after 2.5s by default: plenty for a tap, too little for a list request on a phone that
     // dozes, and the abort then looked exactly like a broken connection.
-    approvals = stillOpen((await api('/approvals', 'GET', 8000)).items || []);
+    approvals = newestFirst(stillOpen((await api('/approvals', 'GET', 8000)).items || []));
   } catch (e) {
     const msg = (e && e.message) || String(e);
     // Logged, never shown. The boot panel is for faults that need a new build; a list request that fails is
@@ -1211,25 +1243,52 @@ export async function loadApprovals() {
     // outage it describes and teach the reader to ignore the box. The next tick and the live stream both retry.
     if (!/abort|timeout/i.test(msg)) console.warn('approvals: list request failed:', msg);
     return;
-  } finally { approvalBusy = false; }
+  } finally {
+    approvalBusy = false;
+    if (approvalAgain) setTimeout(loadApprovals, 0);
+  }
   renderApproval();
 }
 
+/**
+ * A buzz and a short, quiet two-note sound for something that just arrived. On the night screen (or right after an
+ * approval woke it) the long buzz becomes a single tick and the sound plays at a whisper; display.vibrate and
+ * display.alertSound turn each part off.
+ */
+export function announce(night, pattern) {
+  if (cfg.display?.vibrate !== false) { if (night) haptic(); else buzz(pattern); }
+  if (cfg.display?.alertSound !== false) tones([988, 1319], night ? 0.025 : 0.07, 0.11, 0.16);
+}
+
 export function renderApproval() {
-  const a = approvals[0];
   const box = $('approval');
-  if (!a) { box.hidden = true; approvalShown = null; stopAlwaysCountdown(); return; }
-  if (approvalShown !== a.id) {
-    approvalShown = a.id;
+  // where the island stands: a new request comes to the front unless the island is being touched right now;
+  // otherwise the card on screen stays, and when it is gone the next older one takes its place
+  const fresh = approvals.filter((x) => !announced.has(x.id));
+  for (const x of fresh) remember(announced, x.id, announcedCap);
+  const at = approvals.findIndex((x) => x.id === apFocus);
+  if (fresh.length && (at < 0 || Date.now() - apTouchedAt > apTouchHold)) apIndex = approvals.indexOf(fresh[0]);
+  else if (at >= 0) apIndex = at;
+  else apIndex = Math.max(0, Math.min(apIndex, approvals.length - 1));
+  const a = currentApproval();
+  if (!a) { box.hidden = true; approvalShown = apFocus = null; apExpanded = false; stopAlwaysCountdown(); return; }
+  apFocus = a.id;
+  if (fresh.length) {
     lastTouch = Date.now();
     undim();
+    const night = !!nightOn;
     if (nightOn) { wakeUntil = Date.now() + 60_000; setNight(false); }
-    buzz('0,120,80,120,80,240');
+    announce(night, '0,120,80,120,80,240');
+  }
+  if (approvalShown !== a.id) {
+    approvalShown = a.id;
     // A prompt whose answer is still in flight comes back locked: it can be shown again while its own post runs.
     // The Send button and the typed draft belong to the previous question: this one starts clean.
     $('apAllow').disabled = $('apDeny').disabled = $('apAlways').disabled = $('apSkip').disabled = $('apCustomSend').disabled = submitting.has(a.id);
     $('apCustomText').value = '';
     renderChoices(a);
+    // A card opens folded, except a question that is answered right here: its answers are the point of the card.
+    apExpanded = a.kind === 'question' && ((Array.isArray(a.options) && a.options.length > 0) || !!a.custom);
     // Allow always saves a pattern for the whole project: give the thumb ten seconds (as configured) before it can
     // be pressed by accident.
     const countdown = Math.max(0, Math.min(60, cfg.opencode?.alwaysCountdownSec ?? 10));
@@ -1244,10 +1303,13 @@ export function renderApproval() {
   // carries its own answers answers them right here, so the extra button would only crowd the row.
   $('apSkip').hidden = !asking || options.length > 0 || !!a.custom;
   // "Always allow" comes with OpenCode prompts (OpenCode saves the pattern for the project); the other agents have no
-  // such answer and keep their two buttons. Three buttons are tighter: the countdown steps aside while the third shows.
+  // such answer and keep their two buttons.
   $('apAlways').hidden = asking || !a.always;
   box.classList.toggle('with-always', !asking && !!a.always);
   box.classList.toggle('with-choices', options.length > 0 || (asking && !!a.custom));
+  box.classList.toggle('open', apExpanded);
+  box.classList.toggle('stacked', approvals.length > 1);
+  $('apSum').setAttribute('aria-expanded', String(apExpanded));
   $('apChoices').hidden = options.length === 0;
   $('apCustom').hidden = !(asking && a.custom);
   if (asking && a.custom) $('apCustomText').placeholder = t('panel.answerCustom');
@@ -1262,8 +1324,16 @@ export function renderApproval() {
   $('apCwd').textContent = (a.cwd || '').length > 140 ? '…' + a.cwd.slice(-139) : (a.cwd || '');
   $('apCwd').title = a.cwd || '';
   $('apContextSep').hidden = !(a.cwd && (a.project || a.session));
-  $('apCount').textContent = approvals.length > 1 ? t('panel.oneOfN', { n: approvals.length }) : '';
+  const many = approvals.length > 1;
+  $('apCount').textContent = many ? t('panel.approvalPos', { i: apIndex + 1, n: approvals.length }) : '';
+  $('apPrev').hidden = $('apNext').hidden = !many;
+  $('apPrev').disabled = apIndex === 0;
+  $('apNext').disabled = apIndex >= approvals.length - 1;
   $('apTool').textContent = a.tool;
+  $('apWhere').textContent = a.project || a.session || '';
+  // folded, the card says what it is about in one line: the command (or file, or URL) itself, else the description
+  const brief = String(a.detail || '').split('\n').find((l) => l.trim()) || a.description || '';
+  $('apBrief').textContent = brief.trim().slice(0, 200);
   $('apDesc').textContent = a.description || '';
   $('apDetail').textContent = a.detail || '';
   $('apDetail').hidden = !a.detail;
@@ -1273,6 +1343,22 @@ export function renderApproval() {
   $('apPattern').hidden = !pattern;
   box.hidden = false;
   tickApproval();
+}
+
+/** Moves the island one card towards older (+1) or newer (-1) requests. */
+function stepApproval(dir) {
+  const next = apIndex + dir;
+  if (next < 0 || next >= approvals.length) return;
+  apTouchedAt = Date.now();
+  apFocus = approvals[next].id;
+  haptic();
+  renderApproval();
+}
+
+function toggleApproval(open = !apExpanded) {
+  if (!currentApproval() || open === apExpanded) return;
+  apExpanded = open;
+  renderApproval();
 }
 
 // Agent questions (OpenCode forms): one button per answer. Built only when the card changes, so the five-second list
@@ -1310,7 +1396,7 @@ function startAlwaysCountdown(seconds) {
     left -= 1;
     if (left > 0 && approvalShown === id) { b.textContent = `${t('panel.allowAlways')} · ${left}`; return; }
     stopAlwaysCountdown();
-    if (approvalShown === id && approvals[0] && approvals[0].id === id && !submitting.has(id)) {
+    if (approvalShown === id && currentApproval()?.id === id && !submitting.has(id)) {
       b.disabled = false;
       b.textContent = t('panel.allowAlways');
     }
@@ -1322,12 +1408,15 @@ function stopAlwaysCountdown() {
 }
 
 export function tickApproval() {
-  const a = approvals[0];
+  // a request the agent has given up on (its terminal asked instead) leaves the island, wherever it sits in the queue
+  const now = Date.now();
+  const live = approvals.filter((x) => !(x.expiresAt - now < -3000));
+  if (live.length !== approvals.length) { approvals = live; renderApproval(); return; }
+  const a = currentApproval();
   if (!a || $('approval').hidden) return;
-  const left = a.expiresAt - Date.now();
+  const left = a.expiresAt - now;
   $('apTime').textContent = a.kind === 'question' ? t('panel.answerInTerminal')
     : left > 0 ? t('panel.askedInTerminalIn', { time: fmtTime(left) }) : t('panel.askingInTerminal');
-  if (left < -3000) { approvals.shift(); renderApproval(); }
 }
 setInterval(tickApproval, 1000);
 
@@ -1338,7 +1427,7 @@ setInterval(tickApproval, 1000);
 setInterval(() => { if (!PREVIEW && !idle()) loadApprovals(); }, 5000);
 
 export async function decide(decision, value, label) {
-  const a = approvals[0];
+  const a = currentApproval();
   if (!a || submitting.has(a.id)) return;
   haptic();
   submitting.add(a.id);
@@ -1362,7 +1451,7 @@ export async function decide(decision, value, label) {
     // moved on to another approval while this one was in flight, and unlocking that one would let a second
     // answer go out for a prompt whose own post is still running. Allow always stays locked while its own
     // countdown for this card is still running — a failed post does not arm it early.
-    if (approvals[0] && approvals[0].id === a.id) {
+    if (currentApproval()?.id === a.id) {
       const stillCounting = approvalShown === a.id && alwaysCountdown !== null;
       $('apAllow').disabled = $('apDeny').disabled = $('apSkip').disabled = $('apCustomSend').disabled = false;
       $('apAlways').disabled = stillCounting;
@@ -1372,9 +1461,8 @@ export async function decide(decision, value, label) {
   }
   // The typed draft is cleared only while this card is still the one on screen: a late success (the post landed
   // after the user had moved on) must not wipe the next question's draft. A card change clears it in renderApproval.
-  if (decision === 'answer' && approvals[0] && approvals[0].id === a.id) $('apCustomText').value = '';
-  answered.add(a.id);
-  if (answered.size > answeredCap) answered.delete(answered.values().next().value);
+  if (decision === 'answer' && currentApproval()?.id === a.id) $('apCustomText').value = '';
+  remember(answered, a.id, answeredCap);
   approvals = approvals.filter((x) => x.id !== a.id);
   renderApproval();
 }
@@ -1382,6 +1470,30 @@ $('apAllow').addEventListener('click', () => decide('allow'));
 $('apAlways').addEventListener('click', () => decide('always'));
 $('apDeny').addEventListener('click', () => decide('deny'));
 $('apSkip').addEventListener('click', () => decide('skip'));
+$('apPrev').addEventListener('click', () => stepApproval(-1));
+$('apNext').addEventListener('click', () => stepApproval(1));
+
+// Tapping the summary opens or folds the details; a sideways swipe on the island moves between waiting requests
+// (left for older, right for newer). A swipe also ends in a click, which must not fold the card as well.
+{
+  const island = $('approval');
+  let start = null, swiped = false;
+  island.addEventListener('pointerdown', (e) => { apTouchedAt = Date.now(); start = { x: e.clientX, y: e.clientY }; swiped = false; });
+  island.addEventListener('pointerup', (e) => {
+    apTouchedAt = Date.now();
+    if (!start) return;
+    const dx = e.clientX - start.x, dy = e.clientY - start.y;
+    start = null;
+    // only from the summary rows: the detail box scrolls sideways for long lines, and the buttons are for tapping
+    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5 && !e.target.closest('.ap-detail, .ap-custom, .ap-choices, button')) {
+      swiped = true;
+      stepApproval(dx < 0 ? 1 : -1);
+    }
+  });
+  island.addEventListener('pointercancel', () => { start = null; });
+  $('apSum').addEventListener('click', () => { if (swiped) { swiped = false; return; } toggleApproval(); });
+  $('apSum').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleApproval(); } });
+}
 
 function sendCustomAnswer() {
   const v = $('apCustomText').value.trim();
@@ -2062,7 +2174,8 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'o') ($('overview').hidden ? openOverview() : closeOverview());
 });
 window.onAndroidBack = () => {
-  if (!$('approval').hidden) return; // answer it (or let it time out); Back must not dismiss a permission prompt
+  // Back folds an opened permission prompt; it never dismisses one (answer it, or let it time out)
+  if (!$('approval').hidden && $('approval').classList.contains('open')) { $('apSum').click(); return; }
   const noteEdit = document.querySelector('.note-edit');
   if (noteEdit) { noteEdit.remove(); return; }
   if (closeSessionDetails()) return;
