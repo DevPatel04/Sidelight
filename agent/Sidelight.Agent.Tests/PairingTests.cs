@@ -133,6 +133,63 @@ public sealed class PairingTests
         Assert.Equal(Lan.LanAccess.Denied, Lan.AuthorizeRequest(disabled, "POST", "/api/pair/claim", "", null, null));
     }
 
+    // A browser (iPhone) cannot put a key on <img> or a page load, so it presents a cookie; that must not open more than the phone key.
+    [Fact]
+    public void BrowserCookieOpensOnlyThePanelApiFromTheAgentsOwnOrigin()
+    {
+        const string self = "https://192.168.1.5:8766";
+        var lan = new LanConfig { Enabled = true, Browsers = true, Port = 8766, Token = "phone-tok", WebhookToken = "hook-tok" };
+        var cookie = Lan.BrowserKey("phone-tok");
+        Lan.LanAccess Auth(string method, string path, string origin = "", string? c = null, string? site = "same-origin", LanConfig? cfg = null) =>
+            Lan.AuthorizeRequest(cfg ?? lan, method, path, origin, null, null, c, self, site);
+
+        Assert.Equal(Lan.LanAccess.Browser, Auth("GET", "/api/state", c: cookie));
+        Assert.Equal(Lan.LanAccess.Browser, Auth("POST", "/api/media/play", self, cookie));
+        Assert.Equal(Lan.LanAccess.Browser, Auth("GET", "/panel/main.js", c: cookie, site: null));
+        Assert.Equal(Lan.LanAccess.BrowserPairing, Auth("GET", "/pair", site: "none"));
+        Assert.Equal(Lan.LanAccess.BrowserPairing, Auth("POST", "/api/pair/web", self));
+
+        // not the phone key itself, and a new key revokes it
+        Assert.NotEqual("phone-tok", cookie);
+        Assert.NotEqual(cookie, Lan.BrowserKey("new-tok"));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("GET", "/api/state", c: "phone-tok"));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("GET", "/api/state"));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("GET", "/panel/"));
+
+        // another site, or another port of this PC, cannot make the browser use its cookie (CSRF)
+        Assert.Equal(Lan.LanAccess.Denied, Auth("POST", "/api/media/play", "https://evil.example", cookie));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("POST", "/api/media/play", "http://192.168.1.5:8080", cookie));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("GET", "/api/run/x", c: cookie, site: "cross-site"));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("GET", "/api/run/x", c: cookie, site: "same-site"));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("POST", "/api/pair/web", "https://evil.example"));
+
+        // settings, webhooks and the app's own pairing stay out of the cookie's reach
+        Assert.Equal(Lan.LanAccess.Denied, Auth("GET", "/api/settings", c: cookie));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("POST", "/api/push/ci", self, cookie));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("POST", "/api/pair/claim", self, cookie));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("GET", "/", c: cookie));
+
+        // off by default, and never with Wi-Fi off or a shared phone/webhook key
+        var off = new LanConfig { Enabled = true, Port = 8766, Token = "phone-tok", WebhookToken = "hook-tok" };
+        Assert.False(off.Browsers);
+        Assert.Equal(Lan.LanAccess.Denied, Auth("GET", "/api/state", c: cookie, cfg: off));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("GET", "/pair", site: "none", cfg: off));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("GET", "/api/state", c: cookie,
+            cfg: new LanConfig { Enabled = false, Browsers = true, Token = "phone-tok", WebhookToken = "hook-tok" }));
+        Assert.Equal(Lan.LanAccess.Denied, Auth("GET", "/api/state", c: Lan.BrowserKey("same"),
+            cfg: new LanConfig { Enabled = true, Browsers = true, Token = "same", WebhookToken = "same" }));
+
+        // the Android app's requests are unchanged with browsers on
+        Assert.Equal(Lan.LanAccess.Phone, Lan.AuthorizeRequest(lan, "GET", "/api/state", "", "Bearer phone-tok", null));
+        Assert.Equal(Lan.LanAccess.PairingClaim, Lan.AuthorizeRequest(lan, "POST", "/api/pair/claim", "", null, null));
+    }
+
+    [Fact]
+    public void BrowserLinkKeepsTheCodeInTheFragment()
+    {
+        Assert.Equal("https://192.168.1.5:8766/pair#c=abc", PairingCodes.BrowserLink("192.168.1.5", 8766, "abc"));
+    }
+
     // Both keys with one value (a hand-edited config): every webhook sender would hold the phone key too.
     [Fact]
     public void ASharedPhoneAndWebhookKeyIsNotAPhoneKeyAndCannotBeSaved()
