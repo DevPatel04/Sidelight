@@ -17,7 +17,7 @@ flowchart LR
     Agent --- Mon["System, GPU, media, volume,<br/>processes, sessions, quotas, GitHub"]
     Agent --- Set["Settings page &<br/>layout editor"]
   end
-  Proxy -->|"USB: adb reverse → 127.0.0.1:8765"| Agent
+  Proxy -->|"USB: adb reverse → its own loopback port,<br/>pinned TLS + the app's USB key"| Agent
   Proxy -.->|"Wi-Fi / Tailscale: HTTPS :8766,<br/>pinned certificate + key"| Agent
   Hooks["Scripts, CI,<br/>Home Assistant"] -->|webhooks| Agent
 ```
@@ -106,7 +106,7 @@ target frameworks. Set `ANDROID_HOME` or `android/local.properties` (`sdk.dir`) 
 
 ### Demo data and media
 
-The demo server needs only Python. It serves the same demo as the [live one](https://devpatel04.github.io/phonebox/)
+The demo server needs only Python. It serves the same demo as the [live one](https://devpatel04.github.io/Sidelight/)
 (made-up data in [`tools/pages/demo.js`](../tools/pages/demo.js)) straight from the sources, so a reload shows your
 changes. Size the browser window to 780 × 360 (the phone's screen in CSS pixels) and the panel behaves as on the
 phone, including webhooks: `curl -X POST http://127.0.0.1:8790/api/notify -d hello` (also `/api/push/<key>`,

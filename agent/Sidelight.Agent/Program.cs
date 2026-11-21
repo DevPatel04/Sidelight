@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Sidelight.Agent;
 
 var endpoint = AgentEndpoint.FromArgs(args);
@@ -33,6 +34,9 @@ var configStore = new ConfigStore(configPath);
 configStore.PersistGenerated(); // keep the Wi-Fi token stable across restarts
 var lanCfg = configStore.Get().Lan;
 var lanCert = lanCfg.Enabled && lanCfg.Port != Port ? Lan.Certificate(configDir) : null;
+// USB uses the same certificate as Wi-Fi; the agent hands its fingerprint to the app over adb (see UsbLink.cs)
+var usbCert = lanCert ?? Lan.Certificate(configDir);
+var usb = new UsbLink(UsbLink.FreeLoopbackPort(), Lan.Fingerprint(usbCert));
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
@@ -45,6 +49,8 @@ builder.WebHost.ConfigureKestrel(k =>
     // percent-encoded, fit in 16 KB
     k.Limits.MaxRequestLineSize = 16 * 1024;
     k.Listen(IPAddress.Loopback, Port);
+    // USB: the end of the phone's adb reverse tunnel, on a port of its own, over TLS the app pins, with the app's key
+    k.Listen(IPAddress.Loopback, usb.Port, l => l.UseHttps(usbCert));
     // Wi-Fi / Tailscale: HTTPS with a pinned self-signed certificate, token required (see Lan.cs).
     if (lanCert is not null) k.Listen(IPAddress.Any, lanCfg.Port, l => l.UseHttps(lanCert));
 });
@@ -56,6 +62,7 @@ builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamin
 
 builder.Services.AddSingleton(configStore);
 builder.Services.AddSingleton(endpoint);
+builder.Services.AddSingleton(usb);
 builder.Services.AddSingleton<AudioControl>();
 builder.Services.AddSingleton<AppCatalog>();
 builder.Services.AddSingleton(_ => new ShortcutIconUploads(Path.Combine(configDir, "icons")));
@@ -75,6 +82,7 @@ AddMonitor<MediaMonitor>(builder.Services);
 AddMonitor<QuotaMonitor>(builder.Services);
 AddMonitor<ProcessMonitor>(builder.Services);
 AddMonitor<SessionMonitor>(builder.Services);
+AddMonitor<OpenCodeApprovals>(builder.Services);
 AddMonitor<FeedMonitor>(builder.Services);
 builder.Services.AddSingleton<PhotoFrame>();
 builder.Services.AddSingleton<CameraFeeds>();
@@ -88,6 +96,7 @@ AddMonitor<CalendarMonitor>(builder.Services);
 AddMonitor<DockerMonitor>(builder.Services);
 AddMonitor<ObsMonitor>(builder.Services);
 AddMonitor<DiscordMonitor>(builder.Services);
+AddMonitor<SteamMonitor>(builder.Services);
 AddMonitor<BatteryMonitor>(builder.Services);
 AddMonitor<RuleEngine>(builder.Services);
 AddMonitor<ChargeGuard>(builder.Services);
@@ -158,37 +167,85 @@ app.MapPost("/api/controls/radio-directory/check", async (HttpRequest req, Cance
 
 // The panel in a desktop browser (the layout editor's live preview, /panel/) calls the API as /agent/api/..., the same
 // path the phone uses; on the local port that is simply /api/... Routing runs after this, so it sees the new path.
+// A paired browser on the Wi-Fi port (an iPhone) loads the same panel, so the Wi-Fi port rewrites it as well.
 app.Use((ctx, next) =>
 {
-    if (ctx.Connection.LocalPort == Port && ctx.Request.Path.StartsWithSegments("/agent/api", out var rest))
+    if ((ctx.Connection.LocalPort == Port || (lanCert is not null && ctx.Connection.LocalPort == lanCfg.Port))
+        && ctx.Request.Path.StartsWithSegments("/agent/api", out var rest))
         ctx.Request.Path = "/api" + rest;
     return next(ctx);
 });
 
+// How long each kind of request takes (GET /api/latency, local only), and a log line for the slow ones: tells a slow
+// control action (osascript on a busy computer...) from a slow phone or network. The live stream is long by design.
+var timings = new RequestTimings();
+app.Use(async (ctx, next) =>
+{
+    if (!ctx.Request.Path.StartsWithSegments("/api") || ctx.Request.Path.StartsWithSegments("/api/stream")) { await next(ctx); return; }
+    var started = System.Diagnostics.Stopwatch.GetTimestamp();
+    try { await next(ctx); }
+    finally
+    {
+        var ms = (long)System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        // only a request that matched an endpoint (routing has run by now), so unknown paths cannot add rows
+        if (RequestTimings.RouteOf(ctx.GetEndpoint(), ctx.Request.Method) is { } route)
+        {
+            timings.Add(route, ms);
+            if (ms >= RequestTimings.SlowMs && ctx.Request.Method != "GET") app.Logger.LogInformation("slow request: {Route} took {Ms} ms", route, ms);
+        }
+    }
+});
+app.MapGet("/api/latency", () => Results.Json(timings.Summary()));
+
 // Security:
-//  - Local port 8765 listens on 127.0.0.1 only; the Host check blocks DNS rebinding. The phone's USB proxy sends
-//    no Origin header; from browsers only the settings page itself (same origin) is accepted (no CSRF).
+//  - Local port 8765 listens on 127.0.0.1 only; the Host check blocks DNS rebinding. From browsers only the settings
+//    page itself (same origin) is accepted (no CSRF).
+//  - The phone's USB tunnel ends on a port of its own (UsbLink): every app on the phone can reach the tunnel, so it
+//    is TLS with the certificate the app pins (handed over adb), needs the key the Sidelight app made (read over adb),
+//    and serves only the phone API.
 //  - The optional Wi-Fi port only serves the phone API, only over TLS, and only with the paired token.
+app.UseWebSockets();
 app.UseRouting();
 app.Use(async (ctx, next) =>
 {
     var origin = ctx.Request.Headers.Origin.ToString();
-    if (lanCert is not null && ctx.Connection.LocalPort == lanCfg.Port && ctx.Request.IsHttps)
+    if (ctx.Connection.LocalPort == usb.Port && ctx.Request.IsHttps)
+    {
+        // the phone over USB: only with its app's key, and only the paths the phone uses
+        var access = usb.Authorize(ctx.Request.Method, ctx.Request.Path, origin, ctx.Request.Headers.Authorization);
+        if (access != UsbLink.Access.Allowed)
+        {
+            ctx.Response.StatusCode = access == UsbLink.Access.Unauthorized ? StatusCodes.Status401Unauthorized : StatusCodes.Status403Forbidden;
+            return;
+        }
+    }
+    else if (lanCert is not null && ctx.Connection.LocalPort == lanCfg.Port && ctx.Request.IsHttps)
     {
         // The phone's key opens the panel API; the separate webhook key opens only the webhook endpoints, in a header
         // or, for senders that cannot set headers, in ?token= (URLs end up in logs, so it must not be the phone's key).
         var lan = configStore.Get().Lan;
+        // A browser's own origin; Request.Host keeps the port unless it is 443 (e.g. behind `tailscale serve`).
         var access = Lan.AuthorizeRequest(lan, ctx.Request.Method, ctx.Request.Path, origin,
-            ctx.Request.Headers.Authorization, ctx.Request.Query["token"]);
+            ctx.Request.Headers.Authorization, ctx.Request.Query["token"],
+            ctx.Request.Cookies[Lan.BrowserCookie], "https://" + ctx.Request.Host.Value, ctx.Request.Headers["Sec-Fetch-Site"]);
         if (access == Lan.LanAccess.Denied)
         {
+            // a browser that is not (or no longer) paired lands on the pairing page instead of a blank 403; the bare
+            // address goes to the panel, which sends it on to pairing when needed
+            if (lan.Browsers && HttpMethods.IsGet(ctx.Request.Method) && ctx.Request.Headers["Sec-Fetch-Mode"] == "navigate"
+                && (ctx.Request.Path == "/" || ctx.Request.Path.StartsWithSegments("/panel")))
+            {
+                ctx.Response.Headers.CacheControl = "no-store";
+                ctx.Response.Redirect(ctx.Request.Path == "/" ? "/panel/" : "/pair");
+                return;
+            }
             ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
         }
-        if (access is Lan.LanAccess.PairingClaim or Lan.LanAccess.Webhook)
+        if (access is Lan.LanAccess.PairingClaim or Lan.LanAccess.Webhook or Lan.LanAccess.BrowserPairing)
         {
             // pairing claims and webhooks must not touch phone registry, app version or "phone connected" updates
-            if (access == Lan.LanAccess.PairingClaim)
+            if (access is Lan.LanAccess.PairingClaim or Lan.LanAccess.BrowserPairing)
                 ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>()!.MaxRequestBodySize = 1024;
             ctx.Response.Headers.CacheControl = "no-store";
             await next();
@@ -212,7 +269,7 @@ app.Use(async (ctx, next) =>
     if (ctx.Request.Headers.TryGetValue("X-Sidelight-Device", out var device))
     {
         var problem = PhoneRegistry.Touch(device.ToString(), ctx.Request.Headers["X-Sidelight-Model"].ToString(),
-            ctx.Connection.LocalPort == Port ? "USB" : "Wi-Fi", ctx.Request.Headers["X-Sidelight-WebView"].ToString());
+            ctx.Connection.LocalPort == usb.Port ? "USB" : ctx.Connection.LocalPort == Port ? "local" : "Wi-Fi", ctx.Request.Headers["X-Sidelight-WebView"].ToString());
         if (problem is not null) app.Logger.LogWarning("WebView: {Problem}", problem);
     }
     if (ctx.Request.Headers.TryGetValue("X-Sidelight-App", out var appVersion) && appVersion.ToString().Length is > 0 and < 32)
@@ -222,6 +279,8 @@ app.Use(async (ctx, next) =>
     ctx.Response.Headers["X-Frame-Options"] = ctx.Request.Path.StartsWithSegments("/panel") ? "SAMEORIGIN" : "DENY";
     await next();
 });
+
+app.Map("/api/trackpad", TrackpadHandler.HandleEndpoint);
 
 // ---------------------------------------------------------------- Wi-Fi pairing (local / USB only)
 // The phone calls this through the USB tunnel and stores everything it needs to connect over Wi-Fi.
@@ -237,8 +296,12 @@ app.MapGet("/api/pair", (ConfigStore cfg) =>
         token = lan.Token,
         fingerprint = Lan.Fingerprint(lanCert),
         hosts = Lan.Addresses(),
+        macs = WakeOnLan.LocalMacs(),
     });
 });
+
+// The MAC addresses of this computer's LAN adapters: the phone keeps them to wake this PC while the agent is not running.
+app.MapGet("/api/wake/macs", () => Results.Json(new { macs = WakeOnLan.LocalMacs() }));
 
 // Pairing without USB (see PairingCodes). Start and cancel are local only (settings page); the phone claims over Wi-Fi.
 app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
@@ -252,6 +315,8 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
     // Same repo the updater checks — a hard-coded upstream URL would hand out a differently signed APK.
     var repo = cfg.Get().Updates.Repo;
     var apk = $"https://github.com/{repo}/releases/download/v{AppPaths.Version}/Sidelight-{AppPaths.Version}.apk";
+    // A browser (iPhone) opens the agent itself; the same code pairs either an app or a browser, once.
+    var webLinks = cfg.Get().Lan.Browsers ? hosts.Select(h => PairingCodes.BrowserLink(h, lanCfg.Port, code)).ToList() : [];
     return Results.Json(new
     {
         enabled = true,
@@ -266,12 +331,25 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
         qr = PairingCodes.Svg(link),
         app = apk,
         appQr = PairingCodes.Svg(apk),
+        webLinks,
+        webQr = webLinks.Count > 0 ? PairingCodes.Svg(webLinks[0]) : null,
     });
 });
 app.MapPost("/api/pair/cancel", (long attempt, PairingCodes codes) => { codes.Cancel(attempt); return Results.Ok(); });
 app.MapGet("/api/pair/status", (PairingCodes codes) => Results.Json(new { claims = codes.Claims }));
 app.MapPost("/api/pair/claim", (HttpRequest req, ConfigStore cfg, PairingCodes codes) =>
     ClaimPairingAsync(req, cfg, codes, lanCert, lanCfg.Port, app.Logger));
+// Pairing a browser (an iPhone or iPad): Wi-Fi port only, and only with Settings › Wi-Fi › browsers turned on.
+app.MapGet("/pair", (HttpContext ctx, ConfigStore cfg) =>
+{
+    if (lanCert is null || ctx.Connection.LocalPort != lanCfg.Port || !cfg.Get().Lan.Browsers) return Results.NotFound();
+    ctx.Response.Headers["Content-Security-Policy"] = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'";
+    using var s = AppPaths.Resource("browser-pair.html")!;
+    using var r = new StreamReader(s);
+    return Results.Content(r.ReadToEnd(), "text/html; charset=utf-8");
+});
+app.MapPost("/api/pair/web", (HttpContext ctx, ConfigStore cfg, PairingCodes codes) =>
+    ctx.Connection.LocalPort != lanCfg.Port ? Task.FromResult(Results.NotFound()) : ClaimBrowserAsync(ctx, cfg, codes, lanCert, app.Logger));
 
 app.MapGet("/api/lan", (ConfigStore cfg) => Results.Json(new
 {
@@ -304,7 +382,8 @@ app.MapGet("/", () =>
     using var r = new StreamReader(s);
     return Results.Content(r.ReadToEnd(), "text/html; charset=utf-8");
 });
-// The phone's panel (embedded at build time) for the live preview in the layout editor; local port only.
+// The phone's panel (embedded at build time) for the live preview in the layout editor, and on the Wi-Fi port for
+// a paired browser (the middleware lets only that cookie through there).
 app.MapGet("/panel/{*file}", (string? file, HttpRequest req) =>
 {
     if (string.IsNullOrEmpty(file) && !req.Path.Value!.EndsWith('/')) return Results.Redirect("/panel/" + req.QueryString);
@@ -323,14 +402,28 @@ app.MapGet("/panel/{*file}", (string? file, HttpRequest req) =>
 app.MapGet("/favicon.ico", () => AppPaths.Resource("sidelight.ico") is { } s ? Results.Stream(s, "image/x-icon") : Results.NotFound());
 
 // The version lets the settings page save only over what it loaded (X-Config-Version, see ConfigStore.Save).
-app.MapGet("/api/settings", (ConfigStore cfg, HttpResponse res) =>
+app.MapGet("/api/settings", (HttpRequest req, ConfigStore cfg, HttpResponse res) =>
 {
-    var json = JsonSerializer.Serialize(cfg.Get(), ConfigStore.WriteOpts);
+    var config = cfg.Get();
+    var json = JsonSerializer.Serialize(config, ConfigStore.WriteOpts);
+    // Only a same-origin browser fetch from the desktop settings page gets credentials. The phone's native USB proxy
+    // does not send Fetch Metadata headers; redact for every other request on the local port, including callers that
+    // omit the phone headers or try to supply them themselves.
+    var desktopSettingsFetch = req.HttpContext.Connection.LocalPort == Port
+        && req.Headers["Sec-Fetch-Site"] == "same-origin"
+        && req.Headers["Sec-Fetch-Mode"] == "cors"
+        && req.Headers["Sec-Fetch-Dest"] == "empty";
+    if (req.HttpContext.Connection.LocalPort == Port && !desktopSettingsFetch)
+    {
+        var publicConfig = JsonSerializer.SerializeToNode(config, ConfigStore.WriteOpts)?.AsObject();
+        if (publicConfig?["steam"] is JsonObject steam) steam.Remove("apiKey");
+        json = publicConfig?.ToJsonString(ConfigStore.WriteOpts) ?? json;
+    }
     res.Headers["X-Config-Version"] = cfg.Version.ToString();
     return Results.Text(json, "application/json; charset=utf-8");
 });
 
-app.MapPut("/api/settings", async (HttpRequest req, ConfigStore cfg, ControlDeck deck, PhotoFrame photos, CameraFeeds cameras, ShortcutIconUploads icons, ILogger<Program> log) =>
+app.MapPut("/api/settings", async (HttpRequest req, ConfigStore cfg, ControlDeck deck, PhotoFrame photos, CameraFeeds cameras, ShortcutIconUploads icons, ILogger<Program> log, CancellationToken ct) =>
 {
     if (req.ContentType?.StartsWith("application/json") != true) return Results.StatusCode(415);
     using var r = new StreamReader(req.Body);
@@ -340,6 +433,31 @@ app.MapPut("/api/settings", async (HttpRequest req, ConfigStore cfg, ControlDeck
         return Results.BadRequest(new { error = $"Wi-Fi port cannot be the same as the local port ({Port})" });
     if (LanKeysShared(body))
         return Results.BadRequest(new { error = "The Wi-Fi key and the webhook key must be different: make a new key for one of them" });
+    AgentConfig? proposed = null;
+    try { proposed = JsonSerializer.Deserialize<AgentConfig>(body, ConfigStore.ReadOpts); }
+    catch (JsonException) { }
+    // /api/settings redacts Steam's key for callers that are not the same-origin desktop page.
+    // Keep the configured secret if that redacted (or older) client sends it back as missing/null.
+    if (ConfigStore.PreserveSteamApiKey(proposed, cfg.Get().Steam.ApiKey))
+        body = JsonSerializer.Serialize(proposed, ConfigStore.WriteOpts);
+    if (proposed?.Steam is { } steam)
+    {
+        steam.SteamId = string.IsNullOrWhiteSpace(steam.SteamId) ? null : steam.SteamId.Trim();
+        if (steam.SteamId is { } profile && (profile.Length != 17 || !profile.All(char.IsAsciiDigit)))
+        {
+            if (!steam.Enabled || !SteamMonitor.WidgetWanted(proposed))
+                return Results.BadRequest(new { error = "Add a Steam widget to an enabled page and enable Steam before saving a profile URL" });
+            if (string.IsNullOrWhiteSpace(steam.ApiKey))
+                return Results.BadRequest(new { error = "Enter your Steam Web API key before saving a profile URL" });
+            try
+            {
+                steam.SteamId = await SteamMonitor.ResolveAccountId(profile, steam.ApiKey, ct);
+                body = JsonSerializer.Serialize(proposed, ConfigStore.WriteOpts);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { return Results.BadRequest(new { error = SteamMonitor.Redact(SteamMonitor.UserError(ex), steam.ApiKey) }); }
+        }
+    }
     string? err;
     long savedVersion;
     lock (IconCommit) err = cfg.Save(body, expected, out savedVersion);
@@ -472,6 +590,7 @@ object State(IServiceProvider sp, long? ev)
         update = upd.Status() is { } u && (u.AppUpdate || u.AgentUpdate) ? new { latest = u.Latest, app = u.AppUpdate, agent = u.AgentUpdate } : null,
         ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         host = Environment.MachineName,
+        os = AppPaths.Os, // the Trackpad's gesture vibration is only for the computers that act on a gesture (macOS)
         cfgVersion = sp.GetRequiredService<ConfigStore>().Version.ToString(),
         pushVersion = push.Version,
         evSeq = push.Seq,
@@ -485,6 +604,7 @@ object State(IServiceProvider sp, long? ev)
         privacy = sp.GetRequiredService<PrivacyMonitor>().Snapshot(),
         obs = sp.GetRequiredService<ObsMonitor>().Snapshot() is { Connected: true } o ? new { o.Streaming, o.Recording, o.RecordPaused } : null,
         toggles = Shortcuts.States(sp.GetRequiredService<ConfigStore>().Get(), push, sp.GetRequiredService<AudioControl>()),
+        cycles = Shortcuts.CycleStates(sp.GetRequiredService<ConfigStore>().Get()),
     };
 }
 
@@ -544,6 +664,14 @@ app.MapGet("/api/ha/entities", async (HomeAssistant ha) => Results.Json(await ha
 app.MapPost("/api/ha/test", async (HomeAssistantConfig body) =>
     Results.Json(new { result = await HomeAssistant.TestAsync(body.Url ?? "", body.Token ?? "") }));
 
+// Settings › General › Photo frame › Immich › Load albums (local only: not on the Wi-Fi allow-list). The key in the body
+// is used for this request only; the saved one stands in when the address is unchanged and the field was left empty.
+app.MapPost("/api/immich/albums", async (ImmichAlbumsRequest body, PhotoFrame photos, CancellationToken ct) =>
+{
+    var (albums, error) = await photos.ImmichAlbums(body.Url, body.Key, ct);
+    return albums is null ? Results.Json(new { error }) : Results.Json(new { albums });
+});
+
 // Dictation (widget): text the phone recognized, typed into the app in front (only if that widget allows it).
 // The text is in the query: the phone's WebView sees no request bodies, so its transport (USB and Wi-Fi) sends POSTs
 // without one, like every other panel request. Kestrel's request line (16 KB) bounds it; request URLs aren't logged.
@@ -591,6 +719,24 @@ app.MapGet("/api/discord/img", async (string kind, string id, string hash, Disco
 app.MapPost("/api/discord/{action}", async (string action, string? channel, DiscordMonitor dc) =>
     await dc.ActAsync(action, channel) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true }));
 
+// Steam friends presence; the API key stays on the computer and only the public presence snapshot reaches the phone.
+app.MapGet("/api/steam", (SteamMonitor steam, ConfigStore cfg) =>
+{
+    var current = cfg.Get();
+    var widgets = current.Widgets(enabledPagesOnly: true).ToArray();
+    var includeFriends = widgets.Any(w => w.Type == "steam");
+    var includeOffline = widgets.Any(w => w.Type == "steam" && w.Bool("offline") == true);
+    var includeActivity = widgets.Any(w => w.Type == "steam-activity");
+    return Results.Json(new
+    {
+        enabled = current.Steam.Enabled,
+        snapshot = steam.Snapshot(includeFriends, includeOffline, includeActivity),
+    });
+});
+app.MapGet("/api/steam/avatar", async (string id, SteamMonitor steam, CancellationToken ct) =>
+    await steam.AvatarAsync(id, ct) is { } img
+        ? Results.File(img.Data, img.Type, lastModified: null, entityTag: null, enableRangeProcessing: false) : Results.NotFound());
+
 // Battery levels of wireless devices (headphones, mice, keyboards…), for the Device batteries widget.
 app.MapGet("/api/batteries", (BatteryMonitor b) => Results.Json(new { devices = b.Snapshot() }));
 
@@ -623,11 +769,14 @@ app.MapGet("/api/state", (long? ev, HttpContext ctx) => Results.Json(State(ctx.R
 
 // Live stream (server-sent events) for the phone: "state" every second, "event" as soon as one happens, "work" when it
 // changes. The Android shell keeps one connection open instead of polling; the panel falls back to polling without it.
+// One "state" frame for all open streams: they wake on the same second (below), so the state is built and serialized once
+// per tick, not once per phone. Everything State() reads is a singleton, so the root provider will do.
+var stateFrames = new StateFrameCache(() => State(app.Services, null), new JsonSerializerOptions(JsonSerializerDefaults.Web));
 app.MapGet("/api/stream", async (HttpContext ctx, PushStore push, SessionMonitor sessions, GitHubMonitor gh, SpectrumAnalyzer spectrum, ILogger<Program> log) =>
 {
     var ct = ctx.RequestAborted;
     var isPhone = ctx.Request.Headers.ContainsKey("X-Sidelight-App");
-    var via = ctx.Connection.LocalPort == Port ? "USB/local" : "Wi-Fi";
+    var via = ctx.Connection.LocalPort == usb.Port ? "USB" : ctx.Connection.LocalPort == Port ? "local" : "Wi-Fi";
     log.LogInformation("live stream opened ({Who}, {Via})", isPhone ? "phone" : "other client", via);
     ctx.Response.ContentType = "text/event-stream";
     ctx.Response.Headers["X-Accel-Buffering"] = "no";
@@ -638,30 +787,43 @@ app.MapGet("/api/stream", async (HttpContext ctx, PushStore push, SessionMonitor
         await ctx.Response.Body.FlushAsync(ct);
     }
     using var wake = new SemaphoreSlim(0);
+    var poked = 0;
     void OnEmit() { try { wake.Release(); } catch (ObjectDisposedException) { } }
+    // something the phone shows just changed (see StateSignal): send a state now, not at the next whole second
+    void OnPoke() { Volatile.Write(ref poked, 1); OnEmit(); }
     push.Emitted += OnEmit;
+    StateSignal.Changed += OnPoke;
     try
     {
         var seq = push.Seq;
         var lastWork = "";
         var next = 0L;
         var lastSpec = 0L;
+        var lastState = 0L;
         var tick = 0;
         while (!ct.IsCancellationRequested)
         {
             foreach (var e in push.Since(seq)) { await Send("event", e); seq = e.Seq; }
             var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            if (now >= next)
+            var tickDue = now >= next;
+            var pokeDue = Volatile.Read(ref poked) == 1 && now - lastState >= 100;
+            if (tickDue || pokeDue)
             {
+                Volatile.Write(ref poked, 0); // before the frame is built: a change during the build is answered by the next pass
                 if (isPhone) Interlocked.Exchange(ref ApprovalStore.PhoneLastSeen, now);
-                await Send("state", State(ctx.RequestServices, null));
+                await ctx.Response.WriteAsync(stateFrames.Get(push.Seq, StateSignal.Version), ct);
+                await ctx.Response.Body.FlushAsync(ct);
+                lastState = now;
+            }
+            if (tickDue)
+            {
                 if (tick++ % 2 == 0)
                 {
-                    var work = new { sessions = sessions.Snapshot(), github = gh.Snapshot() };
+                    var work = WorkFeed.Build(sessions, gh);
                     var json = JsonSerializer.Serialize(work, opts);
                     if (json != lastWork) { lastWork = json; await Send("work", work); }
                 }
-                next = now + 1000;
+                next = (now / 1000 + 1) * 1000; // the next whole second, the same for every stream (see stateFrames)
             }
             // spectrum frames for a visualizer on screen (SpectrumAnalyzer runs only while a panel asks for it). While
             // capture runs, every open stream gets them, also a second phone without a visualizer: the stream is opened
@@ -674,6 +836,8 @@ app.MapGet("/api/stream", async (HttpContext ctx, PushStore push, SessionMonitor
                 if (spectrum.Frame() is { } bands) await Send("spectrum", new { b = bands });
             }
             var waitMs = next - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            // a change that arrived within 100 ms of the last state waits out the rest of that gap
+            if (Volatile.Read(ref poked) == 1) waitMs = Math.Min(waitMs, lastState + 100 - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             if (specActive) waitMs = Math.Min(waitMs, lastSpec + 1000 / SpectrumAnalyzer.Fps - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             await wake.WaitAsync(TimeSpan.FromMilliseconds(Math.Max(5, waitMs)), ct);
         }
@@ -683,6 +847,7 @@ app.MapGet("/api/stream", async (HttpContext ctx, PushStore push, SessionMonitor
     finally
     {
         push.Emitted -= OnEmit;
+        StateSignal.Changed -= OnPoke;
         log.LogInformation("live stream closed ({Via})", via);
     }
 });
@@ -693,7 +858,7 @@ app.MapPost(ClaudeHook.Endpoint, async (HttpRequest req, ConfigStore cfg, Approv
     JsonElement input;
     try { input = (await JsonDocument.ParseAsync(req.Body)).RootElement.Clone(); }
     catch (JsonException) { return Results.Text(""); }
-    var output = await ClaudeHook.HandleAsync(input, cfg, approvals, sessions, req.HttpContext.RequestAborted);
+    var output = await ClaudeHook.HandleAsync(input, cfg, approvals, sessions, req.HttpContext.RequestAborted, () => WindowFocus.CallerInFront(req.HttpContext));
     return output is null ? Results.Text("") : Results.Json(output);
 });
 app.MapGet("/api/claude/hook", () => Results.Json(new { installed = ClaudeHook.Installed(), path = ClaudeHook.SettingsPath }));
@@ -706,7 +871,7 @@ app.MapPost(AntigravityHook.Endpoint, async (HttpRequest req, ConfigStore cfg, A
     JsonElement input;
     try { input = (await JsonDocument.ParseAsync(req.Body)).RootElement.Clone(); }
     catch (JsonException) { return Results.Json(AntigravityHook.NoDecision); }
-    return Results.Json(await AntigravityHook.HandleAsync(input, cfg, approvals, req.HttpContext.RequestAborted));
+    return Results.Json(await AntigravityHook.HandleAsync(input, cfg, approvals, req.HttpContext.RequestAborted, () => WindowFocus.CallerInFront(req.HttpContext)));
 });
 app.MapGet("/api/antigravity/hook", () => Results.Json(new { installed = AntigravityHook.Installed(), path = AntigravityHook.HooksPath }));
 app.MapPost("/api/antigravity/hook", (ConfigStore cfg) => AntigravityHook.Configure(true, Port, cfg.Get().Antigravity.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
@@ -718,15 +883,36 @@ app.MapPost(CursorHook.Endpoint, async (HttpRequest req, ConfigStore cfg, Approv
     JsonElement input;
     try { input = (await JsonDocument.ParseAsync(req.Body)).RootElement.Clone(); }
     catch (JsonException) { return Results.Json(CursorHook.NoChange); }
-    return Results.Json(await CursorHook.HandleAsync(input, cfg, approvals, req.HttpContext.RequestAborted));
+    return Results.Json(await CursorHook.HandleAsync(input, cfg, approvals, req.HttpContext.RequestAborted, () => WindowFocus.CallerInFront(req.HttpContext)));
 });
 app.MapGet("/api/cursor/hook", () => Results.Json(new { installed = CursorHook.Installed(), path = CursorHook.HooksPath }));
 app.MapPost("/api/cursor/hook", (ConfigStore cfg) => CursorHook.Configure(true, Port, cfg.Get().Cursor.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
 app.MapDelete("/api/cursor/hook", (ConfigStore cfg) => CursorHook.Configure(false, Port, cfg.Get().Cursor.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
 
-// Permission prompts waiting for the phone (posted by the Claude Code, Antigravity and Cursor hooks).
+// The recent messages and steps of one running Claude Code session, for the phone's session details. Off until the user
+// turns on Settings › Claude Code › "Show the conversation on the phone"; only a session the monitor currently sees.
+app.MapGet("/api/work/conversation", (string id, ConfigStore cfg, SessionMonitor sessions) =>
+{
+    return Results.Json(ClaudeTranscript.ForPhone(cfg.Get().Claude.ShareConversation, sessions.Snapshot(), id));
+});
+
+// Codex uses the same PermissionRequest decision contract, through ~/.codex/hooks.json.
+app.MapPost(CodexHook.Endpoint, async (HttpRequest req, ConfigStore cfg, ApprovalStore approvals, SessionMonitor sessions) =>
+{
+    JsonElement input;
+    try { input = (await JsonDocument.ParseAsync(req.Body)).RootElement.Clone(); }
+    catch (JsonException) { return Results.Text(""); }
+    var output = await CodexHook.HandleAsync(input, cfg, approvals, sessions, req.HttpContext.RequestAborted, () => WindowFocus.CallerInFront(req.HttpContext));
+    return output is null ? Results.Text("") : Results.Json(output);
+});
+app.MapGet("/api/codex/hook", () => Results.Json(new { installed = CodexHook.Installed(), path = CodexHook.HooksPath }));
+app.MapPost("/api/codex/hook", (ConfigStore cfg) => CodexHook.Configure(true, Port, cfg.Get().Claude.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
+app.MapDelete("/api/codex/hook", (ConfigStore cfg) => CodexHook.Configure(false, Port, cfg.Get().Claude.TimeoutSec) is { } err ? Results.BadRequest(new { error = err }) : Results.Ok());
+
+// Permission prompts waiting for the phone (posted by an AI coding agent hook).
 app.MapGet("/api/approvals", (ApprovalStore a) => Results.Json(new { items = a.Snapshot() }));
-app.MapPost("/api/approvals/{id}", (string id, string decision, ApprovalStore a) => a.Decide(id, decision) ? Results.Ok() : Results.NotFound());
+app.MapPost("/api/approvals/{id}", (string id, string decision, string? value, ApprovalStore a) =>
+    a.Decide(id, decision, value) ? Results.Ok() : Results.NotFound());
 
 // Spectrum bars widget: each call keeps audio capture running for a few seconds and returns the latest bands
 // (the live stream also sends them as "spectrum" events; panels without the stream poll this instead).
@@ -788,6 +974,7 @@ app.MapPost("/api/media/{action}", async (string action, long? ms, MediaMonitor 
         if (ok && starting) deck.StopAllRadios();
         return (Ok: ok, Media: deck.EffectiveMedia(media.Snapshot()));
     }, ct);
+    StateSignal.Poke();
     return outcome.Ok ? Results.Json(new { ok = true, media = outcome.Media }) : Results.BadRequest();
 });
 
@@ -801,16 +988,13 @@ app.MapPost("/api/volume", (int? level, string? op, AudioControl audio) =>
         _ when level is { } l => audio.SetVolume(l),
         _ => false,
     };
+    if (ok) StateSignal.Poke(); // the phone's other screens and widgets see it now, not at the next second
     return ok ? Results.Json(audio.Current()) : Results.BadRequest();
 });
 
 app.MapGet("/api/quotas", (QuotaMonitor q) => Results.Json(new { providers = q.Snapshot(), overview = q.Overview() }));
 
-app.MapGet("/api/work", (SessionMonitor s, GitHubMonitor gh) => Results.Json(new
-{
-    sessions = s.Snapshot(),
-    github = gh.Snapshot(),
-}));
+app.MapGet("/api/work", (SessionMonitor s, GitHubMonitor gh) => Results.Json(WorkFeed.Build(s, gh)));
 
 app.MapGet("/api/proxy", (string? url, CancellationToken ct) => WidgetFeedProxy.FetchAsync(url, ct));
 
@@ -850,8 +1034,8 @@ app.MapPost("/api/procs/kill", (string? name, int? pid, ProcessMonitor procs, Co
     return r.Killed > 0 ? Results.Json(r) : Results.Json(r, statusCode: 409);
 });
 
-app.MapPost("/api/run/{id}", (string id, ConfigStore cfg, PushStore push, AudioControl audio, ILogger<Program> log) =>
-    RunShortcutForPhone(cfg.Get(), id, log, push, audio));
+app.MapPost("/api/run/{id}", (string id, bool? hold, ConfigStore cfg, PushStore push, AudioControl audio, ILogger<Program> log) =>
+    RunShortcutForPhone(cfg.Get(), id, log, push, audio, hold == true));
 
 // Real icon for a shortcut: an image the user uploaded (settings page) takes priority; otherwise its program's own
 // icon, when its command is an actual file on disk. 404 when neither exists (shell addresses, protocol handlers,
@@ -886,7 +1070,8 @@ app.MapDelete("/api/settings/shortcut-icon", (string id, HttpRequest req, Config
 });
 
 app.Lifetime.ApplicationStarted.Register(() =>
-    app.Logger.LogInformation("Sidelight agent {Version} ready on http://127.0.0.1:{Port} (config: {Path})", AppPaths.Version, Port, configPath));
+    app.Logger.LogInformation("Sidelight agent {Version} ready on http://127.0.0.1:{Port}, phone USB port {UsbPort} (config: {Path})",
+        AppPaths.Version, Port, usb.Port, configPath));
 
 app.Run();
 
@@ -1025,15 +1210,40 @@ public partial class Program
             token = lan.Token,
             fingerprint = Lan.Fingerprint(lanCert),
             hosts = Lan.Addresses(),
+            macs = WakeOnLan.LocalMacs(),
         });
+    }
+
+    /// <summary>
+    /// POST /api/pair/web: a browser trades a one-time code for the cookie that opens the panel (see
+    /// <see cref="Lan.BrowserKey"/>). HttpOnly keeps it from the page's scripts (Custom HTML widgets included); Strict
+    /// and Secure keep it on this agent's HTTPS origin. Browsers cap a cookie at 400 days; pairing again renews it.
+    /// </summary>
+    internal static async Task<IResult> ClaimBrowserAsync(HttpContext ctx, ConfigStore cfg, PairingCodes codes,
+        System.Security.Cryptography.X509Certificates.X509Certificate2? lanCert, ILogger log)
+    {
+        var req = ctx.Request;
+        if (!cfg.Get().Lan.Enabled || !cfg.Get().Lan.Browsers || lanCert is null || req.ContentLength is > 1024)
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        var code = await PairingCodes.ReadClaimCodeAsync(req);
+        var lan = cfg.Get().Lan;
+        if (!lan.Enabled || !lan.Browsers || string.IsNullOrEmpty(lan.Token) || code is null
+            || !codes.Claim(code, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()))
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        ctx.Response.Cookies.Append(Lan.BrowserCookie, Lan.BrowserKey(lan.Token), new CookieOptions
+        {
+            Secure = true, HttpOnly = true, SameSite = SameSiteMode.Strict, Path = "/", MaxAge = TimeSpan.FromDays(400), IsEssential = true,
+        });
+        log.LogInformation("browser paired over Wi-Fi");
+        return Results.Json(new { ok = true, pc = Environment.MachineName });
     }
 
     /// <summary>
     /// POST /api/run/{id}. Why a shortcut failed stays in the agent log: an exception text can carry the configured
     /// command, its arguments, a key sequence or a working folder (Process.Start names the program and the folder).
     /// </summary>
-    internal static IResult RunShortcutForPhone(AgentConfig cfg, string id, ILogger log, PushStore push, AudioControl audio) =>
-        Shortcuts.Run(cfg, id, log, push, audio) is { } error ? Results.Problem(HintOrGeneric(error)) : Results.Ok();
+    internal static IResult RunShortcutForPhone(AgentConfig cfg, string id, ILogger log, PushStore push, AudioControl audio, bool hold = false) =>
+        Shortcuts.Run(cfg, id, log, push, audio, hold) is { } error ? Results.Problem(HintOrGeneric(error)) : Results.Ok();
 
     /// <summary>
     /// What the phone may see of a failed shortcut: an error can carry configured command text, so only the agent's own

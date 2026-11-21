@@ -69,7 +69,7 @@ The agent also looks for adb in `%LOCALAPPDATA%\Android\Sdk\platform-tools`, so 
 
 ```powershell
 cd $HOME
-git clone https://github.com/DevPatel04/phonebox.git
+git clone https://github.com/DevPatel04/Sidelight.git
 cd sidelight
 ```
 
@@ -147,7 +147,7 @@ adb shell pm uninstall io.github.devpatel04.sidelight
 Debug builds are signed with a key that belongs to each PC, so installing a debug build from a different computer
 needs this uninstall too.
 
-While developing, go to **Settings → General → Updates**, set **Repository** to `DevPatel04/phonebox` and turn
+While developing, go to **Settings → General → Updates**, set **Repository** to `DevPatel04/Sidelight` and turn
 **automatic updates off**, so a published release does not replace the app you are testing.
 
 Windows Firewall may ask about network access the first time. Allow **private networks** only if you will use

@@ -12,7 +12,7 @@
 5. Or dispatch manually: `.\scripts\release.ps1` (optionally `-Draft`) from a clean `main` that matches `origin/main`.
 
 The release workflow reuses the build checks, then tests and smoke-runs the agent on native Windows x64,
-Linux x64/ARM64, and macOS ARM64/Intel runners. It builds the signed APK, signs macOS apphosts ad hoc, creates
+Linux x64/ARM64, and macOS ARM64/Intel runners. It builds the signed APK, signs the macOS agent with Sidelight's own certificate, creates
 provenance attestations and SHA-256 checksums, and publishes the release notes from the changelog.
 The reusable artifact contract also checks the real upload/download boundary with transfer fixtures: exact release
 filenames and hashes, exclusion of debug intermediates, and the actual demo's Pages tar format. It never publishes
@@ -29,6 +29,13 @@ Required GitHub Actions secrets are `SIDELIGHT_KEYSTORE_BASE64`, `SIDELIGHT_STOR
 and `SIDELIGHT_KEY_PASSWORD`. Keep the original Android signing key: an incompatible APK must fail the update
 while preserving the installed app and its data. Never commit the key or its passwords.
 
+The macOS agent is signed with a self-signed certificate made once with `tools/make-macos-signing-cert.sh`
+(secrets `MACOS_SIGNING_P12_BASE64` and `MACOS_SIGNING_P12_PASSWORD`; the release stops without them). Every release
+then has the same designated requirement, `identifier "io.github.devpatel04.sidelight.agent"` plus that certificate, so macOS keeps
+the Accessibility permission across updates. Keep the certificate: a new one, a new identifier or the hardened runtime
+(library validation would refuse the native libraries next to the agent) makes every Mac user grant it again. The
+build workflow runs the same signing step with a throwaway certificate on every change.
+
 `SidelightAgent.exe` in the Windows zip is Authenticode-signed through [SignPath Foundation](https://signpath.org)
 while the repository variable `SIGNPATH_SIGNING_POLICY` is `release-signing` (the API token is the
 `SIGNPATH_API_TOKEN` secret). The release then waits, up to an hour, for the signing request to be approved in
@@ -37,7 +44,7 @@ manifests all cover the signed file. Without the variable the agent is released 
 workflow runs the same step on its own with the test certificate, without releasing anything.
 
 After publishing, verify the tag points to the intended commit, every asset matches `SHA256SUMS-<version>.txt`,
-and `gh attestation verify <asset> --repo DevPatel04/phonebox` succeeds for the APK and agent archives.
+and `gh attestation verify <asset> --repo DevPatel04/Sidelight` succeeds for the APK and agent archives.
 Extract downloaded archives and run `python tools/smoke-agent.py <executable> --version <version>` on available
 native machines. Separate CI proof, downloaded-binary checks and physical-device tests in the release report.
 

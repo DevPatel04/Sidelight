@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Pair with Sidelight</title>
+<!-- Served by the agent on the Wi-Fi port (GET /pair) when Settings › Wi-Fi lets browsers in. It trades the one-time
+     code from the settings page's QR code for the cookie that opens the panel, then goes to the panel. -->
+<style>
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0f1115; color: #e8eaf0;
+    font: 16px/1.5 -apple-system, system-ui, sans-serif; padding: 16px; box-sizing: border-box; }
+  main { max-width: 420px; width: 100%; }
+  h1 { font-size: 22px; margin: 0 0 8px; }
+  p { margin: 0 0 14px; color: #aab0bf; }
+  form { display: flex; gap: 8px; }
+  input { flex: 1; min-width: 0; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid #333a48; background: #181b22; color: inherit; }
+  button { font: inherit; padding: 10px 16px; border-radius: 10px; border: 0; background: #4f7cff; color: #fff; }
+  #msg { min-height: 1.5em; margin-top: 12px; }
+  .err { color: #ff7a7a; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pair this browser</h1>
+  <p>On the computer, open Sidelight settings › <b>Wi-Fi &amp; Tailscale</b> › <b>Pair a phone over Wi-Fi</b> and scan the
+    iPhone QR code, or type its code here. A code works once, for 5 minutes.</p>
+  <form id="f"><input id="code" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Pairing code" aria-label="Pairing code"><button>Pair</button></form>
+  <p id="msg" role="status"></p>
+  <p>On an iPhone, open the panel afterwards and choose <b>Share › Add to Home Screen</b> to use it full screen.</p>
+</main>
+<script>
+  const msg = document.getElementById('msg');
+  const say = (text, err) => { msg.textContent = text; msg.className = err ? 'err' : ''; };
+  async function pair(code) {
+    say('Pairing…');
+    try {
+      const r = await fetch('/api/pair/web', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }), cache: 'no-store' });
+      if (r.ok) { say('Paired. Opening the panel…'); location.replace('/panel/'); return; }
+      say('That code did not work: it is used, expired or mistyped. Start a new pairing on the computer.', true);
+    } catch (_) { say('Could not reach the computer.', true); }
+  }
+  document.getElementById('f').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const code = document.getElementById('code').value.trim();
+    if (code) pair(code);
+  });
+  // the code travels in the fragment (never sent to a server); drop it from the address bar and history right away
+  const code = new URLSearchParams(location.hash.slice(1)).get('c');
+  if (code) { history.replaceState(null, '', location.pathname); pair(code); }
+</script>
+</body>
+</html>

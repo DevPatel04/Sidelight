@@ -50,6 +50,11 @@ test('no widget fails to build on any page', async ({ page }) => {
 test('every widget in the catalogue builds and runs without errors', async ({ page }) => {
   test.setTimeout(90_000); // Each catalog page runs its render and polling lifecycle; the catalog now exceeds 100 types.
   const errors = watchErrors(page);
+  await page.route('**/agent/api/steam/avatar?id=*', (route) => route.fulfill({
+    status: 200,
+    contentType: 'image/svg+xml',
+    body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><circle cx=".5" cy=".5" r=".5"/></svg>',
+  }));
   await page.goto('/panel/');
   // one page per widget type, at its default size, through the demo's stored settings
   const count = await page.evaluate(async () => {
@@ -293,6 +298,21 @@ test('a Claude Code permission prompt can be answered', async ({ page }) => {
   await expect(prompt).toBeHidden();
 });
 
+test('a Codex permission prompt shows the Codex mark, project and working directory', async ({ page }) => {
+  await page.goto('/panel/');
+  await expect(page.locator('.w').first()).toBeVisible();
+  await page.evaluate(() => window.SidelightDemo.ask({ source: 'Codex', project: 'sidelight', cwd: '/Users/me/Desktop/applications/sidelight',
+    tool: 'Run a command', detail: 'npm test', description: 'Run the test suite' }));
+  const prompt = page.locator('#approval');
+  await expect(prompt).toBeVisible();
+  await expect(page.locator('#apLogo')).toHaveText('◎');
+  await expect(page.locator('#apSource')).toHaveText('Codex');
+  await expect(page.locator('#apProject')).toHaveText('sidelight');
+  await expect(page.locator('#apCwd')).toHaveText('/Users/me/Desktop/applications/sidelight');
+  await prompt.getByRole('button', { name: 'Deny' }).click();
+  await expect(prompt).toBeHidden();
+});
+
 test('the page dots and the Allow / Deny buttons can sit at the top (#181)', async ({ page }) => {
   await page.goto('/panel/');
   await page.evaluate(() => {
@@ -306,11 +326,15 @@ test('the page dots and the Allow / Deny buttons can sit at the top (#181)', asy
   await page.evaluate(() => window.SidelightDemo.ask());
   const prompt = page.locator('#approval');
   await expect(prompt).toBeVisible();
+  // the island sits just below the dots, which stay visible above it
+  expect((await prompt.boundingBox()).y).toBeGreaterThanOrEqual(dots.y + dots.height - 12);
+  await page.locator('#apSum').click(); // open the details
+  await expect(page.locator('#apDetail')).toBeVisible();
   const allow = await prompt.getByRole('button', { name: 'Allow' }).boundingBox();
-  const tool = await page.locator('#apTool').boundingBox();
+  const detail = await page.locator('#apDetail').boundingBox();
   const head = await page.locator('.ap-head').boundingBox();
-  expect(allow.y).toBeLessThan(tool.y); // the buttons come before the request
-  expect(head.y).toBeLessThan(allow.y); // and after the header
+  expect(allow.y).toBeLessThan(detail.y); // the buttons come before the request's details
+  expect(head.y).toBeLessThan(allow.y); // and after the summary
 });
 
 test('a question from Claude is shown with its choices and left for the terminal', async ({ page }) => {
@@ -320,6 +344,9 @@ test('a question from Claude is shown with its choices and left for the terminal
     detail: 'Framework: Which framework?\n  • React — Component library\n  • Vue — Progressive framework' }));
   const prompt = page.locator('#approval');
   await expect(prompt).toBeVisible();
+  await expect(page.locator('#apBrief')).toHaveText('Framework: Which framework?');
+  await page.locator('#apSum').click();
+  await expect(page.locator('#apDetail')).toBeVisible();
   await expect(prompt).toContainText('React — Component library');
   await expect(prompt.getByRole('button', { name: 'Allow' })).toBeHidden();
   await expect(prompt.getByRole('button', { name: 'Deny' })).toBeHidden();
@@ -540,7 +567,7 @@ test('the pairing page hands a checked link to the app and clears it from the ad
   await expect(page.locator('#check')).toHaveText('ABAB ABAB');
   const href = await page.locator('#open').getAttribute('href');
   expect(href).toBe(`intent://pair?v=1&pc=Desk%20PC&fp=${fp}&port=8766&h=192.168.1.10%2C100.64.0.7&c=${'A'.repeat(22)}`
-    + '#Intent;scheme=sidelight;package=io.github.devpatel04.sidelight;S.browser_fallback_url=https%3A%2F%2Fgithub.com%2FDevPatel04%2Fphonebox%2Freleases%2Flatest;end');
+    + '#Intent;scheme=sidelight;package=io.github.devpatel04.sidelight;S.browser_fallback_url=https%3A%2F%2Fgithub.com%2FDevPatel04%2FSidelight%2Freleases%2Flatest;end');
   // the button stays pinned to the app's package; the plain link is a separate choice for browsers that open a store (#175)
   await expect(page.locator('#plainWrap')).toBeVisible();
   expect(await page.locator('#plain').getAttribute('href')).toBe(`sidelight://pair?v=1&pc=Desk%20PC&fp=${fp}&port=8766&h=192.168.1.10%2C100.64.0.7&c=${'A'.repeat(22)}`);
