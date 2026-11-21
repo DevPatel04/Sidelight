@@ -232,6 +232,7 @@ class MainActivity : Activity(), SensorEventListener {
         super.onResume()
         resumed = true
         web.onResume()
+        web.evaluateJavascript("window.onAppPause && window.onAppPause(false)", null) // the panel catches up at once
         stream.start()
         hideSystemUi()
         sensors?.getDefaultSensor(Sensor.TYPE_LIGHT)?.let { sensors?.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) }
@@ -249,6 +250,8 @@ class MainActivity : Activity(), SensorEventListener {
         dictation.cancel(0) // the microphone is never left open behind another app or a dark screen
         sensors?.unregisterListener(this)
         stream.stop()
+        // WebView.onPause() leaves JavaScript running: tell the panel to stop polling and refreshing while nobody sees it
+        web.evaluateJavascript("window.onAppPause && window.onAppPause(true)", null)
         web.onPause()
         super.onPause()
     }
@@ -259,6 +262,7 @@ class MainActivity : Activity(), SensorEventListener {
         dictation.cancel(0)
         sensors?.unregisterListener(this)
         stream.stop()
+        link.trackpadSocket.close()
         link.close()
         (web.parent as? ViewGroup)?.removeView(web) // a WebView must be detached before destroy()
         web.destroy()
@@ -308,6 +312,19 @@ class MainActivity : Activity(), SensorEventListener {
 
     inner class Bridge {
         private fun ok(key: String) = key == bridgeKey
+
+        private val validTrackpadTypes = setOf("move", "click", "rightClick", "mousedown", "mouseup", "scroll", "hscroll") +
+            // multi-finger gestures: three or four fingers swiping, four or five spreading or pinching (the agent follows the Mac's settings)
+            listOf("swipe3up", "swipe3down", "swipe3left", "swipe3right", "swipe4up", "swipe4down", "swipe4left", "swipe4right", "spread", "pinch")
+
+        @JavascriptInterface
+        fun trackpad(key: String, type: String, dx: Float, dy: Float, delta: Float) {
+            if (!ok(key) || type !in validTrackpadTypes) return
+            val cleanDx = if (dx.isFinite()) dx else 0f
+            val cleanDy = if (dy.isFinite()) dy else 0f
+            val cleanDelta = if (delta.isFinite()) delta else 0f
+            link.sendTrackpad(type, cleanDx, cleanDy, cleanDelta)
+        }
 
         /** Screen brightness 0..1; a negative value returns control to the system setting. */
         @JavascriptInterface
@@ -424,6 +441,17 @@ class MainActivity : Activity(), SensorEventListener {
 
         @JavascriptInterface
         fun forgetPc(key: String, id: String) { if (ok(key)) link.forget(id) }
+
+        /** True when the Wake button can work: the active computer's MACs are known and the phone is on a local network. */
+        @JavascriptInterface
+        fun canWake(key: String): Boolean = ok(key) && link.canWake()
+
+        /**
+         * Sends a Wake-on-LAN packet to the paired computer [id]. Takes a computer's id and never a MAC address, so a
+         * page cannot aim the packet at an arbitrary machine. False when nothing could be sent.
+         */
+        @JavascriptInterface
+        fun wakePc(key: String, id: String): Boolean = ok(key) && link.wake(id)
 
         /** "landscape" (default), "portrait" or "auto" (follow the phone). */
         @JavascriptInterface

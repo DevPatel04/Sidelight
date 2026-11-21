@@ -66,8 +66,11 @@ public static class CursorHook
 
         var cwd = ClaudeHook.Str(input, "cwd") is { Length: > 0 } d ? d : FirstWorkspace(input) ?? "";
         return new Approval(ApprovalStore.NewId(), "Cursor", ClaudeHook.Str(input, "conversation_id") ?? "", ClaudeHook.ProjectName(cwd),
-            tool, detail, null, now, now + Math.Clamp(timeoutSec, 10, 3600) * 1000L);
+            ShownCwd(cwd), tool, detail, null, now, now + Math.Clamp(timeoutSec, 10, 3600) * 1000L);
     }
+
+    /// <summary>The folder as the phone shows it, cut like Claude Code's so a very long path cannot fill the card.</summary>
+    internal static string ShownCwd(string cwd) => cwd.Length <= 1000 ? cwd : "…" + cwd[^999..];
 
     /// <summary>Cursor sends the MCP arguments as a JSON string; shown indented when it parses.</summary>
     private static string McpInput(JsonElement input)

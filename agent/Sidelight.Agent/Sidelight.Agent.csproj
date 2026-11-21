@@ -13,7 +13,7 @@
     <Product>Sidelight</Product>
     <Company>Sidelight</Company>
     <Description>Sidelight desktop agent: feeds the Sidelight Android desk panel over USB or Wi-Fi.</Description>
-    <Version>0.9.22</Version>
+    <Version>0.9.24</Version>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
