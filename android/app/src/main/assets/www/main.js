@@ -2100,9 +2100,12 @@ export function setNight(on) {
 /**
  * Before widgets are built: a timer that ran out while the panel was closed rings during the build, so the night
  * screen must already be on if the schedule says so (nightOn is null at start, and new settings may move the night).
- * Only ever turns night on; tick() keeps the state up to date as before, so the day is unchanged.
+ * It also goes off here when new settings end the night: before the first config arrives the built-in schedule applies,
+ * and leaving that to the next tick() lets the first touch only wake the screen instead of reaching the widget.
  */
-function nightBeforeBuild() { if (isNight(new Date()) && Date.now() > wakeUntil) setNight(true); }
+function nightBeforeBuild() { setNight(nightWanted(new Date())); }
+/** The night screen per the schedule or a dark room (Settings › Display), unless a touch woke it. */
+const nightWanted = (now) => (isNight(now) || (darkRoom && cfg.display?.nightWhenDark === true)) && Date.now() > wakeUntil;
 
 // ---------------------------------------------------------------- phone sensors
 // Room light (lux) and proximity come from the Android shell. Brightness can follow the room, the night screen can
@@ -2206,8 +2209,7 @@ export function tick() {
   $('nClock').textContent = fmtHM(now);
   $('nDate').textContent = now.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' });
   if (darkSince && Date.now() - darkSince > 30_000) darkRoom = true;
-  const dark = darkRoom && cfg.display?.nightWhenDark === true;
-  setNight((isNight(now) || dark) && Date.now() > wakeUntil);
+  setNight(nightWanted(now));
   if (!PREVIEW && idleDue() && !navQueue.some((r) => r.kind === 'home')) {
     if (curPage === homeIndex()) { closeSheet(); closeOverview(); lastNav = Date.now(); } // only a sheet to close
     else { navQueue.push({ kind: 'home', at: Date.now(), priority: -1 }); pump(); }
