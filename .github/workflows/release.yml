@@ -14,6 +14,10 @@ name: release
 #
 # Test builds sort after the release they build on and before the next one, keep the APK's versionCode (so adb
 # installs them over the release and the next release over them), and never touch the Scoop/winget manifests.
+#
+# The macOS agent is signed with Sidelight's own certificate when the secrets MACOS_SIGNING_P12_BASE64 and
+# MACOS_SIGNING_P12_PASSWORD exist (tools/make-macos-signing-cert.sh); without them it is signed ad hoc, and Macs ask
+# again for the Accessibility permission after each update.
 on:
   push:
     branches: [main, test]
@@ -117,9 +121,16 @@ jobs:
       # loose next to the exe instead of being extracted to the temp folder at run time.
       - name: Publish (self-contained, single file)
         run: dotnet publish agent/Sidelight.Agent -c Release -f ${{ matrix.tfm }} -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true -p:Version=${{ needs.version.outputs.version }} -o out --nologo
-      - name: Sign macOS apphost ad hoc
+      # Sidelight's own certificate (tools/make-macos-signing-cert.sh): every release has the same designated
+      # requirement, so macOS keeps the Accessibility permission across updates (#269). Without the secrets the agent
+      # is signed ad hoc, so a fork without a certificate can still release.
+      - name: Sign the macOS agent
         if: startsWith(matrix.rid, 'osx-')
-        run: codesign --force --sign - out/SidelightAgent
+        uses: ./.github/actions/sign-macos-agent
+        with:
+          binary: out/SidelightAgent
+          p12-base64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
+          p12-password: ${{ secrets.MACOS_SIGNING_P12_PASSWORD }}
       # Authenticode signing through SignPath Foundation, before the smoke test, the zip, the checksums, the attestation
       # and the Scoop/winget hash, which all cover the signed file. It is on while the repository variable
       # SIGNPATH_SIGNING_POLICY names a policy (release-signing); each request waits for a manual approval in SignPath.

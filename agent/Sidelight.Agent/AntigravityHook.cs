@@ -57,7 +57,7 @@ public static class AntigravityHook
         // ask_question is a question, not a permission: answering it happens in agy itself.
         var question = tool == "ask_question";
         return new Approval(ApprovalStore.NewId(), "Antigravity", ClaudeHook.Str(input, "conversationId") ?? "", ClaudeHook.ProjectName(cwd),
-            ToolTitle(tool), question ? ClaudeHook.QuestionDetail(args, "Antigravity") : Detail(tool, args),
+            CursorHook.ShownCwd(cwd), ToolTitle(tool), question ? ClaudeHook.QuestionDetail(args, "Antigravity") : Detail(tool, args),
             ClaudeHook.Str(args, "Description"), now, now + Math.Clamp(timeoutSec, 10, 3600) * 1000L, question ? "question" : "permission");
     }
 

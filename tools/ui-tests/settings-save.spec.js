@@ -78,3 +78,85 @@ test('a partial settings load and repeated Revert leave the form clean', async (
   await expect(page.locator('#displayLangSel')).toHaveValue('en');
   await expect(save).toBeDisabled();
 });
+
+test('pressing Save twice while a save runs sends one request and keeps the busy state until it ends', async ({ page }) => {
+  await editTheme(page);
+  const outcome = await page.evaluate(async () => {
+    const original = window.fetch;
+    let puts = 0;
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    window.fetch = async (url, options) => {
+      if (String(url) !== '/api/settings' || options?.method !== 'PUT') return original(url, options);
+      puts++;
+      await gate;
+      return Response.json({ error: 'Settings changed elsewhere' }, { status: 409 });
+    };
+    const btn = document.getElementById('save');
+    try {
+      const first = btn.onclick();
+      const second = btn.onclick();
+      const busyWhileRunning = btn.classList.contains('busy');
+      release();
+      const results = await Promise.all([first, second]);
+      return { puts, busyWhileRunning, busyAfter: btn.classList.contains('busy'), results };
+    } finally {
+      window.fetch = original;
+    }
+  });
+  expect(outcome).toEqual({ puts: 1, busyWhileRunning: true, busyAfter: false, results: [false, false] });
+});
+
+test('a section introduction is measured again after the language changes', async ({ page }) => {
+  await page.goto('/settings/#pages');
+  const lead = page.locator('#pages > .lead');
+  await expect(lead).toHaveClass(/\blong\b/);
+  // a short text marks it as not expandable; switching the language puts the full text back
+  await lead.evaluate(el => { el.textContent = 'Short.'; fitLeads(); });
+  await expect(lead).not.toHaveClass(/\blong\b/);
+  await page.evaluate(() => applyLanguageUi('en'));
+  await expect(lead).toHaveClass(/\blong\b/);
+  await expect(lead).toHaveAttribute('role', 'button');
+});
+
+// An option that does nothing while another is off is not offered: the Trackpad's scroll ticks follow its haptic feedback.
+test('a widget option that needs another is shown only while that one is on', async ({ page }) => {
+  await page.goto('/settings/#pages');
+  await page.waitForFunction(() => cfg && cfg.pages); // the settings are loaded
+  await page.evaluate(() => {
+    const p = curPage();
+    p.widgets.push({ id: 'tp-test', type: 'trackpad', x: 0, y: 0, w: 6, h: 6, options: { control: true } });
+    selWidget = p.widgets.length - 1;
+    renderInspector();
+  });
+  const inspector = page.locator('#inspector');
+  const ticks = inspector.getByText('Tick while scrolling');
+  const haptics = inspector.locator('.field', { hasText: 'Haptic feedback' }).locator('select');
+  // the Trackpad's options come in groups, each under its own heading, with the switch that allows control first
+  await expect(inspector.locator('h4.opt-section')).toHaveText(['Pointer', 'Scrolling', 'Haptics']);
+  expect(await inspector.locator('h4.opt-section, .field label, label.check').allTextContents().then((t) => t.slice(0, 5).map((x) => x.trim())))
+    .toEqual(['Allow controlling the mouse from the phone', 'Pointer', 'Pointer sensitivity', 'Pointer acceleration', 'Drag hold duration (ms)']);
+  await expect(haptics).toHaveValue('normal');
+  await expect(ticks).toBeVisible();
+  await haptics.selectOption('off');
+  await expect(ticks).toHaveCount(0);
+  await haptics.selectOption('light');
+  await expect(ticks).toBeVisible();
+});
+
+// The Smart Stack's own settings for a card draw the same groups and hide the same options as the widget's.
+test('the settings of a Trackpad inside a Smart Stack have its groups and hide the scroll tick with haptics off', async ({ page }) => {
+  await page.goto('/settings/#pages');
+  await page.waitForFunction(() => cfg && cfg.pages);
+  await page.evaluate(() => {
+    const p = curPage();
+    p.widgets.push({ id: 'stack-test', type: 'stack', x: 0, y: 0, w: 6, h: 6, options: { widgets: [{ type: 'trackpad', options: { control: true, haptics: 'off' } }] } });
+    selWidget = p.widgets.length - 1;
+    activeStackSubIdx = 0;
+    renderInspector();
+  });
+  const config = page.locator('#inspector .stack-sub-config');
+  await expect(config.locator('h4.opt-section')).toHaveText(['Pointer', 'Scrolling', 'Haptics']);
+  await expect(config.getByText('Haptic feedback')).toBeVisible();
+  await expect(config.getByText('Tick while scrolling')).toHaveCount(0);
+});
