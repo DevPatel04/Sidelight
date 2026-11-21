@@ -6,6 +6,23 @@ using Xunit;
 /// <summary>Config normalization: templates, the pre-0.6.2 page migration, grid limits, ids and what the phone sees.</summary>
 public class ConfigTests
 {
+    [Fact]
+    public void NullOrMissingSteamApiKeyKeepsStoredKeyButEmptyCanClearIt()
+    {
+        var proposed = JsonSerializer.Deserialize<AgentConfig>("{}", ConfigStore.ReadOpts)!;
+        Assert.True(ConfigStore.PreserveSteamApiKey(proposed, "stored-secret"));
+        Assert.Equal("stored-secret", proposed.Steam.ApiKey);
+
+        proposed = JsonSerializer.Deserialize<AgentConfig>("{\"steam\":{\"apiKey\":null}}", ConfigStore.ReadOpts)!;
+        Assert.True(ConfigStore.PreserveSteamApiKey(proposed, "stored-secret"));
+        Assert.Equal("stored-secret", proposed.Steam.ApiKey);
+
+        proposed.Steam.ApiKey = "";
+        Assert.False(ConfigStore.PreserveSteamApiKey(proposed, "stored-secret"));
+        Assert.Equal("", proposed.Steam.ApiKey);
+        Assert.False(ConfigStore.PreserveSteamApiKey(proposed, null));
+    }
+
     private static AgentConfig Load(string json)
     {
         var path = Path.Combine(Path.GetTempPath(), $"sidelight-cfg-{Guid.NewGuid():N}.json");
@@ -23,6 +40,46 @@ public class ConfigTests
         Assert.False(string.IsNullOrEmpty(c.Lan.Token));
         Assert.False(string.IsNullOrEmpty(c.Lan.WebhookToken));
         Assert.NotEqual(c.Lan.Token, c.Lan.WebhookToken);
+    }
+
+    // The panel converts the forecast itself, so the only values the agent hands it are the two it knows how to show.
+    [Theory]
+    [InlineData("""{"weather":{"city":"Tallinn","lat":59.437,"lon":24.745}}""", "celsius")]
+    [InlineData("""{"weather":{"unit":"fahrenheit"}}""", "fahrenheit")]
+    [InlineData("""{"weather":{"unit":" Fahrenheit "}}""", "fahrenheit")]
+    [InlineData("""{"weather":{"unit":"kelvin"}}""", "celsius")]
+    [InlineData("""{"weather":{"unit":null}}""", "celsius")]
+    [InlineData("""{"weather":{"city":"Oslo","unit":123}}""", "celsius")]
+    [InlineData("""{"weather":{"city":"Oslo","unit":true}}""", "celsius")]
+    [InlineData("""{"weather":{"city":"Oslo","unit":{"deep":[1]}}}""", "celsius")]
+    public void WeatherUnitDefaultsToCelsiusAndReachesThePhone(string json, string expected)
+    {
+        var c = Load(json);
+        Assert.Equal(expected, c.Weather.Unit);
+        // a bad unit costs only the unit: the rest of the weather section (and the file) still loads
+        if (json.Contains("Oslo")) Assert.Equal("Oslo", c.Weather.City);
+        var weather = JsonSerializer.SerializeToElement(c.ToPublic(), ConfigStore.WriteOpts).GetProperty("weather");
+        Assert.Equal(expected, weather.GetProperty("unit").GetString());
+    }
+
+    // The model goes into the phone's forecast URL, so only the names the settings offer get through.
+    [Theory]
+    [InlineData("""{"weather":{"city":"Tallinn","lat":59.437,"lon":24.745}}""", "")]
+    [InlineData("""{"weather":{"model":"gfs_seamless"}}""", "gfs_seamless")]
+    [InlineData("""{"weather":{"model":" GFS_Seamless "}}""", "gfs_seamless")]
+    [InlineData("""{"weather":{"model":"ecmwf_ifs025"}}""", "ecmwf_ifs025")]
+    [InlineData("""{"weather":{"model":"gfs_seamless&daily=x"}}""", "")]
+    [InlineData("""{"weather":{"model":"accuweather"}}""", "")]
+    [InlineData("""{"weather":{"model":null}}""", "")]
+    [InlineData("""{"weather":{"city":"Oslo","model":42}}""", "")]
+    [InlineData("""{"weather":{"city":"Oslo","model":["gfs_seamless"]}}""", "")]
+    public void WeatherModelIsOneOfTheOfferedModelsOrBestMatch(string json, string expected)
+    {
+        var c = Load(json);
+        Assert.Equal(expected, c.Weather.Model);
+        if (json.Contains("Oslo")) Assert.Equal("Oslo", c.Weather.City);
+        var weather = JsonSerializer.SerializeToElement(c.ToPublic(), ConfigStore.WriteOpts).GetProperty("weather");
+        Assert.Equal(expected, weather.GetProperty("model").GetString());
     }
 
     [Fact]
@@ -277,6 +334,9 @@ public class LanTests
     [InlineData("/api/feeds/open", true)]
     [InlineData("/api/photos", true)]
     [InlineData("/api/photos/0123456789abcdef", true)]
+    [InlineData("/api/steam", true)]
+    [InlineData("/api/steam/avatar", true)]
+    [InlineData("/api/steam/other", false)]
     [InlineData("/api/push/temperature", true)]
     [InlineData("/api/settings", false)]
     [InlineData("/api/pair", false)]
@@ -289,6 +349,7 @@ public class LanTests
     [InlineData("/api/shortcuts/icon", true)]
     [InlineData("/api/settings/shortcut-icon", false)]
     [InlineData("/api/claude/hook", false)]
+    [InlineData("/api/codex/hook", false)]
     [InlineData("/api/obs-test", false)]
     [InlineData("/api/ha/test", false)]
     [InlineData("/api/phones", false)]
@@ -479,6 +540,8 @@ public class ConfigConcurrencyTests
     [InlineData("\"TR\"", "tr")]       // any case
     [InlineData("\" de \"", "de")]     // stray spaces
     [InlineData("\"vi\"", "vi")]       // added after the list was first written (#177)
+    [InlineData("\"pt-BR\"", "pt-BR")] // distinct from pt; casing must survive the round trip, i18n.js looks it up by exact code
+    [InlineData("\"pt-br\"", "pt-BR")] // any case still normalizes to the canonical pt-BR, not a lowercase copy
     [InlineData("\"xx\"", "auto")]     // a language Sidelight does not have
     [InlineData("null", "auto")]
     [InlineData("\"\"", "auto")]
@@ -507,7 +570,7 @@ public class ConfigConcurrencyTests
         using var s = AppPaths.Resource("www/i18n.js");
         Assert.NotNull(s);
         var js = new StreamReader(s!).ReadToEnd();
-        var codes = System.Text.RegularExpressions.Regex.Matches(js, @"\{\s*code:\s*'([a-z]{2,3})'").Select(m => m.Groups[1].Value).ToHashSet();
+        var codes = System.Text.RegularExpressions.Regex.Matches(js, @"\{\s*code:\s*'([A-Za-z]{2,3}(?:-[A-Za-z]{2,3})?)'").Select(m => m.Groups[1].Value).ToHashSet();
         Assert.Contains("en", codes);
         Assert.Equal(codes.Order(), DisplayConfig.Languages.Where(l => l != "auto").Order());
     }

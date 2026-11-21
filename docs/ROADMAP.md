@@ -16,19 +16,37 @@ people who proposed or prototyped something are credited in the [changelog](../C
 
 ## Contributions in progress
 
-- **Clock widget: choose the AI providers in the status line**
-  ([#225](https://github.com/ersinkoc/phonebox/issues/225), pull request
-  [#228](https://github.com/ersinkoc/phonebox/pull/228)).
 - **Discord widget: show who is speaking** ([#226](https://github.com/ersinkoc/phonebox/issues/226)).
 - **Feeding PhoneBox from MQTT**: a bridge script and a guide example for pushed values and notifications
   ([#241](https://github.com/ersinkoc/phonebox/issues/241)).
 - **Rules for pushed values**: a "not updated for N seconds" condition, `>=` / `<=`, and a separate release threshold
   ([#242](https://github.com/ersinkoc/phonebox/issues/242), pull request
-  [#245](https://github.com/ersinkoc/phonebox/pull/245) for the first two).
-- **Steam friends and activity widgets** (pull request [#244](https://github.com/ersinkoc/phonebox/pull/244)): waiting
-  for an issue to agree on the scope, and a rebase.
-- **Panel: built-in English widget titles keep English capitals in a Turkish panel**
-  (pull request [#240](https://github.com/ersinkoc/phonebox/pull/240)).
+  [#245](https://github.com/ersinkoc/phonebox/pull/245), in 0.9.21, did the first two).
+- **Voice commands**: say what you want and a language model of your choice (local through Ollama, or a hosted one)
+  picks from the shortcuts you allowed; opt-in, off by default ([#257](https://github.com/ersinkoc/phonebox/issues/257)).
+
+## Open for a contributor
+
+Agreed in principle, not being built in-house. Say so on the issue before starting.
+
+- **Typing from the phone's keyboard**: a text field and a row of keys (Enter, Backspace, Esc, Tab, arrows, optionally
+  Ctrl / Alt / Shift) on the Dictation widget, behind its **Type the text on the computer** switch and through
+  `/api/dictate`; nothing logged or stored ([#320](https://github.com/ersinkoc/phonebox/issues/320)).
+- **Photo frame pictures as the page background** ([#288](https://github.com/ersinkoc/phonebox/issues/288)): a
+  per-page background from the photo frame's folder, dimmed under the widgets, using the same `/api/photos` feed.
+- **Android screen saver (DreamService)** ([#287](https://github.com/ersinkoc/phonebox/issues/287)): show the panel as
+  the phone's screen saver while it charges or docks, with the lock screen left in place. With Keep awake on, the
+  agent turns the phone's screen saver off over adb, so that has to follow the new setting.
+- **Headless Linux server and container image** ([#281](https://github.com/ersinkoc/phonebox/issues/281)): a documented
+  way to run the Linux agent without a desktop session, an address to advertise for Wi-Fi pairing from behind
+  container networking, and persistent data. Remote access to the settings page needs its own sign-in first; until
+  then an SSH tunnel to the loopback port is the safe way.
+- **Night screen as a rule action** ([#330](https://github.com/ersinkoc/phonebox/issues/330)): while a rule holds
+  (for example *PC away for 5 minutes*), the phone shows the night screen at its own brightness, and goes back when the
+  rule ends. The schedule stays as it is, and a tap still wakes the screen for a while.
+- **Pushed values without refetching the whole list** ([#329](https://github.com/ersinkoc/phonebox/issues/329)): the
+  change event carries the key and its new value, and the phone fetches all of `/api/push` again only when it missed a
+  version. A value pushed every second, such as a game's FPS, then costs one small event instead of the full list.
 
 ## Waiting on someone else
 
@@ -45,6 +63,9 @@ people who proposed or prototyped something are credited in the [changelog](../C
 
 ## Waiting on a report
 
+- **Razer BlackShark V2 Pro missing from Device batteries after 0.9.24**
+  ([#326](https://github.com/ersinkoc/phonebox/issues/326)): dongle or Bluetooth, Synapse, and what Windows reports are
+  needed to tell whether the new filter for disconnected Bluetooth devices hides it.
 - **Intel GPU load on Linux** ([#224](https://github.com/ersinkoc/phonebox/issues/224)): in 0.9.20, to be confirmed
   on real hardware.
 - **Network widget about 4x too high on a Realtek USB 2.5GbE adapter**
