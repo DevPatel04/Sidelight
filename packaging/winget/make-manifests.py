@@ -12,7 +12,7 @@ if len(sys.argv) != 3:
     sys.exit(__doc__)
 version, sha = sys.argv[1], sys.argv[2].upper()
 pkg = 'DevPatel04.Sidelight'
-repo = 'DevPatel04/phonebox'
+repo = 'DevPatel04/Sidelight'
 out = Path(__file__).resolve().parent / 'manifests' / 'd' / 'DevPatel04' / 'Sidelight' / version
 out.mkdir(parents=True, exist_ok=True)
 schema = '1.6.0'

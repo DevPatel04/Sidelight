@@ -13,14 +13,14 @@ License.
 
 This fork is maintained independently by [DevPatel04](https://github.com/DevPatel04). It is not affiliated with,
 sponsored by or endorsed by Ersin KOÇ or the upstream project. Report problems with this fork at
-<https://github.com/DevPatel04/phonebox/issues>, not upstream.
+<https://github.com/DevPatel04/Sidelight/issues>, not upstream.
 
 ## What this fork changes
 
 - Renamed from PhoneBox to **Sidelight**, with its own icon, Android application ID
   (`io.github.devpatel04.sidelight`), agent name (`SidelightAgent`) and settings folders.
 - Releases, installers, the update check, the Scoop bucket, winget manifests and the pairing page point at
-  `DevPatel04/phonebox` instead of the upstream repository.
+  `DevPatel04/Sidelight` instead of the upstream repository.
 - Update channels: **Stable** (releases from `main`) and **Testing** (pre-releases built from the `test` branch).
 - Fork-specific features and fixes; see [CHANGELOG.md](CHANGELOG.md) and the git history for details.
 - Release APKs are signed with this fork's own key. Windows agent releases from this fork are not code-signed; the

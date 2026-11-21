@@ -88,5 +88,5 @@ Third-party services have their own privacy policies; Sidelight does not control
 
 ## Contact
 
-Questions or concerns: open an issue at <https://github.com/DevPatel04/phonebox/issues>, or for anything sensitive see
+Questions or concerns: open an issue at <https://github.com/DevPatel04/Sidelight/issues>, or for anything sensitive see
 [SECURITY.md](SECURITY.md).

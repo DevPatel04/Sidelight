@@ -8,7 +8,7 @@ if (git -C $root status --porcelain) { throw 'Commit and push the reviewed chang
 $local = git -C $root rev-parse HEAD
 $remote = ((git -C $root ls-remote origin refs/heads/main) -split '\s+')[0]
 if ($LASTEXITCODE -or $local -ne $remote) { throw 'HEAD must match the published main branch' }
-$repo = 'DevPatel04/phonebox'
+$repo = 'DevPatel04/Sidelight'
 gh workflow run release.yml --repo $repo --ref main -f ('draft=' + $Draft.IsPresent.ToString().ToLowerInvariant())
 if ($LASTEXITCODE) { throw 'Release workflow dispatch failed' }
 Write-Host "Release dispatched on $repo. Follow the workflow and complete docs/RELEASING.md."
