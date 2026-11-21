@@ -14,6 +14,7 @@ name: release
 #
 # Test builds sort after the release they build on and before the next one, keep the APK's versionCode (so adb
 # installs them over the release and the next release over them), and never touch the Scoop/winget manifests.
+# A stable release commits the updated manifests to main and copies them to test, so test → main merges do not conflict.
 #
 # The macOS agent is signed with Sidelight's own certificate when the secrets MACOS_SIGNING_P12_BASE64 and
 # MACOS_SIGNING_P12_PASSWORD exist (tools/make-macos-signing-cert.sh); without them it is signed ad hoc, and Macs ask
@@ -243,3 +244,17 @@ jobs:
           git add bucket/sidelight.json packaging/winget/manifests
           git commit -m "Scoop and winget manifests for $v"
           git push origin HEAD:main
+      # The manifests commit above lands on main only, so the next test → main merge would conflict on these files.
+      # Giving test the same content makes both sides equal. A push with GITHUB_TOKEN starts no workflow (no pre-release).
+      - name: Copy the manifests to the test branch
+        if: ${{ github.ref == 'refs/heads/main' && inputs.draft != true }}
+        run: |
+          v="${{ needs.version.outputs.version }}"
+          released=$(git rev-parse HEAD)
+          git fetch --depth=1 origin test
+          git checkout -B manifests-to-test FETCH_HEAD
+          git checkout "$released" -- bucket/sidelight.json packaging/winget/manifests
+          if git diff --cached --quiet; then echo "test already has the $v manifests"; exit 0; fi
+          git commit -m "Scoop and winget manifests for $v"
+          # the release is already out: a test branch that moved meanwhile only means merging main into test by hand
+          git push origin HEAD:test || echo "::warning::Could not update test; merge main into test before the next release."
