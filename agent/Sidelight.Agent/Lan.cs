@@ -106,14 +106,40 @@ public static class Lan
         path.StartsWithSegments("/api/push") || path.StartsWithSegments("/api/notify")
         || path.StartsWithSegments("/api/goto") || path.StartsWithSegments("/api/refresh");
 
-    internal enum LanAccess { Denied, Phone, Webhook, PairingClaim }
+    /// <summary>The cookie a paired browser presents (see <see cref="LanConfig.Browsers"/>).</summary>
+    public const string BrowserCookie = "sidelight_web";
 
-    internal static LanAccess AuthorizeRequest(LanConfig lan, string method, PathString path, string origin, string? authorization, string? queryToken)
+    /// <summary>
+    /// The browser cookie's value: an HMAC of the phone key rather than the key itself, so a new key unpairs browsers as
+    /// well, and the cookie (which the browser keeps on disk) is no Bearer key for the API.
+    /// </summary>
+    public static string BrowserKey(string token) =>
+        Convert.ToBase64String(HMACSHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token), "sidelight-browser-v1"u8))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+    /// <summary>The keyless browser pairing: its page, and trading a one-time code for the cookie.</summary>
+    public static bool IsBrowserPairing(string method, PathString path) =>
+        (method == "GET" && path == "/pair") || (method == "POST" && path == "/api/pair/web");
+
+    internal enum LanAccess { Denied, Phone, Webhook, PairingClaim, Browser, BrowserPairing }
+
+    internal static LanAccess AuthorizeRequest(LanConfig lan, string method, PathString path, string origin, string? authorization, string? queryToken,
+        string? browserCookie = null, string? selfOrigin = null, string? secFetchSite = null)
     {
-        if (!lan.Enabled || origin != "" || !AllowedOverLan(path)) return LanAccess.Denied;
+        if (!lan.Enabled) return LanAccess.Denied;
         // A hand-edited config can give both keys the same value. Every webhook sender then holds the phone key too,
         // and the agent cannot tell them apart, so that value is not trusted as a phone key until one of them changes.
         var sharedKey = string.Equals(lan.Token, lan.WebhookToken, StringComparison.Ordinal);
+        if (lan.Browsers && BrowserFromItself(origin, selfOrigin, secFetchSite))
+        {
+            if (IsBrowserPairing(method, path)) return LanAccess.BrowserPairing;
+            // A browser cannot put a key on an <img> or a page load, so it presents the cookie instead. Webhooks stay
+            // with their own key, and settings stay local-only: the cookie opens what the phone's key opens, plus the panel.
+            if (!sharedKey && !string.IsNullOrEmpty(lan.Token) && MatchesQuery(browserCookie, BrowserKey(lan.Token))
+                && ((AllowedOverLan(path) && !IsWebhook(path) && path != "/api/pair/claim") || path.StartsWithSegments("/panel")))
+                return LanAccess.Browser;
+        }
+        if (origin != "" || !AllowedOverLan(path)) return LanAccess.Denied;
         if (!sharedKey && !string.IsNullOrEmpty(lan.Token) && Matches(authorization, lan.Token)) return LanAccess.Phone;
         if (IsWebhook(path) && !string.IsNullOrEmpty(lan.WebhookToken)
             && (Matches(authorization, lan.WebhookToken) || MatchesQuery(queryToken, lan.WebhookToken)))
@@ -121,6 +147,15 @@ public static class Lan
         if (IsPairingClaim(method, path)) return LanAccess.PairingClaim;
         return LanAccess.Denied;
     }
+
+    /// <summary>
+    /// A browser request the panel's own page made: no Origin or exactly this agent's origin, and not marked by the
+    /// browser as coming from another site. Another page on the network (or another port of this PC) could otherwise
+    /// make the browser send its cookie along (CSRF); SameSite=Strict alone ignores the port.
+    /// </summary>
+    internal static bool BrowserFromItself(string origin, string? selfOrigin, string? secFetchSite) =>
+        (origin == "" || (!string.IsNullOrEmpty(selfOrigin) && string.Equals(origin, selfOrigin, StringComparison.OrdinalIgnoreCase)))
+        && secFetchSite is not ("cross-site" or "same-site");
 
     public static IPAddress Any => IPAddress.Any;
 }
