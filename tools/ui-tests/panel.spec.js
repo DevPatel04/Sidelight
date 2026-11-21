@@ -326,11 +326,15 @@ test('the page dots and the Allow / Deny buttons can sit at the top (#181)', asy
   await page.evaluate(() => window.SidelightDemo.ask());
   const prompt = page.locator('#approval');
   await expect(prompt).toBeVisible();
+  // the island sits just below the dots, which stay visible above it
+  expect((await prompt.boundingBox()).y).toBeGreaterThanOrEqual(dots.y + dots.height - 12);
+  await page.locator('#apSum').click(); // open the details
+  await expect(page.locator('#apDetail')).toBeVisible();
   const allow = await prompt.getByRole('button', { name: 'Allow' }).boundingBox();
-  const tool = await page.locator('#apTool').boundingBox();
+  const detail = await page.locator('#apDetail').boundingBox();
   const head = await page.locator('.ap-head').boundingBox();
-  expect(allow.y).toBeLessThan(tool.y); // the buttons come before the request
-  expect(head.y).toBeLessThan(allow.y); // and after the header
+  expect(allow.y).toBeLessThan(detail.y); // the buttons come before the request's details
+  expect(head.y).toBeLessThan(allow.y); // and after the summary
 });
 
 test('a question from Claude is shown with its choices and left for the terminal', async ({ page }) => {
@@ -340,6 +344,9 @@ test('a question from Claude is shown with its choices and left for the terminal
     detail: 'Framework: Which framework?\n  • React — Component library\n  • Vue — Progressive framework' }));
   const prompt = page.locator('#approval');
   await expect(prompt).toBeVisible();
+  await expect(page.locator('#apBrief')).toHaveText('Framework: Which framework?');
+  await page.locator('#apSum').click();
+  await expect(page.locator('#apDetail')).toBeVisible();
   await expect(prompt).toContainText('React — Component library');
   await expect(prompt.getByRole('button', { name: 'Allow' })).toBeHidden();
   await expect(prompt.getByRole('button', { name: 'Deny' })).toBeHidden();

@@ -1061,36 +1061,59 @@ html.beat-4 .w-onair.on .oa-sign { box-shadow: 0 0 34px rgba(239, 68, 68, .9); }
 .w-image.err::after { content: "Image unavailable"; position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: grid; place-items: center; color: var(--muted); font-size: 12px; }
 .im-cap { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 10px 6px; font-size: 12px; background: linear-gradient(transparent, rgba(0, 0, 0, .75)); }
 
-/* ---------- permission prompt ---------- */
-#approval { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 90; background: rgba(4, 5, 8, .88); display: flex; align-items: center; justify-content: center; padding: 14px var(--pad-r) 14px var(--pad-l); }
+/* ---------- permission prompt: an island at the top ----------
+   Folded, it is two short rows (what and where, then the buttons) so the widgets underneath stay visible and usable;
+   a tap on the summary opens the full command. Several waiting requests show as one card with a stack edge behind it. */
+#approval { position: fixed; z-index: 90; top: 8px; left: 50%; transform: translateX(-50%); width: min(620px, calc(100vw - var(--pad-l) - var(--pad-r)));
+  max-height: calc(100vh - 16px); display: flex; flex-direction: column; animation: ap-drop .28s cubic-bezier(.2, .9, .3, 1.2); }
+@keyframes ap-drop { from { opacity: 0; transform: translate(-50%, -16px) scale(.94); } }
 .ap-card {
-  width: 100%; height: 100%; display: flex; flex-direction: column; gap: 6px; padding: 14px 18px;
-  border-radius: 22px; background: color-mix(in srgb, var(--overlay) 71%, var(--bg)); border: 1px solid rgba(217, 119, 87, .55);
-  box-shadow: 0 0 0 4px rgba(217, 119, 87, .12), 0 20px 60px rgba(0, 0, 0, .6);
+  position: relative; z-index: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 9px 10px 9px 14px;
+  touch-action: pan-y; /* a sideways swipe stays with the island (it moves through the queue) */
+  border-radius: 24px; background: color-mix(in srgb, var(--overlay) 55%, #000); border: 1px solid rgba(217, 119, 87, .5);
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, .1), 0 14px 40px rgba(0, 0, 0, .55);
 }
-.ap-head { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
-.ap-logo { color: #d97757; font-size: 16px; }
+/* the edge of the next card peeking out below, when more than one request waits */
+#approval.stacked::after { content: ""; position: relative; z-index: 0; height: 7px; margin: -2px 16px 0; border-radius: 0 0 16px 16px;
+  background: color-mix(in srgb, var(--overlay) 45%, #000); border: 1px solid rgba(217, 119, 87, .3); border-top: 0; }
+.ap-head { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.ap-logo { flex: none; color: #d97757; font-size: 18px; }
 .ap-logo.opencode { color: #a78bfa; }
 .ap-logo.codex { color: #67e8f9; }
 .ap-logo.claude { color: #d97757; }
+.ap-sum { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; cursor: pointer; border-radius: 10px; outline: none; touch-action: pan-y; }
+.ap-sum:focus-visible { box-shadow: 0 0 0 2px rgba(217, 119, 87, .6); }
+.ap-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ap-tool { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 650; }
+.ap-where { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted); }
+.ap-brief { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/1.35 "Roboto Mono", monospace; color: color-mix(in srgb, var(--text) 70%, var(--muted)); }
+.ap-brief:empty { display: none; }
+#approval.open .ap-brief { display: none; }
+.ap-nav { flex: none; display: flex; align-items: center; gap: 2px; }
+.ap-arrow { width: 34px; height: 34px; border-radius: 17px; font-size: 22px; line-height: 1; color: var(--text); background: var(--surface-mid); }
+.ap-arrow:disabled { opacity: .3; }
+.ap-arrow:active { transform: scale(.92); }
+.ap-count { font-size: 12px; padding: 2px 6px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ap-count:empty { display: none; }
+/* the details: only while the card is open */
+.ap-more { display: none; min-height: 0; flex-direction: column; gap: 6px; }
+#approval.open .ap-more { display: flex; flex: 1; }
 .ap-sep { color: var(--dim); }
 .ap-context { min-width: 0; display: flex; align-items: baseline; gap: 7px; font-size: 12px; color: var(--muted); }
-#apProject { flex: 0 1 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 13px; font-weight: 650; }
-#apCwd { flex: 1 1 0; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; color: var(--muted); font: 11.5px/1.3 "Roboto Mono", monospace; white-space: normal; overflow-wrap: anywhere; }
+#apProject { flex: 0 1 auto; min-width: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: 12.5px; font-weight: 650; }
+#apProject:empty, #apProject:empty + .ap-sep { display: none; }
+#apCwd { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font: 11.5px/1.3 "Roboto Mono", monospace; }
 #apCwd:empty { display: none; }
-.ap-count:empty { display: none; }
-.ap-count { margin-left: auto; font-size: 12px; padding: 2px 8px; border-radius: 8px; background: var(--surface-mid); }
-.ap-tool { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
 .ap-desc { font-size: 13px; color: var(--muted); }
 .ap-desc:empty { display: none; }
-.ap-detail { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line);
+.ap-detail { min-height: 0; max-height: 46vh; overflow: auto; margin: 0; padding: 9px 11px; border-radius: 12px; background: var(--bg); border: 1px solid var(--line);
   font: 12.5px/1.45 "Roboto Mono", monospace; color: color-mix(in srgb, var(--text) 75%, var(--muted)); white-space: pre-wrap; word-break: break-word; touch-action: pan-y; -webkit-user-select: text; user-select: text; }
 /* What Allow always would save (OpenCode's proposed pattern), shown so the card says what it agrees to. */
 .ap-pattern { font-size: 12px; color: var(--muted); }
 .ap-pattern:empty { display: none; }
-.ap-foot { display: flex; align-items: center; gap: 12px; }
-.ap-time { flex: 1; font-size: 12px; color: var(--dim); }
-.ap-btn { min-width: 150px; padding: 14px 22px; border-radius: 14px; font-size: 17px; font-weight: 700; }
+.ap-foot { display: flex; align-items: center; gap: 8px; }
+.ap-time { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11.5px; color: var(--dim); }
+.ap-btn { min-width: 96px; padding: 9px 18px; border-radius: 18px; font-size: 15px; font-weight: 700; }
 .ap-btn.deny { background: rgba(239, 68, 68, .16); color: var(--err-ink); border: 1px solid rgba(239, 68, 68, .4); }
 .ap-btn.always { background: rgba(34, 197, 94, .13); color: #86efac; border: 1px solid rgba(34, 197, 94, .4); }
 .ap-btn.allow { background: var(--ok); color: #052e14; }
@@ -1099,20 +1122,21 @@ html.beat-4 .w-onair.on .oa-sign { box-shadow: 0 0 34px rgba(239, 68, 68, .9); }
 /* OpenCode's third button (Allow always): the two greens and the deny share the row, so the countdown hides and
    the buttons give up their fixed width. */
 #approval.with-always .ap-time { display: none; }
-#approval.with-always .ap-btn { min-width: 0; flex: 1; padding: 14px 8px; }
+#approval.with-always .ap-btn { min-width: 0; flex: 1; padding: 9px 8px; }
 /* Agent questions (OpenCode forms): the question steps aside and the answers take the space. */
-#approval.with-choices .ap-detail { flex: 0 0 auto; max-height: 26%; }
-#approval.with-choices .ap-choices { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; touch-action: pan-y; }
-.ap-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 12px 16px; border-radius: 14px;
+#approval.with-choices .ap-detail { flex: 0 0 auto; max-height: 22vh; }
+#approval.with-choices .ap-choices { flex: 1; min-height: 0; max-height: 40vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; touch-action: pan-y; }
+.ap-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 14px; border-radius: 14px;
   background: rgba(255, 255, 255, .06); border: 1px solid var(--line); color: var(--text); font-size: 15px; font-weight: 600; }
 .ap-opt small { font-size: 12px; font-weight: 400; color: var(--muted); }
 .ap-opt:active { transform: scale(.98); }
 .ap-opt:disabled { opacity: .4; }
 .ap-custom { display: flex; gap: 8px; align-items: stretch; }
-.ap-custom input { flex: 1; min-width: 0; padding: 12px 14px; border-radius: 14px; background: #06080b; border: 1px solid var(--line);
+.ap-custom input { flex: 1; min-width: 0; padding: 10px 14px; border-radius: 14px; background: #06080b; border: 1px solid var(--line);
   color: var(--text); font: inherit; font-size: 15px; -webkit-user-select: text; user-select: text; }
 .ap-custom input:focus { outline: none; border-color: rgba(34, 197, 94, .5); }
-.ap-custom .ap-btn { min-width: 0; padding: 12px 18px; font-size: 15px; }
+.ap-custom .ap-btn { min-width: 0; padding: 10px 18px; font-size: 15px; }
+@media (prefers-reduced-motion: reduce) { #approval { animation: none; } }
 
 /* ---------- night ---------- */
 #night { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 30; background: #000; display: none; flex-direction: column; align-items: center; justify-content: center; color: #4a3a33; }
@@ -1360,9 +1384,10 @@ body.controls-top #dots { bottom: auto; top: 0; }
 body.controls-top #ptitle { top: 34px; }
 /* the space the dots need moves from the bottom to the top */
 body.controls-top .page { padding-top: 17px; padding-bottom: 10px; }
-/* the header stays first; the buttons come right after it, above the request */
+/* the island makes room for the dots above it; its buttons are right after the summary, above the opened details */
+body.controls-top #approval { top: 24px; max-height: calc(100vh - 32px); }
 body.controls-top .ap-head { order: -2; }
-body.controls-top .ap-foot { order: -1; margin-bottom: 4px; }
+body.controls-top .ap-foot { order: -1; }
 
 /* Spectrum bars (widgets/spectrum.js) */
 .w-spectrum { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; position: relative; }
