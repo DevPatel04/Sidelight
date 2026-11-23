@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: DevPatel04.Sidelight
+PackageVersion: 0.9.27
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+- RelativeFilePath: SidelightAgent.exe
+  PortableCommandAlias: sidelight
+Dependencies:
+  PackageDependencies:
+  - PackageIdentifier: Google.PlatformTools
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/DevPatel04/Sidelight/releases/download/v0.9.27/SidelightAgent-0.9.27-win-x64.zip
+  InstallerSha256: 824C2D3544C6A2E8B8F07270E55B6652DC190F7E9AD4B40F8B5C33F93E3A0CC1
+ManifestType: installer
+ManifestVersion: 1.6.0

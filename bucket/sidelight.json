@@ -13,8 +13,8 @@
     },
     "architecture": {
         "64bit": {
-            "url": "https://github.com/DevPatel04/Sidelight/releases/download/v0.9.24/SidelightAgent-0.9.24-win-x64.zip",
-            "hash": "1c2c6c2539bb8ad7ca06d5068676e15138e0d9143950c116c0c60eb8e20e2e08"
+            "url": "https://github.com/DevPatel04/Sidelight/releases/download/v0.9.27/SidelightAgent-0.9.27-win-x64.zip",
+            "hash": "824c2d3544c6a2e8b8f07270e55b6652dc190f7e9ad4b40f8b5c33f93e3a0cc1"
         }
     },
     "bin": [
