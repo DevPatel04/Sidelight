@@ -452,6 +452,27 @@ test('pairing over Wi-Fi shows both QR codes and cancels the code when closed', 
   expect(errors).toEqual([]);
 });
 
+test('pairing with browsers allowed adds the iPhone QR code and the code to type on /pair', async ({ page }) => {
+  const errors = watchErrors(page);
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await page.goto('/settings/#connection');
+  // the agent pairs with the saved settings, so the switch has to be saved, not just turned on
+  await page.evaluate(() => {
+    const c = JSON.parse(localStorage.getItem('pb-demo-config'));
+    c.lan = { ...c.lan, browsers: true };
+    localStorage.setItem('pb-demo-config', JSON.stringify(c));
+  });
+  await page.reload();
+  await page.locator('#lanPair').click();
+  await expect(page.locator('#modalBody .pair-qr img')).toHaveCount(3);
+  const browser = page.locator('#modalBody .pair-qr').nth(2);
+  await expect(browser).toContainText('Or open https://192.168.1.20:8766/pair and type this code: demo');
+  await expect(page.locator('#modalBody')).not.toContainText('Save first');
+  await expect(page.locator('#modalBody')).not.toContainText('null');
+  await page.locator('#modalClose').click();
+  expect(errors).toEqual([]);
+});
+
 test('an edit in the settings page shows up on the panel right away', async ({ context }) => {
   const panel = await context.newPage();
   await panel.goto('/panel/');

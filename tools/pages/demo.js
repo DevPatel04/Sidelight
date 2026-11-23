@@ -887,7 +887,10 @@
       return json({ enabled: true, pc: 'DEMO-PC', hosts: ['192.168.1.20', '100.101.102.103'], port: 8766, expiresAt: now() + 300e3, claims: 0, attempt: 1, check: 'DE40 0001',
         link: 'https://devpatel04.github.io/Sidelight/pair/#v=1&pc=DEMO-PC&fp=demo&port=8766&h=192.168.1.20&c=demo',
         qr: box('demo pairing'), app: 'https://github.com/DevPatel04/Sidelight/releases/latest', appQr: box('demo app'),
-        webLinks: ['https://192.168.1.20:8766/pair#c=demo'], webQr: box('demo browser'), webCode: 'demo' });
+        // like the agent: the browser (iPhone) code only once the saved settings let browsers in
+        ...((await loadConfig()).lan?.browsers
+          ? { webLinks: ['https://192.168.1.20:8766/pair#c=demo'], webQr: box('demo browser'), webCode: 'demo' }
+          : { webLinks: [], webQr: null }) });
     }
     if (path === '/api/pair/status') return json({ claims: 0 });
     if (path === '/api/pair/cancel' && method === 'POST') return json({});
