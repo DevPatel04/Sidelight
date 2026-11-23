@@ -1,4 +1,4 @@
-import { $, API, D, LEVEL_COLOR, LOCALE, mediaHtml, METRICS, PANEL_HEADERS, PREVIEW, Q_STYLE, S_ORDER, ago, api, averageColor, buildLayout, buzz, cfg, chime, cfgVersion, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, en, haptic, hasProcessesPage, hist, hour12, icon, keyButton, setKeyFace, labelled, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, configMark, configReadSince, localWriteStored, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxDeg, wxIcon, emo, rich, tp, tpv, quotaText } from '../main.js';
+import { $, API, D, LEVEL_COLOR, LOCALE, mediaHtml, METRICS, PANEL_HEADERS, PREVIEW, Q_STYLE, S_ORDER, ago, api, averageColor, buildLayout, buzz, cfg, chime, cfgVersion, chart, color, cssVar, currentProcessesSort, emit, fillIcon, fmtClock, fmtDur, fmtHM, fmtMem, fmtReset, fmtTime, fmtValue, gotoProcesses, gpuMem, gpusOf, h, en, haptic, hasProcessesPage, hist, hour12, icon, keyButton, setKeyFace, labelled, levelOf, media, metricText, online, openSheet, paceInfo, pad, prRow, pushView, quotaProviders, r1, registerProcessesSorter, renderStatus, ringSvg, setArtColor, configMark, configReadSince, localWriteStored, setMediaState, setVolDragging, shortDur, shortGpu, store, t, tick, toast, volDragging, wxBlock, wxDeg, wxIcon, emo, rich, tp, tpv, quotaText, pages, curPage, gotoPageRef } from '../main.js';
 import { W } from '../registry.js';
 import { invalidateDeckState } from './controls.js';
 import { skin } from './skins.js';
@@ -691,12 +691,13 @@ W.sessions = {
     const tokens = (n) => n == null ? '—' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
     const statusText = (s) => s.status === 'busy' ? t('sess.working') : s.status === 'waiting' ? t('sess.waiting') : s.status === 'shell' ? t('sess.shell') : s.outcome === 'completed' ? t('sess.completed') : s.outcome === 'failed' ? t('sess.failed') : s.outcome === 'aborted' ? t('sess.aborted') : t('sess.idle');
     // The tool each session comes from: one glyph in the list, a glyph and a name in the details panel.
-    const toolIcon = (tool) => tool === 'claude' ? '✳' : tool === 'codex' ? '◎' : tool === 'cursor' ? '◆' : tool === 'opencode' ? '◈' : tool === 'antigravity' ? '✦' : '◎';
+    const toolIcon = (tool) => tool === 'claude' ? '✳' : tool === 'codex' ? '◎' : tool === 'cursor' ? '◆' : tool === 'opencode' ? '◈' : tool === 'antigravity' ? Q_STYLE.antigravity.logo : '◎';
     const toolTitle = (tool) => tool === 'claude' ? 'Claude Code' : tool === 'codex' ? 'Codex' : tool === 'cursor' ? 'Cursor' : tool === 'opencode' ? 'OpenCode' : tool === 'antigravity' ? 'Antigravity' : 'Codex';
     const ageText = (since) => Date.now() - since < 60_000 ? 'just now' : shortDur(Date.now() - since) + ' ago';
     // A session's title is the main label and the project folder goes under it: Claude Code sends it only while
     // Settings › Claude Code › "Show session titles on the phone" is on, OpenCode only while "Show OpenCode session
-    // titles" is on; without a title the folder is the label, as before.
+    // titles" is on, and Antigravity only while "Show Antigravity chat titles on the phone" is on; without a title
+    // the folder is the label, as before.
     const titleOf = (s) => s.title || s.project || s.name;
     const folderOf = (s) => (s.title ? s.project : '');
     // A Claude Code chat's recent steps, last exchange and message list. The agent sends them only when Settings › Claude Code
@@ -800,7 +801,7 @@ W.sessions = {
       // a small label over each value, four to a row: the facts take one line instead of four
       panel.append(h('div', 'session-grid', rows.filter(([, value]) => value != null)
         .map(([label, value]) => h('div', 'session-cell', h('span', null, tp(label)), h('strong', null, value)))));
-      if (s.tool === 'codex') panel.append(h('p', 'session-note', tp('Token totals are for this local session, not your account allowance.')));
+      if (s.tool === 'codex' || (s.tool === 'antigravity' && s.totalTokens != null)) panel.append(h('p', 'session-note', tp('Token totals are for this local session, not your account allowance.')));
       if (s.tool === 'claude') stopConversation = conversationSection(panel, s);
       backdrop.append(panel);
       document.body.append(backdrop);
@@ -1035,7 +1036,9 @@ W.calendar = {
         const y = now.getFullYear(), m = now.getMonth();
         const first = new Date(y, m, 1), days = new Date(y, m + 1, 0).getDate();
         const lead = (first.getDay() + 6) % 7; // Monday first
-        const cells = ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => h('span', 'cal-h' + (i > 4 ? ' we' : ''), d));
+        const weekday = new Intl.DateTimeFormat(LOCALE, { weekday: 'narrow' });
+        const cells = Array.from({ length: 7 }, (_, i) =>
+          h('span', 'cal-h' + (i > 4 ? ' we' : ''), weekday.format(new Date(2024, 0, i + 1)))); // Monday, Jan 1
         const prevDays = new Date(y, m, 0).getDate();
         for (let i = 0; i < lead; i++) cells.push(h('span', 'cal-d out', prevDays - lead + 1 + i));
         for (let d = 1; d <= days; d++) {
@@ -1312,6 +1315,55 @@ W.note = {
       ta.focus();
     });
     return {};
+  },
+};
+
+// Page buttons: one button per page (the ticked ones, or all), the page you are on highlighted. A tap goes there the
+// same way a rule or a webhook does.
+W.pagebuttons = {
+  bare: true, needs: ['tick'],
+  create(box, { o }) {
+    const list = h('div', 'pgb');
+    if (o.title) box.append(h('div', 'w-title', o.title));
+    box.append(list);
+    let shown = '';
+    const render = () => {
+      const ids = Array.isArray(o.ids) ? o.ids : [];
+      let items = pages.map((p, i) => ({ p, i })).filter(({ p }) => !ids.length || ids.includes(p.id));
+      if (!items.length) items = pages.map((p, i) => ({ p, i })); // the ticked pages are gone: show them all
+      const key = items.map(({ p, i }) => `${i}:${p.id}:${p.icon || ''}:${p.title}`).join('|');
+      if (key !== shown) {
+        shown = key;
+        list.replaceChildren(...items.map(({ p, i }) => {
+          const b = h('button', 'pgb-b', p.icon ? h('span', 'pgb-i', rich(p.icon)) : null, h('span', 'pgb-t', p.title || `${i + 1}`));
+          b.type = 'button';
+          b.dataset.i = i;
+          b.setAttribute('aria-label', `${i + 1} · ${p.title || ''}`);
+          b.onclick = (e) => { e.stopPropagation(); haptic(); gotoPageRef(i + 1); };
+          return b;
+        }));
+      }
+      list.querySelectorAll('.pgb-b').forEach((b) => b.classList.toggle('on', +b.dataset.i === curPage));
+      fit();
+    };
+    // columns for the widget's shape: buttons about twice as wide as tall, with few empty cells
+    let fitted = '';
+    const fit = () => {
+      const n = list.children.length, W = list.clientWidth, H = list.clientHeight;
+      if (!n || !W || !H) return;
+      let best = 1, score = Infinity;
+      for (let cols = 1; cols <= n; cols++) {
+        const rows = Math.ceil(n / cols);
+        const s = Math.abs(Math.log((W / cols) / (H / rows) / 2)) + 0.15 * (cols * rows - n);
+        if (s < score) { score = s; best = cols; }
+      }
+      const value = `repeat(${best}, minmax(0, 1fr))`;
+      if (value !== fitted) { fitted = value; list.style.gridTemplateColumns = value; }
+    };
+    const watch = typeof ResizeObserver === 'function' ? new ResizeObserver(fit) : null;
+    watch?.observe(list);
+    render();
+    return { update: render, destroy() { watch?.disconnect(); } };
   },
 };
 
