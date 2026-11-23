@@ -2297,6 +2297,8 @@ async function pairOverWifi() {
     return;
   }
   const svg = (markup) => 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(markup)));
+  // the agent pairs with its saved settings: a browser switch turned on but not saved yet leaves out the iPhone code
+  const browsersUnsaved = !!cfg.lan?.browsers && !JSON.parse(saved || '{}').lan?.browsers;
   const left = h('b', {}, '');
   const pairBox = h('div', { class: 'pair-qr' },
     h('b', {}, t('s.wifi.step2')),
@@ -2315,6 +2317,7 @@ async function pairOverWifi() {
         h('b', {}, t('s.wifi.browserStep')),
         h('img', { src: svg(r.webQr), alt: 'Browser pairing QR code' }),
         h('small', { class: 'hint' }, t('s.wifi.browserStepHint'))) : null),
+    browsersUnsaved ? h('p', { class: 'hint', style: 'margin:0;color:var(--warn)' }, t('s.wifi.browserSaveFirst')) : null,
     ...(r.webLinks?.length > 1 ? [h('p', { class: 'hint', style: 'margin:0' }, t('s.wifi.browserOther'), ' ', r.webLinks.slice(1).join(' · '))] : []),
     h('p', { class: 'hint', style: 'margin:0' }, r.hosts.length
       ? t('s.pair.hosts', { hosts: r.hosts.join(', '), port: r.port })
