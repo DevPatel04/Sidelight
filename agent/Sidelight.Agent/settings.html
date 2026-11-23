@@ -2316,7 +2316,9 @@ async function pairOverWifi() {
       r.webQr ? h('div', { class: 'pair-qr' },
         h('b', {}, t('s.wifi.browserStep')),
         h('img', { src: svg(r.webQr), alt: 'Browser pairing QR code' }),
-        h('small', { class: 'hint' }, t('s.wifi.browserStepHint'))) : null),
+        h('small', { class: 'hint' }, t('s.wifi.browserStepHint')),
+        r.webCode ? h('small', { class: 'hint' }, t('s.wifi.browserTyped', { url: r.webLinks[0].split('#')[0] }), ' ',
+          h('code', { style: 'user-select:all' }, r.webCode)) : null) : null),
     ...(browsersUnsaved ? [h('p', { class: 'hint', style: 'margin:0;color:var(--warn)' }, t('s.wifi.browserSaveFirst'))] : []),
     ...(r.webLinks?.length > 1 ? [h('p', { class: 'hint', style: 'margin:0' }, t('s.wifi.browserOther'), ' ', r.webLinks.slice(1).join(' · '))] : []),
     h('p', { class: 'hint', style: 'margin:0' }, r.hosts.length

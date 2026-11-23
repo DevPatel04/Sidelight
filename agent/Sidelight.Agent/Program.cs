@@ -351,6 +351,8 @@ app.MapPost("/api/pair/start", (ConfigStore cfg, PairingCodes codes) =>
         appQr = PairingCodes.Svg(apk),
         webLinks,
         webQr = webLinks.Count > 0 ? PairingCodes.Svg(webLinks[0]) : null,
+        // for a browser that opens /pair by hand instead of scanning: its form takes the same code
+        webCode = webLinks.Count > 0 ? code : null,
     });
 });
 app.MapPost("/api/pair/cancel", (long attempt, PairingCodes codes) => { codes.Cancel(attempt); return Results.Ok(); });
