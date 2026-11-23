@@ -99,6 +99,9 @@ public static class Lan
         // the Steam library widget: the list of installed games, an installed game's cover (the tiles' <img>), and starting a
         // game (off unless the asking widget, on an enabled page, allows it). /api/steam/games, the settings page's picker, stays local.
         || path == "/api/steam/library" || path == "/api/steam/cover" || path == "/api/steam/launch"
+        // the Keyboard widget's keys, and the Second screen widget's picture and touches: each off unless that widget's
+        // own switch, on an enabled page, allows it
+        || path == "/api/keyboard" || path == "/api/screen" || path == "/api/screen/pointer"
         || path.StartsWithSegments("/api/widget") || path.StartsWithSegments("/api/calendar") || path.StartsWithSegments("/api/feeds") || path.StartsWithSegments("/api/photos") || path == "/api/camera" || path == "/api/spectrum" || path.StartsWithSegments("/api/docker") || path.StartsWithSegments("/api/obs") || path.StartsWithSegments("/api/discord") || path == "/api/steam" || path == "/api/steam/avatar" || path.StartsWithSegments("/api/batteries") || path.StartsWithSegments("/api/ha/states") || path.StartsWithSegments("/api/ha/toggle") || path.StartsWithSegments("/api/approvals") || path.StartsWithSegments("/api/rules/pause") || path.StartsWithSegments("/api/phone/battery") || path.StartsWithSegments("/api/stream") || path.StartsWithSegments("/api/trackpad") || path == "/api/pair/claim" || path == "/api/wake/macs" || IsWebhook(path);
 
     /// <summary>

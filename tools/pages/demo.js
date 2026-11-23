@@ -767,6 +767,28 @@
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360"><rect width="640" height="360" fill="#1f2937"/><rect y="250" width="640" height="110" fill="#374151"/><rect x="${x.toFixed(0)}" y="0" width="6" height="360" fill="#22d3ee" opacity=".5"/><text x="16" y="34" fill="#fff" font-family="monospace" font-size="22">CAM 1  ${d.toTimeString().slice(0, 8)}</text></svg>`;
       return new Response(svg, { status: 200, headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' } });
     }
+    // Keyboard: like KeyboardInput, a key is pressed only for a keyboard widget that allows it
+    if (path === '/api/keyboard' && method === 'POST') {
+      if (panelWidget(await config(), q.get('widget'), 'keyboard')?.options?.control !== true)
+        return json({ error: 'typing is off: turn on "Type on the computer" in the keyboard widget\'s settings' }, 403);
+      return q.get('key') || q.get('text') ? json({ ok: true }) : json({ error: 'nothing to type' }, 400);
+    }
+    // Second screen: like ScreenShare, a picture only with the widget's own switch on; the demo's "monitor" is a drawn
+    // desktop with two windows and the time instead of a capture
+    if (path === '/api/screen') {
+      const w = panelWidget(await config(), q.get('widget'), 'screen');
+      if (!w) return json({ state: 'unknown' }, 404);
+      if (w.options?.share !== true) return json({ state: 'off' }, 403);
+      const d = new Date(), x = 120 + Math.round(60 * Math.sin(d.getTime() / 1500));
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720"><rect width="1280" height="720" fill="#0f172a"/><rect x="${x}" y="90" width="620" height="420" rx="10" fill="#1e293b" stroke="#334155"/><rect x="${x}" y="90" width="620" height="36" rx="10" fill="#334155"/><text x="${x + 18}" y="115" fill="#e2e8f0" font-family="sans-serif" font-size="18">Notes</text><rect x="780" y="200" width="420" height="380" rx="10" fill="#1e293b" stroke="#334155"/><rect x="780" y="200" width="420" height="36" rx="10" fill="#334155"/><text x="798" y="225" fill="#e2e8f0" font-family="sans-serif" font-size="18">Terminal</text><rect y="680" width="1280" height="40" fill="#020617"/><text x="1180" y="706" fill="#e2e8f0" font-family="sans-serif" font-size="18">${d.toTimeString().slice(0, 5)}</text></svg>`;
+      return new Response(svg, { status: 200, headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' } });
+    }
+    if (path === '/api/screen/pointer' && method === 'POST') {
+      const o = panelWidget(await config(), q.get('widget'), 'screen')?.options;
+      if (o?.share !== true || o?.control !== true)
+        return json({ error: 'clicking is off: turn on "Click and drag on the screen" in the second screen widget\'s settings' }, 403);
+      return json({ ok: true });
+    }
     if (path === '/api/dictate' && method === 'POST') {
       if (panelWidget(await config(), q.get('widget'), 'dictate')?.options?.control !== true)
         return json({ error: 'typing is off: turn on "Type the text on the computer" in the dictation widget\'s settings' }, 403);
