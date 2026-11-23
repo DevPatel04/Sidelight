@@ -17,8 +17,8 @@ android {
         applicationId = "io.github.devpatel04.sidelight"
         minSdk = 21 // Android 5.0; see CONTRIBUTING.md before changing it
         targetSdk = 35
-        versionCode = 45
-        versionName = "0.9.24"
+        versionCode = 48
+        versionName = "0.9.27"
     }
 
     signingConfigs {
