@@ -9,6 +9,7 @@ param([switch]$Purge, [switch]$Apk)
 
 Get-Process SidelightAgent -ErrorAction SilentlyContinue | Stop-Process -Force
 Remove-Item (Join-Path ([Environment]::GetFolderPath('Startup')) 'Sidelight.lnk') -ErrorAction SilentlyContinue
+Remove-Item (Join-Path ([Environment]::GetFolderPath('Programs')) 'Sidelight.lnk') -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 500
 Remove-Item (Join-Path $env:LOCALAPPDATA 'Sidelight') -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host 'Agent removed.'
