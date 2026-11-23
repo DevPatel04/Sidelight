@@ -34,7 +34,7 @@ Windows, Linux and macOS. No root, Sidelight account or cloud service required.<
 > replace your debug build.
 
 Sidelight pairs a full-screen **Android app** with a small **desktop agent**. Build your panel in a browser-based
-visual editor: **126 widgets**, **30 templates**, multiple pages and a live preview. Pick a panel theme (glass,
+visual editor: **130 widgets**, **30 templates**, multiple pages and a live preview. Pick a panel theme (glass,
 cockpit, nature, space and others) under **Settings → Display**. Connect several phones with their own layouts, or
 switch one phone between paired computers.
 
@@ -169,6 +169,17 @@ release builds. See the [full compatibility table](docs/SETUP.md#what-works-wher
 | [Release checklist](docs/RELEASING.md) | Maintainer build, signing and publication workflow |
 
 The [UMIDIGI BISON extras](extras/umidigi-bison) contain the reversible, no-root tune-up used on the original development phone.
+
+## Community add-ons
+
+Add-ons are written and maintained by their authors. Sidelight doesn't review or ship them. They run with your own
+rights on the computer and can change Sidelight settings through `PUT /api/settings`, so read what an add-on does
+before you install it.
+
+| Add-on | What it does | What it sends outside the PC |
+|---|---|---|
+| [Sidelight Games Tab](https://github.com/lucasaz/sidelight-games-tab) (Windows) | A Games page with live FPS, cover art and play time, through the push API and a Custom HTML widget | Store / Xbox apps' package names, with the Windows display language and region, to the Microsoft Store catalog (`displaycatalog.mp.microsoft.com`); the phone loads cover images from Microsoft's image servers and from Steam's, whose URL contains the game's Steam app ID |
+| [Sidelight for GNOME](https://github.com/Gabrielmororo180/sidelight-gnome) (Linux, GNOME) | CPU and the Claude session quota in the GNOME top bar; a click opens the panel, with page tabs, right below it. Also works as a desktop widget | Nothing of its own; the panel it opens makes the same requests as on the phone, such as the weather from `api.open-meteo.com` (see [PRIVACY.md](PRIVACY.md)) |
 
 ## Security & privacy
 
