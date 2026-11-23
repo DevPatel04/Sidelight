@@ -868,6 +868,19 @@ nav a.on::before { color: var(--accent); }
       </div>
 
       <div class="card">
+        <h3 data-i18n="s.screen.title">Second screen</h3>
+        <p class="hint" style="margin:0 0 12px" data-i18n="s.screen.hint">The Second screen widget shows one of this computer’s monitors on the phone. Give it a virtual monitor and the phone becomes an extended screen for your windows.</p>
+        <ul class="hint" id="screenStatus" style="margin:0 0 12px;padding-inline-start:18px"></ul>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <button class="btn" id="screenInstall" data-i18n="s.screen.install" hidden>Install the virtual display driver</button>
+          <button class="btn" id="screenOpen" data-i18n="s.screen.open" hidden>Open VDD Control</button>
+          <button class="btn sm" id="screenCheck" data-i18n="s.screen.check">Check again</button>
+        </div>
+        <p class="hint" id="screenInstallHint" style="margin:10px 0 0" data-i18n="s.screen.installHint" hidden>Installs VDD Control (the open-source Virtual Display Driver, MIT licence) with winget, then opens it. Press Install there and allow the Windows prompt, add a monitor, then choose “Extend these displays” in Windows’ display settings.</p>
+        <p class="hint" id="screenNote" style="margin:10px 0 0" hidden></p>
+      </div>
+
+      <div class="card">
         <h3 data-i18n="s.console.title">App console</h3>
         <p class="hint" style="margin:0 0 12px" data-i18n="s.console.hint">Keys and a dial for the App console widget, per app: the widget shows the keys of the app in front on this computer and sends them only to that app. Apps are process names, as in Task Manager's Details tab (photoshop, gimp-2.10). One key per line, a label then the keys: Undo = ctrl+z. Windows only; the keys stay on this computer.</p>
         <div id="consoleList"></div>
@@ -2459,6 +2472,42 @@ $('installApp').onclick = async () => {
   $('installApp').disabled = false;
   setTimeout(loadInfo, 4000);
 };
+// Second screen: what the widget needs on this computer, and on Windows a one-click install of VDD Control (winget)
+async function loadScreen() {
+  try { renderScreen(await (await fetch('/api/display/status', { cache: 'no-store' })).json()); } catch (_) {}
+}
+// the last status is kept on the function (hoisted), so a language change can draw it again in the new language
+function renderScreen(st = renderScreen.last) {
+  if (!st) return;
+  renderScreen.last = st;
+  const windows = st.platform === 'windows';
+  const items = [t('s.screen.monitors', { n: (st.monitors || []).length }), t(st.ffmpeg ? 's.screen.ffmpegOk' : 's.screen.ffmpegMissing')];
+  if (windows) items.push(t(st.driver ? 's.screen.driverOk' : 's.screen.driverMissing'));
+  else items.push(t({ wayland: 's.screen.wayland', macos: 's.screen.macos' }[st.platform] || 's.screen.x11'));
+  $('screenStatus').replaceChildren(...items.map((text) => h('li', {}, text)));
+  $('screenInstall').hidden = !windows || st.controlApp;
+  $('screenInstall').disabled = st.installing;
+  $('screenOpen').hidden = !windows || !st.controlApp;
+  $('screenInstallHint').hidden = !windows || st.controlApp;
+  if (windows && !st.controlApp && !st.winget) { $('screenNote').textContent = t('s.screen.noWinget'); $('screenNote').hidden = false; }
+}
+async function screenAction(path, busy) {
+  const note = $('screenNote');
+  $('screenInstall').disabled = $('screenOpen').disabled = true;
+  if (busy) { note.textContent = t(busy); note.hidden = false; }
+  try {
+    const r = await fetch(path, { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    note.textContent = r.ok ? t('s.screen.opened') : (j.error || 'HTTP ' + r.status);
+  } catch (_) { note.textContent = t('s.screen.failed'); }
+  note.hidden = false;
+  $('screenOpen').disabled = false;
+  loadScreen();
+}
+$('screenInstall').onclick = () => screenAction('/api/display/install', 's.screen.installing');
+$('screenOpen').onclick = () => screenAction('/api/display/open');
+$('screenCheck').onclick = () => { $('screenNote').hidden = true; loadScreen(); };
+loadScreen();
 // Photo frame: show the fields of the chosen source; the Immich album list is only fetched on request
 let immichAlbums = [];   // the last list the agent sent; the chosen album is shown against it, also after Apply JSON or Revert
 let immichFor = '';      // the address and key that list was loaded with (compared in memory, never put in the page)
@@ -3666,6 +3715,7 @@ function applyLanguageUi(langPref) {
   $('chargeRangeAnd').textContent = tc('and');
   if ($('advancedVersionLabel')) $('advancedVersionLabel').textContent = tc('Version');
   document.querySelector('[data-bind="adbPath"]').placeholder = tc('auto-detected');
+  renderScreen(); // the Second screen card's status lines are built in script
   fitLeads(); // translated intros can be shorter or longer than the old text
 }
 

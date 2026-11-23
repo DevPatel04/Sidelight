@@ -89,6 +89,7 @@ AddMonitor<FeedMonitor>(builder.Services);
 builder.Services.AddSingleton<PhotoFrame>();
 builder.Services.AddSingleton<CameraFeeds>();
 builder.Services.AddSingleton<ScreenShare>();
+builder.Services.AddSingleton<VirtualDisplay>();
 AddMonitor<GitHubMonitor>(builder.Services);
 AddMonitor<PingMonitor>(builder.Services);
 AddMonitor<AdbReverse>(builder.Services);
@@ -694,6 +695,19 @@ app.MapGet("/api/screen", (string? widget, string? fresh, HttpRequest req, HttpR
 app.MapPost("/api/screen/pointer", (string? widget, string? action, double? x, double? y, double? delta, HttpRequest req, ScreenShare screen) =>
 {
     var (status, error) = screen.Pointer(req.Headers["X-Sidelight-Device"].ToString(), widget, action, x, y, delta);
+    return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
+});
+// Settings › Sources › Second screen (local only: not on the Wi-Fi allow-list): what the widget needs on this computer,
+// and on Windows installing VDD Control with winget and opening it, each only on a click in the settings page.
+app.MapGet("/api/display/status", (VirtualDisplay display) => Results.Json(display.Get()));
+app.MapPost("/api/display/install", async (VirtualDisplay display, CancellationToken ct) =>
+{
+    var (status, error) = await display.InstallAsync(ct);
+    return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
+});
+app.MapPost("/api/display/open", (VirtualDisplay display) =>
+{
+    var (status, error) = display.Open();
     return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
 });
 app.MapPost("/api/feeds/open", (string? id, FeedMonitor feeds) =>
