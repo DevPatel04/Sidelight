@@ -92,6 +92,14 @@ Last updated: 2026-11-20 (Sidelight 0.9.6).
   presses a key (moving between desktops or pages). While you gesture, the agent reads the Mac's Trackpad, `com.apple.dock`
   and `com.apple.symbolichotkeys` preferences (at most once every 2 seconds) to do what your own trackpad would do. Only
   the gesture settings are kept, in memory, and nothing is stored or sent.
+- **Keyboard widget**: each key you tap goes from the phone to the agent (over USB or pinned-TLS Wi-Fi) and is pressed in
+  the app in front. Only while an enabled page has a Keyboard widget with **Type on the computer** on (off by default).
+  Keys are never stored or logged.
+- **Second screen widget**: with **Show the screen on the phone** on (off by default), ffmpeg on this computer captures
+  the chosen monitor as JPEG pictures that go only to the phone (or a paired browser), over USB or the paired Wi-Fi
+  link, while an enabled page shows the widget; capturing stops a few seconds after it leaves the screen. The picture
+  shows everything on that monitor, notifications included. Nothing is stored. With **Click and drag on the screen**
+  also on (off by default), the phone's touches move and click the mouse on that monitor.
 - **Local services**: LibreHardwareMonitor's web server (`127.0.0.1:8085`), a running Antigravity language server
   (loopback, over HTTP or HTTPS), the Docker / Podman socket, OBS WebSocket and the Discord desktop app's local connection (a named pipe
   or socket on this computer) are local connections.
