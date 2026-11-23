@@ -332,17 +332,22 @@ internal sealed class FfmpegRun : ICameraRun
 
     public static FfmpegRun Start(string ffmpeg, CameraSource source, Action<byte[]> onFrame)
     {
+        // rtsps is TLS, which needs TCP
+        var transport = source.Transport == "udp" && !source.Url.StartsWith("rtsps:", StringComparison.OrdinalIgnoreCase) ? "udp" : "tcp";
+        return Launch(ffmpeg, ["-hide_banner", "-nostdin", "-loglevel", "error", "-rtsp_transport", transport,
+            "-i", source.Url, "-an", "-sn", "-dn", "-vf", $"fps={Math.Clamp(source.Fps, 1, CameraFeeds.MaxFps)},scale='min(1280,iw)':-2",
+            "-f", "image2pipe", "-c:v", "mjpeg", "-q:v", "6", "pipe:1"], onFrame);
+    }
+
+    /// <summary>Starts ffmpeg with arguments that write back-to-back JPEGs to stdout (the cameras, the Second screen widget).</summary>
+    public static FfmpegRun Launch(string ffmpeg, IEnumerable<string> args, Action<byte[]> onFrame)
+    {
         var psi = new ProcessStartInfo(ffmpeg)
         {
             RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = false,
             UseShellExecute = false, CreateNoWindow = true,
         };
-        // rtsps is TLS, which needs TCP
-        var transport = source.Transport == "udp" && !source.Url.StartsWith("rtsps:", StringComparison.OrdinalIgnoreCase) ? "udp" : "tcp";
-        foreach (var a in new[] { "-hide_banner", "-nostdin", "-loglevel", "error", "-rtsp_transport", transport,
-                     "-i", source.Url, "-an", "-sn", "-dn", "-vf", $"fps={Math.Clamp(source.Fps, 1, CameraFeeds.MaxFps)},scale='min(1280,iw)':-2",
-                     "-f", "image2pipe", "-c:v", "mjpeg", "-q:v", "6", "pipe:1" })
-            psi.ArgumentList.Add(a);
+        foreach (var a in args) psi.ArgumentList.Add(a);
         var p = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg did not start");
         if (OperatingSystem.IsWindows()) JobObject.Track(p); // ends with the agent, even if the agent is killed
         var run = new FfmpegRun(p);

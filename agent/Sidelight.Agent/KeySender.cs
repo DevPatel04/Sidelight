@@ -60,6 +60,9 @@ public static class KeySender
         "volup" => "volumeup",
         "[" or "openbracket" => "bracketleft",
         "]" or "closebracket" => "bracketright",
+        "`" or "grave" or "backtick" => "backquote",
+        "'" or "apostrophe" => "quote",
+        "\\" => "backslash",
         "voldown" => "volumedown",
         var x => x,
     };
@@ -100,6 +103,7 @@ public static class KeySender
         ["printscreen"] = (0x2C, "Print", 105), ["minus"] = (0xBD, "minus", 27), ["equals"] = (0xBB, "equal", 24),
         ["comma"] = (0xBC, "comma", 43), ["period"] = (0xBE, "period", 47), ["slash"] = (0xBF, "slash", 44), ["semicolon"] = (0xBA, "semicolon", 41),
         ["bracketleft"] = (0xDB, "bracketleft", 33), ["bracketright"] = (0xDD, "bracketright", 30),
+        ["backquote"] = (0xC0, "grave", 50), ["quote"] = (0xDE, "apostrophe", 39), ["backslash"] = (0xDC, "backslash", 42),
         ["playpause"] = (0xB3, "XF86AudioPlay", -1), ["nexttrack"] = (0xB0, "XF86AudioNext", -1), ["prevtrack"] = (0xB1, "XF86AudioPrev", -1),
         ["mute"] = (0xAD, "XF86AudioMute", -1), ["volumeup"] = (0xAF, "XF86AudioRaiseVolume", -1), ["volumedown"] = (0xAE, "XF86AudioLowerVolume", -1),
         // the keypad (#270): its own keys, not the number row, so a shortcut bound to Numpad3 (Discord, games) is matched
@@ -225,6 +229,22 @@ public static class KeySender
         if (TestMouseSink is not null) { TestMouseSink(new MouseCall("move", dx, dy, 0)); return; }
         INPUT[] inputs = [MouseInput(dx, dy, 0, MOUSEEVENTF_MOVE)];
         SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
+    }
+
+    [DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+    [DllImport("user32.dll")] private static extern nint SetThreadDpiAwarenessContext(nint context);
+    private static readonly nint PerMonitorAwareV2 = -4;
+
+    /// <summary>
+    /// Puts the cursor on a point of the desktop in physical pixels (the Second screen widget). The thread is made
+    /// per-monitor DPI aware for the call, so the point means the same pixel as the monitor rectangles and ffmpeg's capture.
+    /// </summary>
+    public static void MouseMoveTo(int x, int y)
+    {
+        if (TestMouseSink is not null) { TestMouseSink(new MouseCall("moveTo", x, y, 0)); return; }
+        var old = SetThreadDpiAwarenessContext(PerMonitorAwareV2);
+        try { SetCursorPos(x, y); }
+        finally { if (old != 0) SetThreadDpiAwarenessContext(old); }
     }
 
     public static void MouseClick()
@@ -440,6 +460,15 @@ public static class KeySender
                 FlushUnixMove();
             }
         });
+    }
+
+    /// <summary>Puts the cursor on a point of the X11 screen (the Second screen widget); macOS has no screen capture here.</summary>
+    public static void MouseMoveTo(int x, int y)
+    {
+        if (TestMouseSink is not null) { TestMouseSink(new MouseCall("moveTo", x, y, 0)); return; }
+        if (OperatingSystem.IsMacOS()) return;
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        UnixAction("mousemove", x.ToString(ci), y.ToString(ci));
     }
 
     public static void MouseClick()

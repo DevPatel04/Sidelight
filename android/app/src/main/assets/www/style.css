@@ -1580,3 +1580,21 @@ body.controls-top .ap-foot { order: -1; }
 .ly-note[hidden] { display: none; }
 .w-lyrics:not(.timed):not(.plain) .ly-note { margin: auto; }
 .ly-credit { position: absolute; right: 10px; top: 9px; font-size: 9px; letter-spacing: .1em; color: var(--dim); }
+
+/* Keyboard widget: rows of keys that share the widget's height; the key text follows the widget's size */
+.kb-w { position: relative; padding: 6px; }
+.kb { container-type: size; flex: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; gap: 4px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.kb.is-off { opacity: .35; }
+.kb-row { flex: 1; min-height: 0; display: flex; gap: 4px; }
+.kb-k { flex: 1 1 0; min-width: 0; padding: 0; border: 1px solid var(--surface-line); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font: inherit; font-size: clamp(9px, 7cqh, 20px); line-height: 1; white-space: nowrap; overflow: hidden; -webkit-tap-highlight-color: transparent; }
+.kb-k.down { filter: brightness(1.6); }
+.kb-mod { font-size: clamp(8px, 5.5cqh, 15px); color: var(--muted); }
+.kb-mod.on { color: var(--text); border-color: var(--accent, #60a5fa); }
+.kb-mod.lock { background: color-mix(in srgb, var(--accent, #60a5fa) 30%, var(--surface)); }
+.kb-note { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 12px; font-size: 13px; }
+
+/* Second screen widget: the monitor's picture, and (with clicking on) a surface that keeps touches for itself */
+.w.scr { padding: 0; overflow: hidden; background: #000; }
+.scr-view { position: absolute; inset: 0; }
+.scr-view.is-live { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+.scr-view .cam-img { pointer-events: none; }
