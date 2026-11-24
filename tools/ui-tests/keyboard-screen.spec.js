@@ -92,3 +92,26 @@ test('the settings card installs the virtual display driver with one click and t
   await expect(status.nth(2)).toHaveText('The virtual display driver is installed');
   expect(errors).toEqual([]);
 });
+
+test('on Wayland the settings card adds a virtual monitor of the chosen size and can forget the sharing answer', async ({ page }) => {
+  const errors = []; page.on('pageerror', (e) => errors.push(String(e)));
+  await page.addInitScript(() => { window.__demoDisplay = 'wayland'; });
+  await page.goto('/settings/#sources');
+  const status = page.locator('#screenStatus li');
+  await expect(status.nth(1)).toHaveText('The screen-sharing portal is available');
+  await expect(status.nth(2)).toHaveText('GStreamer with its PipeWire plugin is installed');
+  await expect(page.locator('#screenInstall')).toBeHidden();
+  await expect(page.locator('#screenForget')).toBeHidden();
+  await page.locator('#screenW').fill('2400');
+  await page.locator('#screenH').fill('1080');
+  await page.locator('#screenVirtual').click();
+  await expect(page.locator('#screenNote')).toHaveText('Look at the computer: allow the screen-sharing dialog there');
+  await expect(status.nth(3)).toHaveText('Virtual monitor: on, 2400 × 1080, while Sidelight runs');
+  await expect(page.locator('#screenVirtual')).toHaveText('Remove the virtual monitor');
+  await expect(page.locator('#screenSize')).toBeHidden();
+  await expect(page.locator('#screenForget')).toHaveText('Choose the screen again');
+  await page.locator('#screenVirtual').click();
+  await expect(page.locator('#screenNote')).toHaveText('The virtual monitor is removed');
+  await expect(page.locator('#screenVirtual')).toHaveText('Add a virtual monitor');
+  expect(errors).toEqual([]);
+});
