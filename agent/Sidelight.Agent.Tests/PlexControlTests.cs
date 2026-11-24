@@ -822,8 +822,10 @@ public sealed class PlexControlTests
             ServeLocal(player, stop.Token, c => Reply(c, TimelineXml(), "text/xml"));
             ServeLocal(server, stop.Token, c => StallLocal(c, stop.Token, "application/json"));
             using var fixture = new Fixture(Url(server), extra: $",\"plexPlayerUrl\":\"{Url(player)}\"");
-            using var plex = Real(fixture, TimeSpan.FromMilliseconds(300));
-            var snap = await plex.Snapshot(default).WaitAsync(TimeSpan.FromSeconds(5));
+            // the healthy player is asked first, on a cold client (first connection, JIT): its request needs the same
+            // limit to pass on a busy CI runner, or the test reports the player instead of the stalled server
+            using var plex = Real(fixture, TimeSpan.FromSeconds(2));
+            var snap = await plex.Snapshot(default).WaitAsync(TimeSpan.FromSeconds(10));
             Assert.Equal("The Plex server is unavailable", snap["error"]!.GetValue<string>());
         }
         finally { stop.Cancel(); player.Close(); server.Close(); }
