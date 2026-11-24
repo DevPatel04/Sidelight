@@ -22,8 +22,16 @@ set its full path in **Settings › Sources › Cameras › ffmpeg**.
 
 ### Windows
 
-Windows creates an extra monitor only through a display driver. Install an *indirect display driver* (IDD), for
-example the open-source **Virtual Display Driver** (`github.com/VirtualDrivers/Virtual-Display-Driver`). Then:
+Windows creates an extra monitor only through a display driver. Sidelight uses the open-source **Virtual Display
+Driver** (`github.com/VirtualDrivers/Virtual-Display-Driver`, MIT licence).
+
+**One click:** open **Settings › Sources › Second screen** and press **Install the virtual display driver**. Sidelight
+installs the driver's control app, VDD Control, with winget (`VirtualDrivers.Virtual-Display-Driver`; winget checks the
+download against the hash in its manifest) and opens it. In VDD Control press **Install** and allow the Windows
+administrator prompt, then add a monitor. The card shows whether the driver is there; press **Check again** after
+installing. Later, **Open VDD Control** adds, removes or resizes the virtual monitor.
+
+Without winget, download VDD Control from the project's Releases page and do the same by hand. Then:
 
 1. Open **Settings › System › Display**. A new monitor appears. Choose **Extend these displays**.
 2. Set its resolution to the phone's shape for a sharp picture, for example 1600 × 720 for a 20:9 phone in landscape.

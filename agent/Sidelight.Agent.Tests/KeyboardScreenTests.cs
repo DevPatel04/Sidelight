@@ -198,4 +198,72 @@ public sealed class KeyboardScreenTests : IDisposable
         Assert.Empty(mouse2);
         Assert.Empty(mouse3);
     }
+
+    // ---- virtual display install (Settings › Sources › Second screen)
+
+    private (VirtualDisplay Display, List<string> Ran, List<string> Opened) Display(string platform = "windows", string? winget = @"C:\winget.exe",
+        bool installs = true)
+    {
+        string? control = null;
+        var ran = new List<string>();
+        var opened = new List<string>();
+        var d = new VirtualDisplay(Store(), NullLogger<VirtualDisplay>.Instance)
+        {
+            PlatformName = () => platform,
+            FindWinget = () => winget,
+            FindControl = () => control,
+            DriverPresent = () => false,
+            Monitors = () => [Main],
+            Run = (tool, args, _) => { ran.Add(tool + " " + string.Join(' ', args)); if (installs) control = @"C:\VDD\VDD Control.exe"; return Task.FromResult(installs ? 0 : 1); },
+            Launch = exe => { opened.Add(exe); return true; },
+        };
+        return (d, ran, opened);
+    }
+
+    [Fact]
+    public async Task InstallRunsWingetForExactlyThatPackageThenOpensVddControl()
+    {
+        var (d, ran, opened) = Display();
+        Assert.Equal((200, (string?)null), await d.InstallAsync(default));
+        var cmd = Assert.Single(ran);
+        Assert.StartsWith(@"C:\winget.exe install --id VirtualDrivers.Virtual-Display-Driver --exact --source winget", cmd);
+        Assert.Equal([@"C:\VDD\VDD Control.exe"], opened);
+        // already there: just opened again, winget isn't run a second time
+        await d.InstallAsync(default);
+        Assert.Single(ran);
+        Assert.Equal(2, opened.Count);
+    }
+
+    [Fact]
+    public async Task InstallSaysWhatIsMissingInsteadOfGuessing()
+    {
+        var (noWinget, ran, _) = Display(winget: null);
+        Assert.Equal(412, (await noWinget.InstallAsync(default)).Status);
+        var (failed, _, opened) = Display(installs: false);
+        Assert.Equal(500, (await failed.InstallAsync(default)).Status);
+        Assert.Empty(opened);
+        var (linux, linuxRan, _) = Display(platform: "wayland");
+        Assert.Equal(501, (await linux.InstallAsync(default)).Status);
+        Assert.Empty(ran);
+        Assert.Empty(linuxRan);
+        Assert.Equal(404, Display().Display.Open().Status); // nothing to open before the install
+    }
+
+    [Fact]
+    public void TheStatusTellsTheSettingsPageWhatToOffer()
+    {
+        var st = Display().Display.Get();
+        Assert.Equal("windows", st.Platform);
+        Assert.True(st.Capture && st.Winget);
+        Assert.False(st.ControlApp || st.Driver || st.Installing);
+        var wayland = Display(platform: "wayland").Display.Get();
+        Assert.False(wayland.Capture || wayland.Winget || wayland.Driver);
+    }
+
+    [Theory]
+    [InlineData("Virtual Display Driver", true)]
+    [InlineData("IddSampleDriver Device", true)]
+    [InlineData("NVIDIA GeForce RTX 4070", false)]
+    [InlineData(null, false)]
+    public void VirtualAdaptersAreRecognized(string? name, bool expected) => Assert.Equal(expected, VirtualDisplay.IsVirtualAdapter(name));
 }
