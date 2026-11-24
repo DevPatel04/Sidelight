@@ -7,10 +7,11 @@ namespace Sidelight.Agent;
 /// Settings › Sources › Second screen: what the Second screen widget needs on this computer, and on Windows a button
 /// that installs the open-source Virtual Display Driver's control app (VDD Control) with winget and opens it. winget
 /// checks the download against the hash in its community manifest; the driver itself is installed by the user pressing
-/// Install in VDD Control, which asks Windows for administrator rights. Nothing here runs without a click on the
-/// settings page, and these endpoints are local only (not on the Wi-Fi allow-list).
+/// Install in VDD Control, which asks Windows for administrator rights. On Wayland the desktop's screen-sharing portal
+/// adds the virtual monitor instead (<see cref="WaylandScreen"/>), after asking on the computer. Nothing here runs
+/// without a click on the settings page, and these endpoints are local only (not on the Wi-Fi allow-list).
 /// </summary>
-public sealed class VirtualDisplay(ConfigStore config, ILogger<VirtualDisplay> log)
+public sealed class VirtualDisplay(ConfigStore config, ILogger<VirtualDisplay> log, WaylandScreen? wayland = null)
 {
     public const string WingetId = "VirtualDrivers.Virtual-Display-Driver";
     internal const string ControlExe = "VDD Control.exe";
@@ -23,20 +24,45 @@ public sealed class VirtualDisplay(ConfigStore config, ILogger<VirtualDisplay> l
     internal Func<string> PlatformName { get; set; } = CurrentPlatform;
     internal Func<string, IReadOnlyList<string>, CancellationToken, Task<int>> Run { get; set; } = RunTool;
     internal Func<string, bool> Launch { get; set; } = LaunchApp;
+    /// <summary>The portal's answers for the Wayland part of the card; null elsewhere.</summary>
+    internal Func<CancellationToken, Task<WaylandScreen.Info?>> WaylandInfo { get; set; } = async ct => wayland is null ? null : await wayland.InfoAsync(ct);
+    /// <summary>Whether GStreamer with its PipeWire plugin (pipewiresrc) is installed, which the Wayland capture needs.</summary>
+    internal Func<CancellationToken, Task<bool>> GstPipewire { get; set; } = HasPipewireSrc;
 
     private readonly SemaphoreSlim _installing = new(1, 1);
 
     public sealed record Status(string Platform, bool Capture, bool Ffmpeg, IReadOnlyList<ScreenMonitor> Monitors,
-        bool Driver, bool ControlApp, bool Winget, bool Installing);
+        bool Driver, bool ControlApp, bool Winget, bool Installing, bool Gstreamer = false, WaylandScreen.Info? Wayland = null);
 
     public Status Get()
     {
         IReadOnlyList<ScreenMonitor> monitors;
-        try { monitors = Monitors(); } catch { monitors = []; }
         var platform = PlatformName();
+        // Wayland has no monitor list for other programs; the portal's dialog picks one
+        try { monitors = platform == "wayland" ? [] : Monitors(); } catch { monitors = []; }
         var windows = platform == "windows";
         return new Status(platform, platform is "windows" or "x11", CameraFeeds.FindFfmpeg(config.Get().Cameras.Ffmpeg) is not null, monitors,
             windows && DriverPresent(), windows && FindControl() is not null, windows && FindWinget() is not null, _installing.CurrentCount == 0);
+    }
+
+    /// <summary><see cref="Get"/>, and on Wayland what the screen-sharing portal offers and whether GStreamer can read it.</summary>
+    public async Task<Status> GetAsync(CancellationToken ct)
+    {
+        var st = Get();
+        if (st.Platform != "wayland") return st;
+        var info = await WaylandInfo(ct);
+        var gst = await GstPipewire(ct);
+        return st with { Capture = info?.Portal == true, Gstreamer = gst, Wayland = info };
+    }
+
+    private static async Task<bool> HasPipewireSrc(CancellationToken ct)
+    {
+        if (ToolProcess.Find("gst-inspect-1.0") is not { } inspect) return false;
+        var psi = new ProcessStartInfo(inspect);
+        psi.ArgumentList.Add("--exists");
+        psi.ArgumentList.Add("pipewiresrc");
+        try { return (await ToolProcess.RunAsync(psi, TimeSpan.FromSeconds(5), ct)).ExitCode == 0; }
+        catch (Exception ex) when (ex is not OperationCanceledException) { return false; }
     }
 
     /// <summary>Installs VDD Control with winget (unless it is there already), then opens it for the driver's Install button.</summary>

@@ -24,7 +24,7 @@
     ['snip', 'Snip', '✂️', '#14b8a6'], ['taskmgr', 'Task Manager', '📊', '#22c55e'], ['mute', 'Mute', '🔇', '#f59e0b'],
     ['screenoff', 'Screen Off', '🌙', '#8b5cf6'], ['lock', 'Lock', '🔒', '#ef4444'], ['settings', 'Settings', '⚙️', '#94a3b8'],
   ].map(([id, label, icon, color]) => ({ id, label, icon, color, cmd: id === 'mute' ? 'builtin:mute' : 'demo', args: null, toggle: false }));
-  const DEMO_DISPLAY = { control: false };
+  const DEMO_DISPLAY = { control: false, virtual: false, refused: false, remembered: false, width: 1600, height: 720 };
   const PAGES = ['home', 'dashboard', 'ai', 'work', 'system', 'procs', 'deck', 'music', 'status', 'ambient', 'world', 'daily', 'markets', 'feeds', 'focus', 'calm', 'clock', 'automation', 'planner', 'nightstand', 'weekend', 'focuswork',
     'codexbar', 'devops', 'audio-deck', 'stream-deck', 'meeting-deck', 'development-deck', 'music-deck', 'system-deck'];
 
@@ -786,6 +786,22 @@
     }
     // Settings › Second screen: the demo PC is Windows with two monitors, ffmpeg and winget, and no virtual display yet;
     // "installing" VDD Control just marks it as there (VirtualDisplay.cs)
+    // with window.__demoDisplay = 'wayland' (the UI tests) the demo PC is a GNOME Wayland session instead (WaylandScreen.cs):
+    // "adding" the virtual monitor stands for the user allowing the sharing dialog
+    if (path === '/api/display/status' && window.__demoDisplay === 'wayland') {
+      const d = DEMO_DISPLAY;
+      return json({ platform: 'wayland', capture: true, ffmpeg: true, monitors: [], driver: false, controlApp: false, winget: false, installing: false, gstreamer: true,
+        wayland: { portal: true, virtualAvailable: true, virtual: d.virtual, width: d.width, height: d.height, refused: d.refused, remembered: d.remembered, state: d.virtual ? 'live' : 'idle' } });
+    }
+    if (path === '/api/display/virtual' && method === 'POST') {
+      DEMO_DISPLAY.virtual = q.get('on') === 'true';
+      if (DEMO_DISPLAY.virtual) Object.assign(DEMO_DISPLAY, { width: +q.get('width') || 1600, height: +q.get('height') || 720, refused: false, remembered: true });
+      return json({ ok: true });
+    }
+    if (path === '/api/display/forget' && method === 'POST') {
+      Object.assign(DEMO_DISPLAY, { refused: false, remembered: false });
+      return json({ ok: true });
+    }
     if (path === '/api/display/status') {
       return json({ platform: 'windows', capture: true, ffmpeg: true, monitors: [{ x: 0, y: 0, width: 1920, height: 1080, primary: true }, { x: 1920, y: 0, width: 1600, height: 720, primary: false }],
         driver: !!DEMO_DISPLAY.control, controlApp: !!DEMO_DISPLAY.control, winget: true, installing: false });

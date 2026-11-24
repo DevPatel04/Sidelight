@@ -12,7 +12,8 @@ public sealed record ScreenMonitor(int X, int Y, int Width, int Height, bool Pri
 /// Second screen widget: a live picture of one of the computer's monitors on the phone, and (with its own switch) the
 /// phone's touches as clicks and drags on that monitor. With a virtual display added on the computer (docs/SECOND-SCREEN.md)
 /// that monitor is an extra screen for windows that lives on the phone. ffmpeg captures the monitor (gdigrab on Windows,
-/// x11grab on Linux with X11) as a few JPEG frames a second, like the cameras (<see cref="CameraFeeds"/>): only while a
+/// x11grab on Linux with X11), or on Wayland GStreamer reads the stream the desktop's screen-sharing portal hands out
+/// (<see cref="WaylandScreen"/>), as a few JPEG frames a second, like the cameras (<see cref="CameraFeeds"/>): only while a
 /// widget on an enabled page keeps asking, stopping a few seconds after the last request. Both switches are off by
 /// default, as the picture is everything on that screen.
 /// </summary>
@@ -39,6 +40,7 @@ public sealed partial class ScreenShare : IDisposable
     private readonly Func<string?> _findFfmpeg;
     private readonly Func<IReadOnlyList<ScreenMonitor>> _listMonitors;
     private readonly Func<string?> _platform;
+    private readonly WaylandScreen? _wayland;
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Feed> _feeds = new(StringComparer.Ordinal);
     private readonly System.Threading.Timer _timer;
@@ -50,11 +52,15 @@ public sealed partial class ScreenShare : IDisposable
     /// <summary>Where the phone's touches go; the tests replace it.</summary>
     internal Action<KeySender.MouseCall> Mouse { get; set; } = Dispatch;
 
-    public ScreenShare(ConfigStore config, ILogger<ScreenShare> log) : this(config, log, null, null, null, null, null) { }
+    /// <summary>gst-launch-1.0 for the Wayland capture; the tests replace it.</summary>
+    internal Func<string?> FindGst { get; set; } = () => ToolProcess.Find("gst-launch-1.0");
+
+    public ScreenShare(ConfigStore config, ILogger<ScreenShare> log, WaylandScreen wayland) : this(config, log, null, null, null, null, null, wayland: wayland) { }
 
     internal ScreenShare(ConfigStore config, ILogger<ScreenShare> log, Launcher? launch, Func<long>? now, Func<string?>? findFfmpeg,
-        Func<IReadOnlyList<ScreenMonitor>>? monitors, Func<string?>? platform, bool timer = true)
+        Func<IReadOnlyList<ScreenMonitor>>? monitors, Func<string?>? platform, bool timer = true, WaylandScreen? wayland = null)
     {
+        _wayland = wayland;
         _config = config;
         _log = log;
         _launch = launch ?? ((ffmpeg, args, onFrame) => FfmpegRun.Launch(ffmpeg, args, onFrame));
@@ -66,9 +72,11 @@ public sealed partial class ScreenShare : IDisposable
             timer ? 1000 : Timeout.Infinite, timer ? 1000 : Timeout.Infinite);
     }
 
-    private sealed class Feed(string name)
+    private sealed class Feed(string name, bool gst)
     {
         public readonly string Name = name;
+        /// <summary>A Wayland capture: GStreamer instead of ffmpeg.</summary>
+        public readonly bool Gst = gst;
         public ICameraRun? Run;
         public byte[]? Frame;
         public long FrameAt, StartedAt, WantedUntil, RetryAt, Backoff, FrameSeq;
@@ -81,7 +89,8 @@ public sealed partial class ScreenShare : IDisposable
     /// <summary>
     /// The latest picture for the Second screen widget the phone names ("pageId/widgetId"). 200 with a JPEG, or a status
     /// with one of the states the panel shows: "unknown" (no such widget on an enabled page), "off" (the widget's switch),
-    /// "unsupported" (not Windows or Linux with X11), "no-ffmpeg", "no-monitor", "starting", "failed", "busy".
+    /// "unsupported" (not Windows or Linux), "no-ffmpeg", "no-gstreamer", "no-monitor", "starting", "failed", "busy", and on
+    /// Wayland "consent" (the sharing dialog is open on the computer) and "denied" (refused or stopped there).
     /// </summary>
     public (int Status, byte[]? Jpeg, string State) Frame(string? deviceId, string? widgetKey, bool fresh = false)
     {
@@ -89,16 +98,31 @@ public sealed partial class ScreenShare : IDisposable
         if (PanelWidgets.Find(_config.Get(), deviceId, widgetKey, WidgetType) is not { } widget) return (404, null, "unknown");
         if (widget.Bool("share") != true) return (403, null, "off");
         if (_platform() is not { } platform) return (501, null, "unsupported");
-        if (Pick(widget) is not { } monitor) return (404, null, "no-monitor");
-        var args = CaptureArgs(platform, monitor, Fps(widget), widget.Str("quality"));
-        var key = string.Join('\u0001', args);
+        List<string> args;
+        string name;
+        var gst = platform == "wayland";
+        if (gst)
+        {
+            if (_wayland is null) return (501, null, "unsupported");
+            var (state, stream) = _wayland.Ensure();
+            if (stream is null) return (state switch { "unsupported" => 501, "denied" => 403, _ => 503 }, null, state);
+            args = WaylandScreen.GstArgs(stream, Fps(widget), widget.Str("quality"));
+            name = $"wayland {stream.Width}x{stream.Height}";
+        }
+        else
+        {
+            if (Pick(widget) is not { } monitor) return (404, null, "no-monitor");
+            args = CaptureArgs(platform, monitor, Fps(widget), widget.Str("quality"));
+            name = $"{monitor.Width}x{monitor.Height}+{monitor.X}+{monitor.Y}";
+        }
+        var key = (gst ? "gst\u0001" : "ffmpeg\u0001") + string.Join('\u0001', args);
         lock (_gate)
         {
             if (_disposed) return (503, null, "starting");
             if (!_feeds.TryGetValue(key, out var feed))
             {
                 if (_feeds.Count >= MaxRunning) return (503, null, "busy");
-                _feeds[key] = feed = new Feed($"{monitor.Width}x{monitor.Height}+{monitor.X}+{monitor.Y}");
+                _feeds[key] = feed = new Feed(name, gst);
             }
             feed.WantedUntil = now + KeepMs;
             if (feed.Run is null && now >= feed.RetryAt) StartLocked(feed, args, now);
@@ -123,12 +147,20 @@ public sealed partial class ScreenShare : IDisposable
         var widget = PanelWidgets.Find(_config.Get(), deviceId, widgetKey, WidgetType);
         if (widget?.Bool("share") != true || widget.Bool("control") != true)
             return (403, "clicking is off: turn on \"Click and drag on the screen\" in the second screen widget's settings");
-        if (_platform() is null) return (501, "showing a screen needs Windows, or Linux with X11");
-        if (Pick(widget) is not { } m) return (404, "that monitor is not connected");
+        if (_platform() is not { } platform) return (501, "showing a screen needs Windows or Linux");
         if (x is not { } fx || y is not { } fy || !double.IsFinite(fx) || !double.IsFinite(fy)) return (400, "no position");
-        var (px, py) = ToDesktop(m, fx, fy);
         var d = delta is { } dv && double.IsFinite(dv) ? Math.Clamp((int)Math.Round(dv), -MaxScrollDelta, MaxScrollDelta) : 0;
-        var calls = (action ?? "").ToLowerInvariant() switch
+        var name = (action ?? "").ToLowerInvariant();
+        if (platform == "wayland")
+        {
+            if (_wayland is null) return (501, "showing a screen needs Windows or Linux");
+            if (name is not ("move" or "click" or "down" or "up" or "rightclick" or "scroll")) return (400, "unknown action");
+            // the endpoint is synchronous; a portal call on the local session bus answers in a millisecond or two
+            return _wayland.PointerAsync(name, fx, fy, d).GetAwaiter().GetResult();
+        }
+        if (Pick(widget) is not { } m) return (404, "that monitor is not connected");
+        var (px, py) = ToDesktop(m, fx, fy);
+        var calls = name switch
         {
             "move" => new[] { "moveTo" },
             "click" => ["moveTo", "click"],
@@ -219,11 +251,15 @@ public sealed partial class ScreenShare : IDisposable
         return args;
     }
 
-    /// <summary>"windows", "x11 :0" (the X display to grab), or null where the screen can't be captured (Wayland, macOS).</summary>
+    /// <summary>
+    /// "windows", "x11 :0" (the X display to grab), "wayland" (through the screen-sharing portal, even with XWayland's
+    /// DISPLAY set, as x11grab sees only X windows there), or null where the screen can't be captured (macOS).
+    /// </summary>
     internal static string? Platform()
     {
         if (OperatingSystem.IsWindows()) return "windows";
-        if (!OperatingSystem.IsLinux() || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"))) return null;
+        if (!OperatingSystem.IsLinux()) return null;
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"))) return "wayland";
         var display = Environment.GetEnvironmentVariable("DISPLAY") ?? "";
         return DisplayName().IsMatch(display) ? "x11 " + display : null;
     }
@@ -286,6 +322,7 @@ public sealed partial class ScreenShare : IDisposable
     {
         var now = _now();
         List<ICameraRun> stop = [];
+        var waylandIdle = false;
         lock (_gate)
         {
             foreach (var (key, feed) in _feeds.ToList())
@@ -294,13 +331,14 @@ public sealed partial class ScreenShare : IDisposable
                 {
                     if (feed.Run is not null) { stop.Add(feed.Run); _log.LogInformation("screen {Name}: stopped (not on screen)", feed.Name); }
                     _feeds.Remove(key);
+                    waylandIdle |= feed.Gst;
                     continue;
                 }
                 if (feed.Run is { } run)
                 {
                     var stalled = now - (feed.GotFrame ? feed.FrameAt : feed.StartedAt) > StallMs;
                     if (!run.HasEnded && !stalled) continue;
-                    _log.LogInformation("screen {Name}: {What} ({Detail})", feed.Name, run.HasEnded ? "ffmpeg ended" : "no picture for a while", run.LastError ?? "");
+                    _log.LogInformation("screen {Name}: {What} ({Detail})", feed.Name, run.HasEnded ? "capture ended" : "no picture for a while", run.LastError ?? "");
                     feed.State = "failed";
                     stop.Add(run);
                     feed.Run = null;
@@ -309,16 +347,18 @@ public sealed partial class ScreenShare : IDisposable
                     feed.Backoff = Math.Min(MaxBackoffMs, feed.Backoff == 0 ? 2000 : feed.Backoff * 2);
                     feed.RetryAt = now + feed.Backoff;
                 }
-                else if (now >= feed.RetryAt) StartLocked(feed, key.Split('\u0001'), now);
+                else if (now >= feed.RetryAt) StartLocked(feed, key.Split('\u0001')[1..], now);
             }
+            waylandIdle &= !_feeds.Values.Any(f => f.Gst);
         }
         foreach (var r in stop) r.Dispose();
+        if (waylandIdle) _wayland?.Idle(); // the portal session ends with the last capture (unless it holds a virtual monitor)
     }
 
     private void StartLocked(Feed feed, IReadOnlyList<string> args, long now)
     {
-        var ffmpeg = _findFfmpeg();
-        if (ffmpeg is null) { feed.State = "no-ffmpeg"; feed.RetryAt = now + 10_000; return; }
+        var tool = feed.Gst ? FindGst() : _findFfmpeg();
+        if (tool is null) { feed.State = feed.Gst ? "no-gstreamer" : "no-ffmpeg"; feed.RetryAt = now + 10_000; return; }
         try
         {
             feed.StartedAt = now;
@@ -326,7 +366,7 @@ public sealed partial class ScreenShare : IDisposable
             var f = feed;
             var generation = ++feed.Generation;
             feed.GotFrame = false;
-            feed.Run = _launch(ffmpeg, args, jpeg =>
+            feed.Run = _launch(tool, args, jpeg =>
             {
                 lock (_gate)
                 {
@@ -339,9 +379,9 @@ public sealed partial class ScreenShare : IDisposable
         catch (Exception ex)
         {
             feed.Run = null;
-            feed.State = "no-ffmpeg";
+            feed.State = feed.Gst ? "no-gstreamer" : "no-ffmpeg";
             feed.RetryAt = now + 10_000;
-            _log.LogWarning("screen {Name}: cannot start ffmpeg: {Msg}", feed.Name, ex.Message);
+            _log.LogWarning("screen {Name}: cannot start {Tool}: {Msg}", feed.Name, feed.Gst ? "GStreamer" : "ffmpeg", ex.Message);
         }
     }
 
