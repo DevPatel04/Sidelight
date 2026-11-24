@@ -99,7 +99,14 @@ Last updated: 2026-11-20 (Sidelight 0.9.6).
   the chosen monitor as JPEG pictures that go only to the phone (or a paired browser), over USB or the paired Wi-Fi
   link, while an enabled page shows the widget; capturing stops a few seconds after it leaves the screen. The picture
   shows everything on that monitor, notifications included. Nothing is stored. With **Click and drag on the screen**
-  also on (off by default), the phone's touches move and click the mouse on that monitor.
+  also on (off by default), the phone's touches move and click the mouse on that monitor. On Linux with Wayland the
+  desktop's own screen-sharing dialog (xdg-desktop-portal) asks first which monitor to share, and with the click switch
+  on also allows the pointer only (not the keyboard); GStreamer then reads the picture from PipeWire. The desktop shows
+  its sharing indicator while this runs, and stopping it there, or refusing the dialog, is remembered until you press
+  **Allow again** in **Settings › Sources › Second screen**. To skip the dialog next time the agent keeps the portal's
+  restore token in `wayland-screen.json` beside `config.json` (owner-only); **Choose the screen again** deletes it. A
+  virtual monitor added there exists only while the agent runs. All of this is local: nothing leaves the computer except
+  the pictures to your phone.
 - **Local services**: LibreHardwareMonitor's web server (`127.0.0.1:8085`), a running Antigravity language server
   (loopback, over HTTP or HTTPS), the Docker / Podman socket, OBS WebSocket and the Discord desktop app's local connection (a named pipe
   or socket on this computer) are local connections.
