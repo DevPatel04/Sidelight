@@ -77,6 +77,7 @@ builder.Services.AddSingleton<ApprovalStore>();
 builder.Services.AddSingleton<HomeAssistant>();
 builder.Services.AddSingleton<AppConsole>();
 builder.Services.AddSingleton<Dictation>();
+builder.Services.AddSingleton<KeyboardInput>();
 builder.Services.AddSingleton<SpectrumAnalyzer>();
 AddMonitor<SystemMonitor>(builder.Services);
 AddMonitor<MediaMonitor>(builder.Services);
@@ -87,6 +88,9 @@ AddMonitor<OpenCodeApprovals>(builder.Services);
 AddMonitor<FeedMonitor>(builder.Services);
 builder.Services.AddSingleton<PhotoFrame>();
 builder.Services.AddSingleton<CameraFeeds>();
+AddMonitor<WaylandScreen>(builder.Services);
+builder.Services.AddSingleton<ScreenShare>();
+builder.Services.AddSingleton<VirtualDisplay>();
 AddMonitor<GitHubMonitor>(builder.Services);
 AddMonitor<PingMonitor>(builder.Services);
 AddMonitor<AdbReverse>(builder.Services);
@@ -678,6 +682,46 @@ app.MapGet("/api/camera", (string? widget, string? fresh, HttpRequest req, HttpR
     if (status == 204) return Results.NoContent(); // no newer picture than the one this widget has
     return jpeg is null ? Results.Json(new { state }, statusCode: status) : Results.Bytes(jpeg, "image/jpeg");
 });
+// Second screen widget: the latest picture of the monitor a widget shows (its "Show the screen on the phone" switch, off
+// by default), and its touches as clicks on that monitor (its own "Click and drag on the screen" switch). Like the
+// cameras, capturing starts with these requests and stops a few seconds after the last one.
+app.MapGet("/api/screen", (string? widget, string? fresh, HttpRequest req, HttpResponse res, ScreenShare screen) =>
+{
+    var (status, jpeg, state) = screen.Frame(req.Headers["X-Sidelight-Device"].ToString(), widget, fresh is "true" or "1");
+    res.Headers.CacheControl = "no-store";
+    res.Headers["X-Content-Type-Options"] = "nosniff";
+    if (status == 204) return Results.NoContent();
+    return jpeg is null ? Results.Json(new { state }, statusCode: status) : Results.Bytes(jpeg, "image/jpeg");
+});
+app.MapPost("/api/screen/pointer", (string? widget, string? action, double? x, double? y, double? delta, HttpRequest req, ScreenShare screen) =>
+{
+    var (status, error) = screen.Pointer(req.Headers["X-Sidelight-Device"].ToString(), widget, action, x, y, delta);
+    return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
+});
+// Settings › Sources › Second screen (local only: not on the Wi-Fi allow-list): what the widget needs on this computer,
+// on Windows installing VDD Control with winget and opening it, and on Wayland the portal's virtual monitor and
+// forgetting the remembered sharing answer, each only on a click in the settings page.
+app.MapGet("/api/display/status", async (VirtualDisplay display, CancellationToken ct) => Results.Json(await display.GetAsync(ct)));
+app.MapPost("/api/display/virtual", (bool? on, int? width, int? height, WaylandScreen wayland) =>
+{
+    var (status, error) = wayland.SetVirtual(on == true, width, height);
+    return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
+});
+app.MapPost("/api/display/forget", (WaylandScreen wayland) =>
+{
+    wayland.Forget();
+    return Results.Ok(new { ok = true });
+});
+app.MapPost("/api/display/install", async (VirtualDisplay display, CancellationToken ct) =>
+{
+    var (status, error) = await display.InstallAsync(ct);
+    return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
+});
+app.MapPost("/api/display/open", (VirtualDisplay display) =>
+{
+    var (status, error) = display.Open();
+    return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
+});
 app.MapPost("/api/feeds/open", (string? id, FeedMonitor feeds) =>
     feeds.Open(id) is { } error ? Results.BadRequest(new { error }) : Results.Ok(new { ok = true }));
 
@@ -715,6 +759,14 @@ app.MapPost("/api/immich/albums", async (ImmichAlbumsRequest body, PhotoFrame ph
 app.MapPost("/api/dictate", async (string? widget, string? text, HttpRequest req, Dictation dictation, CancellationToken ct) =>
 {
     var (status, error) = await dictation.TypeAsync(req.Headers["X-Sidelight-Device"].ToString(), widget, text, ct);
+    return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
+});
+
+// Keyboard (widget): one tapped key, as text ("a", "?") or one combination ("ctrl+c", "f5"), pressed in the app in front
+// (only if that widget allows it). In the query, like Dictation: the phone's transport sends POSTs without a body.
+app.MapPost("/api/keyboard", async (string? widget, string? key, string? text, HttpRequest req, KeyboardInput keyboard, CancellationToken ct) =>
+{
+    var (status, error) = await keyboard.PressAsync(req.Headers["X-Sidelight-Device"].ToString(), widget, key, text, ct);
     return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
 });
 
