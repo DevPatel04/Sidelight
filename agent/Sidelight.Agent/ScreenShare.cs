@@ -242,7 +242,7 @@ public sealed partial class ScreenShare : IDisposable
             int.Parse(m.Groups["w"].Value, CultureInfo.InvariantCulture), int.Parse(m.Groups["h"].Value, CultureInfo.InvariantCulture),
             m.Groups["primary"].Value == "*")).Where(m => m.Width > 0 && m.Height > 0).ToList();
 
-    private static IReadOnlyList<ScreenMonitor> ListMonitors()
+    internal static IReadOnlyList<ScreenMonitor> ListMonitors()
     {
         if (OperatingSystem.IsWindows()) return WindowsMonitors();
         if (ToolProcess.Find("xrandr") is not { } xrandr) return [];

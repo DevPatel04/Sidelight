@@ -77,3 +77,18 @@ test('the second screen stays dark and ignores touches without its switches', as
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   expect(await page.evaluate(() => window.__posts)).toEqual([]);
 });
+
+test('the settings card installs the virtual display driver with one click and then offers to open it', async ({ page }) => {
+  const errors = []; page.on('pageerror', (e) => errors.push(String(e)));
+  await page.goto('/settings/#sources');
+  const status = page.locator('#screenStatus li');
+  await expect(status).toHaveText(['Monitors found: 2', 'ffmpeg is installed', 'No virtual display driver yet']);
+  await expect(page.locator('#screenOpen')).toBeHidden();
+  await expect(page.locator('#screenInstallHint')).toBeVisible();
+  await page.locator('#screenInstall').click();
+  await expect(page.locator('#screenNote')).toHaveText('VDD Control is open: press Install there, then add a monitor');
+  await expect(page.locator('#screenOpen')).toBeVisible();
+  await expect(page.locator('#screenInstall')).toBeHidden();
+  await expect(status.nth(2)).toHaveText('The virtual display driver is installed');
+  expect(errors).toEqual([]);
+});

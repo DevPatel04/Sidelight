@@ -24,6 +24,7 @@
     ['snip', 'Snip', '✂️', '#14b8a6'], ['taskmgr', 'Task Manager', '📊', '#22c55e'], ['mute', 'Mute', '🔇', '#f59e0b'],
     ['screenoff', 'Screen Off', '🌙', '#8b5cf6'], ['lock', 'Lock', '🔒', '#ef4444'], ['settings', 'Settings', '⚙️', '#94a3b8'],
   ].map(([id, label, icon, color]) => ({ id, label, icon, color, cmd: id === 'mute' ? 'builtin:mute' : 'demo', args: null, toggle: false }));
+  const DEMO_DISPLAY = { control: false };
   const PAGES = ['home', 'dashboard', 'ai', 'work', 'system', 'procs', 'deck', 'music', 'status', 'ambient', 'world', 'daily', 'markets', 'feeds', 'focus', 'calm', 'clock', 'automation', 'planner', 'nightstand', 'weekend', 'focuswork',
     'codexbar', 'devops', 'audio-deck', 'stream-deck', 'meeting-deck', 'development-deck', 'music-deck', 'system-deck'];
 
@@ -782,6 +783,16 @@
       const d = new Date(), x = 120 + Math.round(60 * Math.sin(d.getTime() / 1500));
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720"><rect width="1280" height="720" fill="#0f172a"/><rect x="${x}" y="90" width="620" height="420" rx="10" fill="#1e293b" stroke="#334155"/><rect x="${x}" y="90" width="620" height="36" rx="10" fill="#334155"/><text x="${x + 18}" y="115" fill="#e2e8f0" font-family="sans-serif" font-size="18">Notes</text><rect x="780" y="200" width="420" height="380" rx="10" fill="#1e293b" stroke="#334155"/><rect x="780" y="200" width="420" height="36" rx="10" fill="#334155"/><text x="798" y="225" fill="#e2e8f0" font-family="sans-serif" font-size="18">Terminal</text><rect y="680" width="1280" height="40" fill="#020617"/><text x="1180" y="706" fill="#e2e8f0" font-family="sans-serif" font-size="18">${d.toTimeString().slice(0, 5)}</text></svg>`;
       return new Response(svg, { status: 200, headers: { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' } });
+    }
+    // Settings › Second screen: the demo PC is Windows with two monitors, ffmpeg and winget, and no virtual display yet;
+    // "installing" VDD Control just marks it as there (VirtualDisplay.cs)
+    if (path === '/api/display/status') {
+      return json({ platform: 'windows', capture: true, ffmpeg: true, monitors: [{ x: 0, y: 0, width: 1920, height: 1080, primary: true }, { x: 1920, y: 0, width: 1600, height: 720, primary: false }],
+        driver: !!DEMO_DISPLAY.control, controlApp: !!DEMO_DISPLAY.control, winget: true, installing: false });
+    }
+    if ((path === '/api/display/install' || path === '/api/display/open') && method === 'POST') {
+      if (path === '/api/display/install') DEMO_DISPLAY.control = true;
+      return DEMO_DISPLAY.control ? json({ ok: true }) : json({ error: "VDD Control isn't installed" }, 404);
     }
     if (path === '/api/screen/pointer' && method === 'POST') {
       const o = panelWidget(await config(), q.get('widget'), 'screen')?.options;
