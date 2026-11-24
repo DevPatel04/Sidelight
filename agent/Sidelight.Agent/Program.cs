@@ -88,6 +88,7 @@ AddMonitor<OpenCodeApprovals>(builder.Services);
 AddMonitor<FeedMonitor>(builder.Services);
 builder.Services.AddSingleton<PhotoFrame>();
 builder.Services.AddSingleton<CameraFeeds>();
+AddMonitor<WaylandScreen>(builder.Services);
 builder.Services.AddSingleton<ScreenShare>();
 builder.Services.AddSingleton<VirtualDisplay>();
 AddMonitor<GitHubMonitor>(builder.Services);
@@ -698,8 +699,19 @@ app.MapPost("/api/screen/pointer", (string? widget, string? action, double? x, d
     return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
 });
 // Settings › Sources › Second screen (local only: not on the Wi-Fi allow-list): what the widget needs on this computer,
-// and on Windows installing VDD Control with winget and opening it, each only on a click in the settings page.
-app.MapGet("/api/display/status", (VirtualDisplay display) => Results.Json(display.Get()));
+// on Windows installing VDD Control with winget and opening it, and on Wayland the portal's virtual monitor and
+// forgetting the remembered sharing answer, each only on a click in the settings page.
+app.MapGet("/api/display/status", async (VirtualDisplay display, CancellationToken ct) => Results.Json(await display.GetAsync(ct)));
+app.MapPost("/api/display/virtual", (bool? on, int? width, int? height, WaylandScreen wayland) =>
+{
+    var (status, error) = wayland.SetVirtual(on == true, width, height);
+    return error is null ? Results.Ok(new { ok = true }) : Results.Json(new { error }, statusCode: status);
+});
+app.MapPost("/api/display/forget", (WaylandScreen wayland) =>
+{
+    wayland.Forget();
+    return Results.Ok(new { ok = true });
+});
 app.MapPost("/api/display/install", async (VirtualDisplay display, CancellationToken ct) =>
 {
     var (status, error) = await display.InstallAsync(ct);

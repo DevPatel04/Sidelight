@@ -11,6 +11,8 @@ const DEFAULT_FPS = 8, MAX_FPS = 15; // ScreenShare.DefaultFps, MaxFps
 const STATES = {
   unknown: 'w.screen.save', off: 'w.screen.off', unsupported: 'w.screen.unsupported', 'no-ffmpeg': 'w.screen.noFfmpeg',
   'no-monitor': 'w.screen.noMonitor', starting: 'w.screen.starting', failed: 'w.screen.failed', busy: 'w.screen.failed',
+  // Wayland (WaylandScreen.cs): the sharing dialog is open on the PC, sharing was refused or stopped there, no GStreamer
+  consent: 'w.screen.consent', denied: 'w.screen.denied', 'no-gstreamer': 'w.screen.noGst',
 };
 const HOLD_MS = 450, MOVE_PX = 10, SCROLL_PX = 24;
 
@@ -74,7 +76,7 @@ W.screen = {
         const body = await Promise.race([r.json().catch(() => ({})), deadline]);
         clear();
         say(t(STATES[body.state] || 'w.screen.failed'));
-        return ['unknown', 'off', 'unsupported', 'no-monitor'].includes(body.state) ? 5000 : 1500;
+        return ['unknown', 'off', 'unsupported', 'no-monitor', 'denied'].includes(body.state) ? 5000 : 1500;
       } catch (_) {
         clear();
         say(t('w.offline'));
