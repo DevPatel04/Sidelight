@@ -48,6 +48,10 @@ if (-not $env:JAVA_HOME) {
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue) -and (Test-Path 'C:\Program Files\dotnet\dotnet.exe')) {
     $env:PATH = "C:\Program Files\dotnet;$env:PATH"
 }
+$wingetLinks = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet\Links'
+if ((Test-Path $wingetLinks) -and ($env:PATH -notlike "*$wingetLinks*")) {
+    $env:PATH = "$wingetLinks;$env:PATH"
+}
 
 function Find-Adb {
     $cmd = Get-Command adb -ErrorAction SilentlyContinue
