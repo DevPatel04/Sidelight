@@ -427,9 +427,13 @@ public sealed class ImmichPhotoTests : IDisposable
                 }
                 else await StallBody(c, stop.Token, type: "image/webp");
             });
-            var frame = RealFrame(server.Prefixes.Single().TrimEnd('/'), TimeSpan.FromSeconds(1));
+            // the healthy search goes first, on a cold client (first connection, JIT): it needs the same limit to pass on
+            // a busy CI runner, or the scan times out and the test never reaches the stalled preview
+            var frame = RealFrame(server.Prefixes.Single().TrimEnd('/'), TimeSpan.FromSeconds(2));
             frame.ScanNow();
-            var id = Assert.Single(frame.List().Ids);
+            var list = frame.List();
+            Assert.Null(list.Error);
+            var id = Assert.Single(list.Ids);
             var photo = await frame.Get(id, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(10));
             Assert.Null(photo.Bytes);
             Assert.Equal("That photo can't be shown", photo.Error);
